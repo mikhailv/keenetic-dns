@@ -1,0 +1,13 @@
+doh_service_url: https://cloudflare-dns.com/dns-query
+reconcile_interval: 5m
+
+dump:
+  file: domains.json
+  interval: 10m
+
+routing:
+  table: 1001
+  rule:
+    iif: br0
+    priority: 1995
+  route_timeout: 20m

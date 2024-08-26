@@ -1,0 +1,211 @@
+run:
+  # The default concurrency value is the number of available CPU.
+  concurrency: 8
+
+  # Timeout for analysis, e.g. 30s, 5m.
+  # Default: 1m
+  timeout: 10m
+
+  # List of build tags, all linters use it.
+  # Default: [].
+  build-tags: []
+
+  # If set we pass it to "go list -mod={option}". From "go help modules":
+  # If invoked with -mod=readonly, the go command is disallowed from the implicit
+  # automatic updating of go.mod described above. Instead, it fails when any changes
+  # to go.mod are needed. This setting is most useful to check that go.mod does
+  # not need updates, such as in a continuous integration and testing system.
+  # If invoked with -mod=vendor, the go command assumes that the vendor
+  # directory holds the correct copies of dependencies and ignores
+  # the dependency descriptions in go.mod.
+  #
+  # Allowed values: readonly|vendor|mod
+  # By default, it isn't set.
+  modules-download-mode: readonly
+
+linters-settings:
+
+  errcheck:
+    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`.
+    # Such cases aren't reported by default.
+    # Default: false
+    check-type-assertions: true
+
+  govet:
+    # Enable all analyzers.
+    # Default: false
+    enable-all: true
+    # Disable analyzers by name.
+    # Run `go tool vet help` to see all analyzers.
+    # Default: []
+    disable:
+      - fieldalignment # too strict
+    # Settings per analyzer.
+    settings:
+      shadow:
+        # Whether to be strict about shadowing; can be noisy.
+        # Default: false
+        strict: false
+
+  cyclop:
+    # The maximal code complexity to report.
+    # Default: 10
+    max-complexity: 30 # TODO: consider to decrease complexity
+    # The maximal average package complexity.
+    # If it's higher than 0.0 (float) the check is enabled
+    # Default: 0.0
+    package-average: 10.0
+    # Should ignore tests.
+    # Default: false
+    skip-tests: true
+
+  dupl:
+    # Tokens count to trigger issue.
+    # Default: 150
+    threshold: 300
+
+  funlen:
+    # Checks the number of lines in a function.
+    # If lower than 0, disable the check.
+    # Default: 60
+    lines: 150 # TODO: consider to decrease value
+    # Checks the number of statements in a function.
+    # If lower than 0, disable the check.
+    # Default: 40
+    statements: 100 # TODO: consider to decrease value
+
+  gci:
+    # Section configuration to compare against.
+    # Section names are case-insensitive and may contain parameters in ().
+    # The default order of sections is `standard > default > custom > blank > dot`,
+    # If `custom-order` is `true`, it follows the order of `sections` option.
+    # Default: ["standard", "default"]
+    sections:
+      - standard # Standard section: captures all standard packages.
+      - prefix(golang.org) # Custom section: groups all imports with the specified Prefix.
+      - prefix(github.com) # Custom section: groups all imports with the specified Prefix.
+      - default # Default section: contains all imports that could not be matched to another section type.
+      - prefix(github.org/mikhailv) # Custom section: groups all imports with the specified Prefix.
+    # Skip generated files.
+    # Default: true
+    skip-generated: true
+    # Enable custom order of sections.
+    # If `true`, make the section order the same as the order of `sections`.
+    # Default: false
+    custom-order: true
+
+  gocritic:
+    # Which checks should be disabled; can't be combined with 'enabled-checks'.
+    # Default: []
+    disabled-checks:
+      - ifElseChain # TODO: consider to enable it
+      - commentFormatting
+
+  lll:
+    # Max line length, lines longer will be reported.
+    # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
+    # Default: 120.
+    line-length: 160
+    # Tab width in spaces.
+    # Default: 1
+    tab-width: 1
+
+  nolintlint:
+    # Exclude following linters from requiring an explanation.
+    # Default: []
+    allow-no-explanation: [ funlen, lll ]
+    # Enable to require an explanation of nonzero length after each nolint directive.
+    # Default: false
+    require-explanation: true
+    # Enable to require nolint directives to mention the specific linter being suppressed.
+    # Default: false
+    require-specific: true
+
+  stylecheck:
+    # STxxxx checks in https://staticcheck.io/docs/configuration/options/#checks
+    # Default: ["*"]
+    checks: ['*']
+    # https://staticcheck.io/docs/configuration/options/#dot_import_whitelist
+    # Default: ["github.com/mmcloughlin/avo/build", "github.com/mmcloughlin/avo/operand", "github.com/mmcloughlin/avo/reg"]
+    dot-import-whitelist: []
+    # https://staticcheck.io/docs/configuration/options/#initialisms
+    # Default: ["ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP", "UI", "GID", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS", "SIP", "RTP", "AMQP", "DB", "TS"]
+    # ID removed from default list
+    initialisms: ["GRPC", "TTL", "ACL", "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "IP", "JSON", "QPS", "RAM", "RPC", "SLA", "SMTP", "SQL", "SSH", "TCP", "TLS", "TTL", "UDP", "UI", "GID", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS", "SIP", "RTP", "AMQP", "DB", "TS"]
+    # https://staticcheck.io/docs/configuration/options/#http_status_code_whitelist
+    # Default: ["200", "400", "404", "500"]
+    http-status-code-whitelist: []
+
+linters:
+  disable-all: true
+  enable:
+    ## enabled by default
+    - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
+    - gosimple # specializes in simplifying a code
+    - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
+    - ineffassign # detects when assignments to existing variables are not used
+    - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
+    - unused # checks for unused constants, variables, functions and types
+
+    ## disabled by default
+    - asasalint # check for pass []any as any in variadic func(...any)
+    - bidichk # checks for dangerous unicode character sequences
+    - bodyclose # checks whether HTTP response body is closed successfully
+    - containedctx # detects struct contained context.Context field
+    - cyclop # checks function and package cyclomatic complexity
+    - decorder # check declaration order and count of types, constants, variables and functions
+    - dogsled # checks assignments with too many blank identifiers (e.g. x, , , _, := f())
+    - dupl # code clone detection
+    - durationcheck    # check for two durations multiplied together
+    - errchkjson # checks types passed to the json encoding functions.
+    - errname # checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error.
+    - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13.
+    - exhaustive # checks exhaustiveness of enum switch statements
+    - funlen # detects long functions
+    - gci # controls Go package import order and makes it always deterministic.
+    - gocheckcompilerdirectives # checks that go compiler directive comments
+    - gocritic # provides diagnostics that check for bugs, performance and style issues.
+    - gofumpt # checks whether code was gofumpt-ed.
+    - gomoddirectives # manage the use of 'replace', 'retract', and 'excludes' directives in go.mod.
+    - gomodguard # allow and block list linter for direct Go module dependencies.
+    - goprintffuncname # checks that printf-like functions are named with `f` at the end
+    - gosec # inspects source code for security problems
+    - gosmopolitan # reports certain i18n/l10n anti-patterns in your Go codebase
+    - importas # enforces consistent import aliases
+    - lll # reports long lines
+    - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap).
+    - makezero # finds slice declarations with non-zero initial length
+    - mirror # reports wrong mirror patterns of bytes/strings usage
+    - misspell # finds commonly misspelled English words in comments
+    - nakedret # finds naked returns in functions greater than a specified function length
+    - nilerr # finds the code that returns nil even if it checks that the error is not nil
+    - noctx # finds sending http request without context.Context
+    - nolintlint # reports ill-formed or insufficient nolint directives
+    - prealloc # finds slice declarations that could potentially be pre-allocated
+    - predeclared # find code that shadows one of Go's predeclared identifiers
+    - reassign # checks that package variables are not reassigned
+    - rowserrcheck # checks whether Err of rows is checked successfully
+    - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed.
+    - stylecheck # a replacement for golint
+    - tenv # an analyzer that detects using os.Setenv instead of t.Setenv since Go1.17
+    #- testpackage # makes you use a separate _test package # TODO: enable later?
+    - unconvert # removes unnecessary type conversions
+    - whitespace # detects of leading and trailing whitespace
+
+issues:
+
+  # Maximum issues count per one linter.
+  # Set to 0 to disable.
+  # Default: 50
+  max-issues-per-linter: 30
+
+  # Maximum count of issues with the same text.
+  # Set to 0 to disable.
+  # Default: 3
+  max-same-issues: 20
+
+  # Independently of option `exclude` we use default exclude patterns,
+  # it can be disabled by this option.
+  # To list all excluded by default patterns execute `golangci-lint run --help`.
+  # Default: true.
+  exclude-use-default: true
