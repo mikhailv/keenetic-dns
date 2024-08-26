@@ -1,4 +1,10 @@
-doh_service_url: https://1.1.1.1/dns-query
+udp_addr: '0.0.0.0:5333'
+http_addr: '0.0.0.0:5353'
+
+#dns_provider: https://1.1.1.1/dns-query
+dns_provider: 1.1.1.1:53
+dns_provider_timeout: 20m
+
 reconcile_interval: 5m
 
 dump:

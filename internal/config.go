@@ -14,7 +14,12 @@ import (
 var defaultConfigYAML []byte
 
 type Config struct {
-	DOHServiceURL     string        `yaml:"doh_service_url"`
+	UDPAddr  string `yaml:"udp_addr"`
+	HTTPAddr string `yaml:"http_addr"`
+
+	DNSProvider        string        `yaml:"dns_provider"`
+	DNSProviderTimeout time.Duration `yaml:"dns_provider_timeout"`
+
 	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 
 	Dump    DumpConfig    `yaml:"dump"`

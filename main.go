@@ -8,10 +8,11 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/mikhailv/keenetic-dns/internal"
+	. "github.com/mikhailv/keenetic-dns/internal" //nolint:stylecheck //ignore
 )
 
 func main() {
@@ -27,34 +28,48 @@ func main() {
 
 	setupPprof(ctx, pprofAddr, logger)
 
-	cfg, err := internal.LoadConfig("config.yaml")
+	cfg, err := LoadConfig("config.yaml")
 	if err != nil {
 		logger.Error("error loading config", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	dnsStore := internal.NewDNSStore()
+	dnsStore := NewDNSStore()
 	if err := dnsStore.Load(cfg.Dump.File); err != nil {
 		logger.Error("error loading dns store", slog.Any("err", err))
 	}
 
 	go func() {
-		internal.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
+		RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
 			dumpStore(dnsStore, cfg.Dump.File, logger)
 		})
 	}()
 
-	ipRoutes := internal.NewIPRouteController(cfg.Routing, logger, dnsStore, cfg.ReconcileInterval)
+	ipRoutes := NewIPRouteController(cfg.Routing, logger, dnsStore, cfg.ReconcileInterval)
 	ipRoutes.Start(ctx)
 
-	dohClient := internal.NewDoHClient(cfg.DOHServiceURL)
-	dohServer := internal.NewDoHServer(":5353", logger, cfg, dohClient, ipRoutes)
-	dohServer.Serve(ctx)
+	var dnsProvider DNSResolver
+	if strings.HasPrefix(cfg.DNSProvider, "http") {
+		dnsProvider = NewDoHClient(cfg.DNSProvider)
+	} else {
+		dnsProvider = NewDNSClient(cfg.DNSProvider)
+	}
+	dnsProvider = NewDNSResolverWithTimeout(dnsProvider, cfg.DNSProviderTimeout)
+
+	resolver := NewSingleInflightDNSResolver(NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes))
+
+	httpServer := NewHTTPServer(cfg.HTTPAddr, logger, cfg, resolver)
+	go httpServer.Serve(ctx)
+
+	udpServer := NewDNSServer(cfg.UDPAddr, logger, cfg, resolver)
+	go udpServer.Serve(ctx)
+
+	<-ctx.Done()
 
 	dumpStore(dnsStore, cfg.Dump.File, logger)
 }
 
-func dumpStore(store *internal.DNSStore, file string, logger *slog.Logger) {
+func dumpStore(store *DNSStore, file string, logger *slog.Logger) {
 	logger.Info("saving dns store...", slog.Any("file", file))
 	if err := store.Save(file); err != nil {
 		logger.Error("error saving dns store", slog.Any("err", err))
