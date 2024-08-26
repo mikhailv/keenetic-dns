@@ -50,11 +50,10 @@ func main() {
 
 	var dnsProvider DNSResolver
 	if strings.HasPrefix(cfg.DNSProvider, "http") {
-		dnsProvider = NewDoHClient(cfg.DNSProvider)
+		dnsProvider = NewDoHClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	} else {
-		dnsProvider = NewDNSClient(cfg.DNSProvider)
+		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
-	dnsProvider = NewDNSResolverWithTimeout(dnsProvider, cfg.DNSProviderTimeout)
 
 	resolver := NewSingleInflightDNSResolver(NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes))
 

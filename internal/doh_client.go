@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/miekg/dns"
 )
@@ -14,13 +15,15 @@ var _ DNSResolver = (*dohClient)(nil)
 
 type dohClient struct {
 	url    string
-	client *http.Client
+	client http.Client
 }
 
-func NewDoHClient(url string) DNSResolver {
+func NewDoHClient(url string, timeout time.Duration) DNSResolver {
 	return &dohClient{
-		url:    url,
-		client: &http.Client{},
+		url: url,
+		client: http.Client{
+			Timeout: timeout,
+		},
 	}
 }
 

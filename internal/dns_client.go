@@ -2,22 +2,30 @@ package internal
 
 import (
 	"context"
+	"time"
 
 	"github.com/miekg/dns"
 )
 
-var _ DNSResolver = dnsClient{}
+var _ DNSResolver = (*dnsClient)(nil)
 
 type dnsClient struct {
 	address string
+	client  dns.Client
 }
 
-func NewDNSClient(address string) DNSResolver {
-	return &dnsClient{address}
+func NewDNSClient(address string, timeout time.Duration) DNSResolver {
+	return &dnsClient{
+		address: address,
+		client: dns.Client{
+			Net:     "udp",
+			Timeout: timeout,
+		},
+	}
 }
 
-func (c dnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+func (c *dnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	defer TrackDuration("dns_client.resolve")()
-
-	return dns.ExchangeContext(ctx, msg, c.address)
+	resp, _, err := c.client.ExchangeContext(ctx, msg, c.address)
+	return resp, err
 }
