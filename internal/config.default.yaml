@@ -1,4 +1,4 @@
-doh_service_url: https://cloudflare-dns.com/dns-query
+doh_service_url: https://1.1.1.1/dns-query
 reconcile_interval: 5m
 
 dump:

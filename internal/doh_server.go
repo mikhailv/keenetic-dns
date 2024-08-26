@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/miekg/dns"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -47,7 +45,7 @@ func NewDoHServer(
 	return s
 }
 
-func (s *DoHServer) Start(ctx context.Context) {
+func (s *DoHServer) Serve(ctx context.Context) {
 	go func() {
 		<-ctx.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -63,60 +61,21 @@ func (s *DoHServer) Start(ctx context.Context) {
 
 func (s *DoHServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /", s.handleRequest)
+	mux.Handle("GET /metrics", promhttp.Handler())
+	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
 	return mux
 }
 
-func (s *DoHServer) handleRequest(w http.ResponseWriter, req *http.Request) {
-	if req.Header.Get("Content-Type") != dnsMessageMediaType || req.Header.Get("Accept") != dnsMessageMediaType {
-		s.errorResponse(w, http.StatusBadRequest, "")
-		return
-	}
-
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		s.internalErrorResponse(w, "failed to read body", slog.Any("err", err))
-		return
-	}
-
-	var dnsReq dns.Msg
-	if err = dnsReq.Unpack(body); err != nil {
-		s.errorResponse(w, http.StatusBadRequest, "failed to unpack DNS request", slog.Any("err", err))
-		return
-	}
-
-	dnsResp, dsnRespBytes, err := s.dohService.Send(req.Context(), dnsReq)
-	if err != nil {
-		s.internalErrorResponse(w, "failed to send DNS request", slog.Any("err", err))
-		return
-	}
-
-	if dnsResp.Question[0].Qtype == dns.TypeA {
-		domain := strings.TrimRight(dnsResp.Question[0].Name, ".")
-		if iface, ok := s.config.Routing.LookupHost(domain); ok {
-			for _, it := range dnsResp.Answer {
-				if a, ok := it.(*dns.A); ok {
-					rec := NewDNSRecord(domain, NewIPv4(a.A), time.Duration(a.Hdr.Ttl)*time.Second)
-					s.ipRoutes.AddRoute(req.Context(), rec, iface)
-				}
-			}
+func (s *DoHServer) wrapHandler(handler func(w http.ResponseWriter, req *http.Request) (statusCode int, err error)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path := r.Method, r.URL.Path
+		operation := fmt.Sprintf("%s %s", method, path)
+		defer TrackDuration(operation)()
+		statusCode, err := handler(w, r)
+		if err != nil {
+			w.WriteHeader(statusCode)
+			s.logger.Error(err.Error(), "method", method, "path", path, "statusCode", statusCode)
 		}
-		fmt.Printf("\t%s\t%d ip\n", domain, len(dnsResp.Answer))
-	}
-
-	w.Header().Set("Content-Type", dnsMessageMediaType)
-	w.Header().Set("Content-Length", strconv.Itoa(len(dsnRespBytes)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(dsnRespBytes)
-}
-
-func (s *DoHServer) internalErrorResponse(w http.ResponseWriter, msg string, args ...any) {
-	s.errorResponse(w, http.StatusInternalServerError, msg, args...)
-}
-
-func (s *DoHServer) errorResponse(w http.ResponseWriter, statusCode int, msg string, args ...any) {
-	if msg != "" || len(args) > 0 {
-		s.logger.Error(msg, args...)
-	}
-	w.WriteHeader(statusCode)
+		TrackStatus(operation, strconv.Itoa(statusCode))
+	})
 }

@@ -49,7 +49,7 @@ func main() {
 
 	dohClient := internal.NewDoHClient(cfg.DOHServiceURL)
 	dohServer := internal.NewDoHServer(":5353", logger, cfg, dohClient, ipRoutes)
-	dohServer.Start(ctx)
+	dohServer.Serve(ctx)
 
 	dumpStore(dnsStore, cfg.Dump.File, logger)
 }

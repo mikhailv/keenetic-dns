@@ -23,6 +23,8 @@ func NewDoHClient(url string) *DoHClient {
 }
 
 func (s *DoHClient) Send(ctx context.Context, msg dns.Msg) (dns.Msg, []byte, error) {
+	defer TrackDuration("doh_query")()
+
 	reqBody, err := msg.Pack()
 	if err != nil {
 		return dns.Msg{}, nil, fmt.Errorf("doh_client: failed to pack request message: %w", err)

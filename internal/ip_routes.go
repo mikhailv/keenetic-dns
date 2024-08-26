@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -73,15 +74,18 @@ func (s *IPRouteController) reconcile(ctx context.Context) {
 }
 
 func (s *IPRouteController) reconcileRules(ctx context.Context) {
+	defer TrackDuration("reconcile_rules")()
+
 	s.logger.Info("reconcile rules")
-	output, err := exec.CommandContext(ctx, "ip", "rule", "list").CombinedOutput()
+
+	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "rule", "list"))
 	if err != nil {
-		s.logger.Error("failed to load rule list", slog.Any("err", err), slog.String("output", string(output)))
+		s.logger.Error("failed to load rule list", slog.Any("err", err), slog.String("output", errOutput))
 		return
 	}
 
 	definedRules := map[string]bool{}
-	for _, line := range parseOutputLines(string(output)) {
+	for _, line := range parseOutputLines(output) {
 		ss := strings.Split(line, ":")
 		if len(ss) == 2 {
 			definedRules[strings.TrimSpace(ss[1])] = true
@@ -97,7 +101,10 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 }
 
 func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
+	defer TrackDuration("reconcile_routes")()
+
 	s.logger.Info("reconcile routes")
+
 	defined := s.loadRoutes(ctx)
 	actual := map[IPRouteKey]IPRoute{}
 	for _, rec := range s.dnsStore.Records() {
@@ -146,6 +153,8 @@ func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) 
 }
 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
+	defer TrackDuration("add_route")()
+
 	s.dnsStore.Add(route.DNSRecord)
 
 	s.mu.Lock()
@@ -159,9 +168,9 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	}
 
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface)
-	if err := cmd.Run(); err != nil {
-		s.logger.Error("failed to add route", slog.Any("err", err), slog.Any("", route), slog.Int("table", s.cfg.Table))
+	_, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface))
+	if err != nil {
+		s.logger.Error("failed to add route", slog.Any("err", err), slog.Any("", route), slog.Int("table", s.cfg.Table), slog.String("output", errOutput))
 	} else {
 		s.logger.Info("route added", slog.Any("", route), slog.Int("table", s.cfg.Table))
 		s.routes[key] = route
@@ -177,6 +186,8 @@ func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRout
 }
 
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
+	defer TrackDuration("delete_route")()
+
 	s.dnsStore.Remove(route.DNSRecordKey)
 
 	s.mu.Lock()
@@ -193,6 +204,8 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 }
 
 func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
+	defer TrackDuration("add_rule")()
+
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iff", rule.Iif, "table", strconv.Itoa(rule.TableID), "priority", strconv.Itoa(rule.Priority))
 	if err := cmd.Run(); err != nil {
@@ -203,15 +216,17 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 }
 
 func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRoute {
+	defer TrackDuration("load_routes")()
+
 	//nolint:gosec // all fine
-	output, err := exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)).CombinedOutput()
+	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)))
 	if err != nil {
-		s.logger.Error("failed to load route table", slog.Any("err", err), slog.Int("table", s.cfg.Table), slog.String("output", string(output)))
+		s.logger.Error("failed to load route table", slog.Any("err", err), slog.Int("table", s.cfg.Table), slog.String("output", errOutput))
 		return nil
 	}
 
 	routes := map[IPRouteKey]IPRoute{}
-	for _, line := range parseOutputLines(string(output)) {
+	for _, line := range parseOutputLines(output) {
 		ss := strings.Split(line, " ")
 		if len(ss) == 5 {
 			// example: `209.85.233.100 dev ovpn_br0 scope link`
@@ -232,4 +247,13 @@ func parseOutputLines(output string) []string {
 		lines[i] = strings.TrimSpace(line)
 	}
 	return slices.DeleteFunc(lines, func(s string) bool { return s == "" })
+}
+
+func runCmd(cmd *exec.Cmd) (stdout string, stderr string, err error) {
+	output, err := cmd.Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return string(output), string(exitErr.Stderr), err
+	}
+	return string(output), "", err
 }
