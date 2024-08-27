@@ -2,16 +2,23 @@ package internal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/mikhailv/keenetic-dns/internal/log"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 const (
@@ -19,13 +26,24 @@ const (
 )
 
 type HTTPServer struct {
-	logger   *slog.Logger
-	config   *Config
-	resolver DNSResolver
-	server   http.Server
+	logger        *slog.Logger
+	config        *Config
+	resolver      DNSResolver
+	server        http.Server
+	ipRoutes      *IPRouteController
+	logStream     *util.BufferedStream[log.Entry]
+	resolveStream *util.BufferedStream[DomainResolve]
 }
 
-func NewHTTPServer(addr string, logger *slog.Logger, config *Config, resolver DNSResolver) *HTTPServer {
+func NewHTTPServer(
+	addr string,
+	logger *slog.Logger,
+	config *Config,
+	resolver DNSResolver,
+	ipRoutes *IPRouteController,
+	logStream *util.BufferedStream[log.Entry],
+	resolveStream *util.BufferedStream[DomainResolve],
+) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
 		config:   config,
@@ -34,6 +52,9 @@ func NewHTTPServer(addr string, logger *slog.Logger, config *Config, resolver DN
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
+		ipRoutes:      ipRoutes,
+		logStream:     logStream,
+		resolveStream: resolveStream,
 	}
 }
 
@@ -57,6 +78,9 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
+	mux.Handle("GET /routes", http.HandlerFunc(s.handleRoutes))
+	mux.Handle("GET /logs", createStreamListHandler(s.logStream))
+	mux.Handle("GET /dns-resolve", createStreamListHandler(s.resolveStream))
 	return mux
 }
 
@@ -105,4 +129,65 @@ func (s *HTTPServer) handleDNSQuery(w http.ResponseWriter, req *http.Request) (s
 	_, _ = w.Write(dnsRespBytes)
 
 	return http.StatusOK, nil
+}
+
+func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.ipRoutes.Routes()) //nolint:errchkjson // ignore any error
+}
+
+func createStreamListHandler[T any](stream *util.BufferedStream[T]) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		query := req.URL.Query()
+
+		backward := queryFlagSet(query, "backward")
+
+		cursor := int64(0)
+		if query.Has("cursor") {
+			cursor, _ = strconv.ParseInt(query.Get("cursor"), 10, 64)
+			cursor = max(0, cursor)
+		} else if backward {
+			cursor = math.MaxInt64
+		}
+
+		count := 20
+		if query.Has("count") {
+			count, _ = strconv.Atoi(query.Get("count"))
+			count = max(1, count)
+		}
+
+		res := struct {
+			Items    []T    `json:"items"`
+			Cursor   uint64 `json:"cursor"`
+			HasMore  bool   `json:"hasMore"`
+			NextPage string `json:"nextPage,omitempty"`
+		}{}
+
+		if backward {
+			res.Items, res.Cursor, res.HasMore = stream.QueryBackward(uint64(cursor), count)
+		} else {
+			res.Items, res.Cursor, res.HasMore = stream.Query(uint64(cursor), count)
+		}
+		if res.Items == nil {
+			res.Items = []T{}
+		}
+
+		nextPageURL := req.URL
+		nextPageURL.RawQuery = fmt.Sprintf("cursor=%d&count=%d", res.Cursor, count)
+		if backward {
+			nextPageURL.RawQuery += "&backward"
+		}
+		res.NextPage = nextPageURL.String()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(res)
+	})
+}
+
+func queryFlagSet(q url.Values, name string) bool {
+	if q.Has(name) {
+		v := q.Get(name)
+		return v == "" || v == "1" || strings.ToLower(v) == "true"
+	}
+	return false
 }

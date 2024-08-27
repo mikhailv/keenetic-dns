@@ -54,13 +54,13 @@ func (s Hosts) LookupHost(host string) bool {
 	return false
 }
 
-func (c *RoutingConfig) LookupHost(host string) (iface string, found bool) {
+func (c *RoutingConfig) LookupHost(host string) (iface string) {
 	for iface, hosts := range c.Hosts {
 		if hosts.LookupHost(host) {
-			return iface, true
+			return iface
 		}
 	}
-	return "", false
+	return ""
 }
 
 func (c *RoutingConfig) RoutingRule() IPRoutingRule {

@@ -85,7 +85,7 @@ linters-settings:
       - prefix(golang.org) # Custom section: groups all imports with the specified Prefix.
       - prefix(github.com) # Custom section: groups all imports with the specified Prefix.
       - default # Default section: contains all imports that could not be matched to another section type.
-      - prefix(github.org/mikhailv) # Custom section: groups all imports with the specified Prefix.
+      - prefix(github.com/mikhailv) # Custom section: groups all imports with the specified Prefix.
     # Skip generated files.
     # Default: true
     skip-generated: true

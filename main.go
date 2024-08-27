@@ -13,6 +13,12 @@ import (
 	"time"
 
 	. "github.com/mikhailv/keenetic-dns/internal" //nolint:stylecheck //ignore
+	"github.com/mikhailv/keenetic-dns/internal/log"
+	"github.com/mikhailv/keenetic-dns/internal/util"
+)
+
+const (
+	logBufferSize = 2_000
 )
 
 func main() {
@@ -24,7 +30,7 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger := setupLogger(debug)
+	logger, logStream := setupLogger(debug)
 
 	setupPprof(ctx, pprofAddr, logger)
 
@@ -40,7 +46,7 @@ func main() {
 	}
 
 	go func() {
-		RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
+		util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
 			dumpStore(dnsStore, cfg.Dump.File, logger)
 		})
 	}()
@@ -55,9 +61,10 @@ func main() {
 		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
 
-	resolver := NewSingleInflightDNSResolver(NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes))
+	service := NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes)
+	resolver := NewSingleInflightDNSResolver(service)
 
-	httpServer := NewHTTPServer(cfg.HTTPAddr, logger, cfg, resolver)
+	httpServer := NewHTTPServer(cfg.HTTPAddr, logger, cfg, resolver, ipRoutes, logStream, service.ResolveStream())
 	go httpServer.Serve(ctx)
 
 	udpServer := NewDNSServer(cfg.UDPAddr, logger, cfg, resolver)
@@ -75,12 +82,14 @@ func dumpStore(store *DNSStore, file string, logger *slog.Logger) {
 	}
 }
 
-func setupLogger(debug bool) *slog.Logger {
+func setupLogger(debug bool) (*slog.Logger, *util.BufferedStream[log.Entry]) {
 	logLevel := slog.LevelInfo
 	if debug {
 		logLevel = slog.LevelDebug
 	}
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	recorder := log.NewRecorder(handler, logBufferSize)
+	return slog.New(recorder), recorder.Stream()
 }
 
 func setupPprof(ctx context.Context, addr string, logger *slog.Logger) {

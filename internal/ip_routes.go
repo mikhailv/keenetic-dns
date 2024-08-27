@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type IPRouteController struct {
@@ -25,12 +27,7 @@ type IPRouteController struct {
 	reconcileInterval time.Duration
 }
 
-func NewIPRouteController(
-	cfg RoutingConfig,
-	logger *slog.Logger,
-	dnsStore *DNSStore,
-	reconcileInterval time.Duration,
-) *IPRouteController {
+func NewIPRouteController(cfg RoutingConfig, logger *slog.Logger, dnsStore *DNSStore, reconcileInterval time.Duration) *IPRouteController {
 	return &IPRouteController{
 		cfg:               cfg,
 		logger:            logger,
@@ -42,10 +39,20 @@ func NewIPRouteController(
 	}
 }
 
+func (s *IPRouteController) Routes() []IPRoute {
+	s.mu.Lock()
+	res := make([]IPRoute, 0, len(s.routes))
+	for _, route := range s.routes {
+		res = append(res, route)
+	}
+	s.mu.Unlock()
+	return res
+}
+
 func (s *IPRouteController) Start(ctx context.Context) {
 	go s.startQueueProcessor(ctx)
 	s.reconcile(ctx)
-	go RunPeriodically(ctx, s.reconcileInterval, s.reconcileRoutes)
+	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcileRoutes)
 }
 
 func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
@@ -108,7 +115,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 	defined := s.loadRoutes(ctx)
 	actual := map[IPRouteKey]IPRoute{}
 	for _, rec := range s.dnsStore.Records() {
-		if iface, ok := s.cfg.LookupHost(rec.Domain); ok {
+		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
 			route := IPRoute{rec, iface}
 			actual[route.Key()] = route
 		} else if rec.Expired() {
@@ -225,6 +232,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 		return nil
 	}
 
+	routeExpires := time.Now().Add(s.cfg.RouteTimeout)
 	routes := map[IPRouteKey]IPRoute{}
 	for _, line := range parseOutputLines(output) {
 		ss := strings.Split(line, " ")
@@ -232,7 +240,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 			// example: `209.85.233.100 dev ovpn_br0 scope link`
 			ip := NewIPv4(net.ParseIP(ss[0]))
 			iface := ss[2]
-			route := IPRoute{NewDNSRecord("", ip, s.cfg.RouteTimeout), iface}
+			route := IPRoute{NewDNSRecord("", ip, routeExpires), iface}
 			routes[route.Key()] = route
 		} else {
 			s.logger.Warn("unexpected route output", slog.String("line", line))

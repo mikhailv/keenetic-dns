@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/miekg/dns"
 )
@@ -17,23 +16,6 @@ func NewSingleInflightDNSResolver(resolver DNSResolver) DNSResolver {
 		resolver: resolver,
 		requests: map[dns.Question]*inflightRequest{},
 	}
-}
-
-func NewDNSResolverWithTimeout(resolver DNSResolver, timeout time.Duration) DNSResolver {
-	return dnsResolverWithTimeout{resolver, timeout}
-}
-
-var _ DNSResolver = dnsResolverWithTimeout{}
-
-type dnsResolverWithTimeout struct {
-	resolver DNSResolver
-	timeout  time.Duration
-}
-
-func (s dnsResolverWithTimeout) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	return s.resolver.Resolve(ctx, msg)
 }
 
 var _ DNSResolver = (*singleInflightResolver)(nil)

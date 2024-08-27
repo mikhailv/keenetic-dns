@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net"
 	"time"
@@ -13,11 +14,29 @@ func NewIPv4(ip net.IP) IPv4 {
 	if len(ip) != 4 {
 		panic("invalid IPv4 address")
 	}
-	return IPv4{ip[0], ip[1], ip[2], ip[3]}
+	return IPv4(ip.To4())
 }
 
 func (ip IPv4) String() string {
 	return net.IP(ip[:]).String()
+}
+
+func (ip IPv4) MarshalText() ([]byte, error) {
+	return net.IP(ip[:]).MarshalText()
+}
+
+func (ip *IPv4) UnmarshalText(b []byte) error {
+	// compatibility unmarshalling
+	if b[0] == '[' {
+		return json.Unmarshal(b, ip)
+	}
+
+	var v net.IP
+	if err := v.UnmarshalText(b); err != nil {
+		return err
+	}
+	*ip = IPv4(v.To4())
+	return nil
 }
 
 type DNSRecordKey struct {
@@ -30,8 +49,8 @@ type DNSRecord struct {
 	Expires time.Time `json:"expires"`
 }
 
-func NewDNSRecord(domain string, ip IPv4, ttl time.Duration) DNSRecord {
-	return DNSRecord{DNSRecordKey{ip, domain}, time.Now().Add(ttl)}
+func NewDNSRecord(domain string, ip IPv4, expires time.Time) DNSRecord {
+	return DNSRecord{DNSRecordKey{ip, domain}, expires}
 }
 
 func (r DNSRecord) Expired() bool {
@@ -53,6 +72,17 @@ func (r DNSRecord) LogValue() slog.Value {
 	)
 }
 
+type DomainResolve struct {
+	Time   time.Time `json:"time"`
+	Domain string    `json:"domain"`
+	A      []ARecord `json:"A"`
+}
+
+type ARecord struct {
+	IP  IPv4 `json:"ip"`
+	TTL int  `json:"ttl"`
+}
+
 type IPRouteKey struct {
 	IP    IPv4
 	Iface string
@@ -60,7 +90,7 @@ type IPRouteKey struct {
 
 type IPRoute struct {
 	DNSRecord
-	Iface string
+	Iface string `json:"iface"`
 }
 
 func (r IPRoute) Expired(extraTTL time.Duration) bool {
