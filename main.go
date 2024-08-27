@@ -36,13 +36,13 @@ func main() {
 
 	cfg, err := LoadConfig("config.yaml")
 	if err != nil {
-		logger.Error("error loading config", slog.Any("err", err))
+		logger.Error("failed to load config", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	dnsStore := NewDNSStore()
 	if err := dnsStore.Load(cfg.Dump.File); err != nil {
-		logger.Error("error loading dns store", slog.Any("err", err))
+		logger.Error("failed to load DNS store", slog.Any("err", err))
 	}
 
 	go func() {
@@ -64,10 +64,10 @@ func main() {
 	service := NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes)
 	resolver := NewSingleInflightDNSResolver(service)
 
-	httpServer := NewHTTPServer(cfg.HTTPAddr, logger, cfg, resolver, ipRoutes, logStream, service.ResolveStream())
+	httpServer := NewHTTPServer(cfg.Addr, logger, resolver, ipRoutes, logStream, service.ResolveStream())
 	go httpServer.Serve(ctx)
 
-	udpServer := NewDNSServer(cfg.UDPAddr, logger, cfg, resolver)
+	udpServer := NewDNSServer(cfg.Addr, logger, resolver)
 	go udpServer.Serve(ctx)
 
 	<-ctx.Done()
@@ -76,9 +76,9 @@ func main() {
 }
 
 func dumpStore(store *DNSStore, file string, logger *slog.Logger) {
-	logger.Info("saving dns store...", slog.Any("file", file))
+	logger.Info("saving DNS store...", slog.Any("file", file))
 	if err := store.Save(file); err != nil {
-		logger.Error("error saving dns store", slog.Any("err", err))
+		logger.Error("failed to save DNS store", slog.Any("err", err))
 	}
 }
 

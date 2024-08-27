@@ -10,15 +10,13 @@ import (
 
 type DNSServer struct {
 	logger   *slog.Logger
-	config   *Config
 	resolver DNSResolver
 	server   dns.Server
 }
 
-func NewDNSServer(addr string, logger *slog.Logger, config *Config, resolver DNSResolver) *DNSServer {
+func NewDNSServer(addr string, logger *slog.Logger, resolver DNSResolver) *DNSServer {
 	return &DNSServer{
 		logger:   logger,
-		config:   config,
 		resolver: resolver,
 		server: dns.Server{
 			Addr:         addr,
@@ -30,15 +28,18 @@ func NewDNSServer(addr string, logger *slog.Logger, config *Config, resolver DNS
 }
 
 func (s *DNSServer) Serve(ctx context.Context) {
+	s.server.Handler = s.createHandler(ctx)
+
 	go func() {
 		<-ctx.Done()
+		s.logger.Info("dns: shutting down server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.server.ShutdownContext(shutdownCtx); err != nil {
 			s.logger.Error("dns: failed to shutdown server", slog.Any("err", err))
 		}
 	}()
-	s.server.Handler = s.createHandler(ctx)
+
 	s.logger.Info("dns: server starting...", slog.String("addr", s.server.Addr))
 	if err := s.server.ListenAndServe(); err != nil {
 		s.logger.Error("dns: failed to start server", slog.Any("err", err))

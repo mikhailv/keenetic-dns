@@ -14,8 +14,7 @@ import (
 var defaultConfigYAML []byte
 
 type Config struct {
-	UDPAddr  string `yaml:"udp_addr"`
-	HTTPAddr string `yaml:"http_addr"`
+	Addr string `yaml:"addr"`
 
 	DNSProvider        string        `yaml:"dns_provider"`
 	DNSProviderTimeout time.Duration `yaml:"dns_provider_timeout"`

@@ -28,7 +28,6 @@ const (
 
 type HTTPServer struct {
 	logger        *slog.Logger
-	config        *Config
 	resolver      DNSResolver
 	server        http.Server
 	ipRoutes      *IPRouteController
@@ -39,7 +38,6 @@ type HTTPServer struct {
 func NewHTTPServer(
 	addr string,
 	logger *slog.Logger,
-	config *Config,
 	resolver DNSResolver,
 	ipRoutes *IPRouteController,
 	logStream *util.BufferedStream[log.Entry],
@@ -47,7 +45,6 @@ func NewHTTPServer(
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
-		config:   config,
 		resolver: resolver,
 		server: http.Server{
 			Addr:              addr,
@@ -60,15 +57,18 @@ func NewHTTPServer(
 }
 
 func (s *HTTPServer) Serve(ctx context.Context) {
+	s.server.Handler = s.createHandler()
+
 	go func() {
 		<-ctx.Done()
+		s.logger.Info("http: shutting down server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.server.Shutdown(shutdownCtx); err != nil {
 			s.logger.Error("http: failed to shutdown server", slog.Any("err", err))
 		}
 	}()
-	s.server.Handler = s.createHandler()
+
 	s.logger.Info("http: server starting...", slog.String("addr", s.server.Addr))
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		s.logger.Error("http: failed to start server", slog.Any("err", err))
@@ -85,7 +85,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	return mux
 }
 
-func (s *HTTPServer) filterLogs(req *http.Request, query url.Values) func(val log.Entry) bool {
+func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) func(val log.Entry) bool {
 	levels := slices.DeleteFunc(strings.Split(query.Get("level"), ","), func(s string) bool { return s == "" })
 	if len(levels) == 0 {
 		return nil
@@ -99,7 +99,7 @@ func (s *HTTPServer) filterLogs(req *http.Request, query url.Values) func(val lo
 	}
 }
 
-func (s *HTTPServer) filterResolves(req *http.Request, query url.Values) func(val DomainResolve) bool {
+func (s *HTTPServer) filterResolves(_ *http.Request, query url.Values) func(val DomainResolve) bool {
 	domain := query.Get("domain")
 	if domain == "" {
 		return nil
