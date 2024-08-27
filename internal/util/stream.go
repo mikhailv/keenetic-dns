@@ -44,19 +44,19 @@ func (s *BufferedStream[T]) Append(value T) {
 	s.mu.Unlock()
 }
 
-func (s *BufferedStream[T]) Query(cursor uint64, count int) (values []T, lastCursor uint64, hasMore bool) {
+func (s *BufferedStream[T]) Query(cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.queryLocked(false, cursor, count)
+	return s.queryLocked(false, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) QueryBackward(cursor uint64, count int) (values []T, lastCursor uint64, hasMore bool) {
+func (s *BufferedStream[T]) QueryBackward(cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.queryLocked(true, cursor, count)
+	return s.queryLocked(true, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) queryLocked(backward bool, cursor uint64, count int) (values []T, lastCursor uint64, hasMore bool) {
+func (s *BufferedStream[T]) queryLocked(backward bool, cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
 	var iterator iter.Seq[streamEntry[T]]
 	var cmpSign int
 
@@ -70,17 +70,21 @@ func (s *BufferedStream[T]) queryLocked(backward bool, cursor uint64, count int)
 
 	lastCursor = cursor
 	for it := range iterator {
-		if cmp.Compare(it.Cursor, cursor) == cmpSign {
-			if len(values) >= count {
-				hasMore = true
-				break
-			}
-			if values == nil {
-				values = make([]T, 0, count)
-			}
-			values = append(values, it.Val)
-			lastCursor = it.Cursor
+		if cmp.Compare(it.Cursor, cursor) != cmpSign {
+			continue
 		}
+		if predicate != nil && !predicate(it.Val) {
+			continue
+		}
+		if len(values) >= count {
+			hasMore = true
+			break
+		}
+		if values == nil {
+			values = make([]T, 0, count)
+		}
+		values = append(values, it.Val)
+		lastCursor = it.Cursor
 	}
 	return values, lastCursor, hasMore
 }

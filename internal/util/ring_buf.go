@@ -19,11 +19,11 @@ type ringBuf[T any] struct {
 func (s *ringBuf[T]) Add(item T) {
 	capacity := cap(s.buf)
 	if s.size == capacity {
-		s.start = roundIndex(s.start, 1, capacity)
+		s.start = (s.start + 1) % capacity
 	} else {
 		s.size++
 	}
-	s.end = roundIndex(s.end, 1, capacity)
+	s.end = (s.end + 1) % capacity
 	s.buf[s.end] = item
 }
 
@@ -48,27 +48,21 @@ func (s *ringBuf[T]) Values() []T {
 }
 
 func (s *ringBuf[T]) Iterator() iter.Seq[T] {
-	return func(yield func(T) bool) {
-		capacity := cap(s.buf)
-		for i := 0; i < s.size; i++ {
-			if !yield(s.buf[roundIndex(s.start, i, capacity)]) {
-				break
-			}
-		}
-	}
+	return s.iterator(s.start, 1)
 }
 
 func (s *ringBuf[T]) BackwardIterator() iter.Seq[T] {
+	return s.iterator(s.end, -1)
+}
+
+func (s *ringBuf[T]) iterator(start, step int) iter.Seq[T] {
 	return func(yield func(T) bool) {
 		capacity := cap(s.buf)
+		start += capacity
 		for i := 0; i < s.size; i++ {
-			if !yield(s.buf[roundIndex(s.end, capacity-i, capacity)]) {
+			if !yield(s.buf[(start+i*step)%capacity]) {
 				break
 			}
 		}
 	}
-}
-
-func roundIndex(i, d, c int) int {
-	return (i + d) % c
 }

@@ -7,14 +7,16 @@ import (
 
 type Entry struct {
 	Time  int64          `json:"time"`
+	Level string         `json:"level"`
 	Msg   string         `json:"msg"`
 	Attrs map[string]any `json:"attrs,omitempty"`
 }
 
 func NewEntry(rec slog.Record) Entry {
 	entry := Entry{
-		Time: rec.Time.UnixMilli(),
-		Msg:  rec.Message,
+		Time:  rec.Time.UnixMilli(),
+		Level: rec.Level.String(),
+		Msg:   rec.Message,
 	}
 	if rec.NumAttrs() > 0 {
 		entry.Attrs = make(map[string]any, rec.NumAttrs())

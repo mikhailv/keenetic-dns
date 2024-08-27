@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net"
 	"time"
@@ -26,11 +25,6 @@ func (ip IPv4) MarshalText() ([]byte, error) {
 }
 
 func (ip *IPv4) UnmarshalText(b []byte) error {
-	// compatibility unmarshalling
-	if b[0] == '[' {
-		return json.Unmarshal(b, ip)
-	}
-
 	var v net.IP
 	if err := v.UnmarshalText(b); err != nil {
 		return err

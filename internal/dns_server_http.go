@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -79,9 +80,33 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
 	mux.Handle("GET /routes", http.HandlerFunc(s.handleRoutes))
-	mux.Handle("GET /logs", createStreamListHandler(s.logStream))
-	mux.Handle("GET /dns-resolve", createStreamListHandler(s.resolveStream))
+	mux.Handle("GET /logs", createStreamListHandler(s.logStream, s.filterLogs))
+	mux.Handle("GET /dns-resolve", createStreamListHandler(s.resolveStream, s.filterResolves))
 	return mux
+}
+
+func (s *HTTPServer) filterLogs(req *http.Request, query url.Values) func(val log.Entry) bool {
+	levels := slices.DeleteFunc(strings.Split(query.Get("level"), ","), func(s string) bool { return s == "" })
+	if len(levels) == 0 {
+		return nil
+	}
+	levelSet := map[string]bool{}
+	for _, level := range levels {
+		levelSet[level] = true
+	}
+	return func(val log.Entry) bool {
+		return levelSet[val.Level]
+	}
+}
+
+func (s *HTTPServer) filterResolves(req *http.Request, query url.Values) func(val DomainResolve) bool {
+	domain := query.Get("domain")
+	if domain == "" {
+		return nil
+	}
+	return func(val DomainResolve) bool {
+		return val.Domain == domain
+	}
 }
 
 func (s *HTTPServer) wrapHandler(handler func(w http.ResponseWriter, req *http.Request) (statusCode int, err error)) http.Handler {
@@ -136,11 +161,12 @@ func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
 	_ = json.NewEncoder(w).Encode(s.ipRoutes.Routes()) //nolint:errchkjson // ignore any error
 }
 
-func createStreamListHandler[T any](stream *util.BufferedStream[T]) http.Handler {
+func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactory func(r *http.Request, q url.Values) func(val T) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
+		filter := filterFactory(req, query)
 
-		backward := queryFlagSet(query, "backward")
+		backward := queryParamSet(query, "backward")
 
 		cursor := int64(0)
 		if query.Has("cursor") {
@@ -150,7 +176,7 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T]) http.Handler
 			cursor = math.MaxInt64
 		}
 
-		count := 20
+		count := 50
 		if query.Has("count") {
 			count, _ = strconv.Atoi(query.Get("count"))
 			count = max(1, count)
@@ -164,19 +190,15 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T]) http.Handler
 		}{}
 
 		if backward {
-			res.Items, res.Cursor, res.HasMore = stream.QueryBackward(uint64(cursor), count)
+			res.Items, res.Cursor, res.HasMore = stream.QueryBackward(uint64(cursor), count, filter)
 		} else {
-			res.Items, res.Cursor, res.HasMore = stream.Query(uint64(cursor), count)
+			res.Items, res.Cursor, res.HasMore = stream.Query(uint64(cursor), count, filter)
 		}
 		if res.Items == nil {
 			res.Items = []T{}
 		}
 
-		nextPageURL := req.URL
-		nextPageURL.RawQuery = fmt.Sprintf("cursor=%d&count=%d", res.Cursor, count)
-		if backward {
-			nextPageURL.RawQuery += "&backward"
-		}
+		nextPageURL := updateURLQuery(*req.URL, map[string]string{"cursor": fmt.Sprint(res.Cursor)})
 		res.NextPage = nextPageURL.String()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -184,10 +206,19 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T]) http.Handler
 	})
 }
 
-func queryFlagSet(q url.Values, name string) bool {
+func queryParamSet(q url.Values, name string) bool {
 	if q.Has(name) {
 		v := q.Get(name)
 		return v == "" || v == "1" || strings.ToLower(v) == "true"
 	}
 	return false
+}
+
+func updateURLQuery(u url.URL, values map[string]string) url.URL {
+	q := u.Query()
+	for k, v := range values {
+		q.Set(k, v)
+	}
+	u.RawQuery = q.Encode()
+	return u
 }
