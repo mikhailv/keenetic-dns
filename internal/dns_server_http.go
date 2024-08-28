@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -157,8 +158,12 @@ func (s *HTTPServer) handleDNSQuery(w http.ResponseWriter, req *http.Request) (s
 }
 
 func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
+	routes := s.ipRoutes.Routes()
+	slices.SortFunc(routes, func(a, b IPRoute) int {
+		return bytes.Compare(a.IP[:], b.IP[:])
+	})
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.ipRoutes.Routes()) //nolint:errchkjson // ignore any error
+	_ = json.NewEncoder(w).Encode(routes) //nolint:errchkjson // ignore any error
 }
 
 func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactory func(r *http.Request, q url.Values) func(val T) bool) http.Handler {

@@ -2,7 +2,7 @@ package internal
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -19,14 +19,16 @@ var _ DNSResolver = (*DNSRoutingService)(nil)
 
 type DNSRoutingService struct {
 	config        *RoutingConfig
+	logger        *slog.Logger
 	resolver      DNSResolver
 	ipRoutes      *IPRouteController
 	resolveStream *util.BufferedStream[DomainResolve]
 }
 
-func NewDNSRoutingService(config *RoutingConfig, resolver DNSResolver, ipRoutes *IPRouteController) *DNSRoutingService {
+func NewDNSRoutingService(config *RoutingConfig, logger *slog.Logger, resolver DNSResolver, ipRoutes *IPRouteController) *DNSRoutingService {
 	return &DNSRoutingService{
 		config:        config,
+		logger:        logger,
 		resolver:      resolver,
 		ipRoutes:      ipRoutes,
 		resolveStream: util.NewBufferedStream[DomainResolve](dnsResolveBufferSize),
@@ -46,13 +48,13 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 	if resp.Question[0].Qtype == dns.TypeA {
 		now := time.Now()
 		res := DomainResolve{
-			Time:   now,
+			Time:   uint32(now.Unix()), //nolint:gosec // no overflow
 			Domain: strings.TrimRight(resp.Question[0].Name, "."),
 			A:      make([]ARecord, 0, len(resp.Answer)),
 		}
 		for _, it := range resp.Answer {
 			if a, ok := it.(*dns.A); ok {
-				res.A = append(res.A, ARecord{NewIPv4(a.A), int(a.Hdr.Ttl)})
+				res.A = append(res.A, ARecord{NewIPv4(a.A), a.Hdr.Ttl})
 			}
 		}
 		s.resolveStream.Append(res)
@@ -63,7 +65,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 			}
 		}
 
-		fmt.Printf("\t%s\t%d ip\n", res.Domain, len(res.A))
+		s.logger.Debug("domain resolved", slog.String("domain", res.Domain), slog.Int("ips", len(res.A)))
 	}
 
 	return resp, nil

@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	pp "runtime/pprof"
 	"strings"
 	"syscall"
 	"time"
@@ -41,13 +42,11 @@ func main() {
 	}
 
 	dnsStore := NewDNSStore()
-	if err := dnsStore.Load(cfg.Dump.File); err != nil {
-		logger.Error("failed to load DNS store", slog.Any("err", err))
-	}
+	saveStore := initDNSStore(cfg.Dump.File, logger, dnsStore)
 
 	go func() {
 		util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
-			dumpStore(dnsStore, cfg.Dump.File, logger)
+			saveStore()
 		})
 	}()
 
@@ -61,7 +60,7 @@ func main() {
 		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
 
-	service := NewDNSRoutingService(&cfg.Routing, dnsProvider, ipRoutes)
+	service := NewDNSRoutingService(&cfg.Routing, logger, dnsProvider, ipRoutes)
 	resolver := NewSingleInflightDNSResolver(service)
 
 	httpServer := NewHTTPServer(cfg.Addr, logger, resolver, ipRoutes, logStream, service.ResolveStream())
@@ -72,13 +71,19 @@ func main() {
 
 	<-ctx.Done()
 
-	dumpStore(dnsStore, cfg.Dump.File, logger)
+	saveStore()
 }
 
-func dumpStore(store *DNSStore, file string, logger *slog.Logger) {
-	logger.Info("saving DNS store...", slog.Any("file", file))
-	if err := store.Save(file); err != nil {
-		logger.Error("failed to save DNS store", slog.Any("err", err))
+func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func()) {
+	logger = logger.With(slog.String("file", file))
+	if err := store.Load(file); err != nil {
+		logger.Error("dns_store: failed to load", slog.Any("err", err))
+	}
+	return func() {
+		logger.Info("dns_store: saving ...")
+		if err := store.Save(file); err != nil {
+			logger.Error("dns_store: failed to save", slog.Any("err", err))
+		}
 	}
 }
 
@@ -103,6 +108,13 @@ func setupPprof(ctx context.Context, addr string, logger *slog.Logger) {
 	mux.HandleFunc("/profile", pprof.Profile)
 	mux.HandleFunc("/symbol", pprof.Symbol)
 	mux.HandleFunc("/trace", pprof.Trace)
+	for _, p := range pp.Profiles() {
+		name := p.Name()
+		mux.HandleFunc("/"+name, func(rw http.ResponseWriter, req *http.Request) {
+			req.URL.Path = "/debug/pprof/" + name
+			pprof.Index(rw, req)
+		})
+	}
 
 	srv := http.Server{
 		Addr:              addr,

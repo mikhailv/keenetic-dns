@@ -67,14 +67,14 @@ func (r DNSRecord) LogValue() slog.Value {
 }
 
 type DomainResolve struct {
-	Time   time.Time `json:"time"`
+	Time   uint32    `json:"time"`
 	Domain string    `json:"domain"`
 	A      []ARecord `json:"A"`
 }
 
 type ARecord struct {
-	IP  IPv4 `json:"ip"`
-	TTL int  `json:"ttl"`
+	IP  IPv4   `json:"ip"`
+	TTL uint32 `json:"ttl"`
 }
 
 type IPRouteKey struct {

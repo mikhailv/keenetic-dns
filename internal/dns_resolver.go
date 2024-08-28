@@ -22,7 +22,7 @@ var _ DNSResolver = (*singleInflightResolver)(nil)
 
 type inflightRequest struct {
 	Done chan struct{}
-	Msg  *dns.Msg
+	Resp *dns.Msg
 	Err  error
 }
 
@@ -43,8 +43,10 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 			return nil, ctx.Err()
 		case <-req.Done:
 			if req.Err == nil {
-				msg.Answer = req.Msg.Answer
-				return msg, nil
+				resp := msg.Copy()
+				resp.Response = true
+				resp.Answer = req.Resp.Answer
+				return resp, nil
 			}
 			// if we get error, then just ignore it and try to send another request
 		}
@@ -57,7 +59,7 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 	s.requests[reqKey] = req
 	s.mu.Unlock()
 
-	req.Msg, req.Err = s.resolver.Resolve(ctx, msg)
+	req.Resp, req.Err = s.resolver.Resolve(ctx, msg)
 	close(req.Done)
 
 	s.mu.Lock()
@@ -66,5 +68,5 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 	}
 	s.mu.Unlock()
 
-	return req.Msg, req.Err
+	return req.Resp, req.Err
 }

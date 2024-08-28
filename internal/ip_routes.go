@@ -239,7 +239,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 		if len(ss) == 5 {
 			// example: `209.85.233.100 dev ovpn_br0 scope link`
 			ip := NewIPv4(net.ParseIP(ss[0]))
-			iface := ss[2]
+			iface := strings.Clone(ss[2])
 			route := IPRoute{NewDNSRecord("", ip, routeExpires), iface}
 			routes[route.Key()] = route
 		} else {
