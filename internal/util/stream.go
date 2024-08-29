@@ -3,6 +3,8 @@ package util
 import (
 	"cmp"
 	"iter" //nolint:gci // some linter bug
+	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time" //nolint:gci // some linter bug
@@ -21,6 +23,18 @@ type BufferedStream[T any] struct {
 	cursor       uint32
 	listeners    map[int]func(cursor uint64, val T)
 	nextListener int
+}
+
+type QueryResult[T any] struct {
+	Items       []T    `json:"items"`
+	FirstCursor uint64 `json:"firstCursor"`
+	LastCursor  uint64 `json:"lastCursor"`
+	HasMore     bool   `json:"hasMore"`
+}
+
+func (s *QueryResult[T]) Reverse() {
+	slices.Reverse(s.Items)
+	s.FirstCursor, s.LastCursor = s.LastCursor, s.FirstCursor
 }
 
 type streamEntry[T any] struct {
@@ -44,49 +58,70 @@ func (s *BufferedStream[T]) Append(value T) {
 	s.mu.Unlock()
 }
 
-func (s *BufferedStream[T]) Query(cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
+func (s *BufferedStream[T]) Query(cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.queryLocked(false, cursor, count, predicate)
+	return s.query(true, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) QueryBackward(cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
+func (s *BufferedStream[T]) QueryBackward(cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.queryLocked(true, cursor, count, predicate)
+	return s.query(false, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) queryLocked(backward bool, cursor uint64, count int, predicate func(val T) bool) (values []T, lastCursor uint64, hasMore bool) {
-	var iterator iter.Seq[streamEntry[T]]
-	var cmpSign int
+func (s *BufferedStream[T]) lookupPos(cursor uint64) (i int, found bool) {
+	return sort.Find(s.buf.Size(), func(i int) int {
+		return cmp.Compare(cursor, s.buf.Get(i).Cursor)
+	})
+}
 
+func (s *BufferedStream[T]) query(forward bool, cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
+	backward := !forward
+
+	pos, found := s.lookupPos(cursor)
 	if backward {
-		iterator = s.buf.BackwardIterator()
-		cmpSign = -1
-	} else {
-		iterator = s.buf.Iterator()
-		cmpSign = 1
+		pos--
+	} else if found && forward {
+		pos++
 	}
 
-	lastCursor = cursor
+	res := QueryResult[T]{
+		FirstCursor: cursor,
+		LastCursor:  cursor,
+	}
+
+	if pos < 0 || pos >= s.buf.Size() {
+		return res
+	}
+
+	var iterator iter.Seq[streamEntry[T]]
+	if forward {
+		iterator = s.buf.Iterator(pos, 1)
+	} else {
+		iterator = s.buf.Iterator(pos, -1)
+	}
+
+	res.LastCursor = cursor
+	res.FirstCursor = cursor
 	for it := range iterator {
-		if cmp.Compare(it.Cursor, cursor) != cmpSign {
-			continue
-		}
 		if predicate != nil && !predicate(it.Val) {
 			continue
 		}
-		if len(values) >= count {
-			hasMore = true
+		if len(res.Items) >= count {
+			res.HasMore = true
 			break
 		}
-		if values == nil {
-			values = make([]T, 0, count)
+		if res.Items == nil {
+			res.Items = make([]T, 0, count)
 		}
-		values = append(values, it.Val)
-		lastCursor = it.Cursor
+		res.Items = append(res.Items, it.Val)
+		if len(res.Items) == 1 {
+			res.FirstCursor = it.Cursor
+		}
+		res.LastCursor = it.Cursor
 	}
-	return values, lastCursor, hasMore
+	return res
 }
 
 func (s *BufferedStream[T]) Listen(listener func(cursor uint64, val T)) (stop func()) {

@@ -18,8 +18,8 @@ import (
 
 type IPRouteController struct {
 	mu                sync.Mutex
-	logger            *slog.Logger
 	cfg               RoutingConfig
+	logger            *slog.Logger
 	dnsStore          *DNSStore
 	routes            map[IPRouteKey]IPRoute
 	addQueue          chan IPRoute
@@ -37,6 +37,10 @@ func NewIPRouteController(cfg RoutingConfig, logger *slog.Logger, dnsStore *DNSS
 		deleteQueue:       make(chan IPRoute),
 		reconcileInterval: reconcileInterval,
 	}
+}
+
+func (s *IPRouteController) LookupHost(host string) (iface string) {
+	return s.cfg.LookupHost(host)
 }
 
 func (s *IPRouteController) Routes() []IPRoute {

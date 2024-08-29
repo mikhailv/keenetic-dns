@@ -60,7 +60,7 @@ func main() {
 		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
 
-	service := NewDNSRoutingService(&cfg.Routing, logger, dnsProvider, ipRoutes)
+	service := NewDNSRoutingService(logger, dnsProvider, ipRoutes)
 	resolver := NewSingleInflightDNSResolver(service)
 
 	httpServer := NewHTTPServer(cfg.Addr, logger, resolver, ipRoutes, logStream, service.ResolveStream())

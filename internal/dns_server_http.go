@@ -101,12 +101,23 @@ func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) func(val log.
 }
 
 func (s *HTTPServer) filterResolves(_ *http.Request, query url.Values) func(val DomainResolve) bool {
-	domain := query.Get("domain")
-	if domain == "" {
+	domain := strings.TrimSpace(query.Get("domain"))
+	search := strings.TrimSpace(query.Get("search"))
+	excludeRouted := queryParamSet(query, "exclude_routed")
+	if domain == "" && search == "" && !excludeRouted {
 		return nil
 	}
 	return func(val DomainResolve) bool {
-		return val.Domain == domain
+		if excludeRouted && s.ipRoutes.LookupHost(val.Domain) != "" {
+			return false
+		}
+		if search != "" {
+			return strings.Contains(val.Domain, search)
+		}
+		if domain != "" {
+			return val.Domain == domain
+		}
+		return true
 	}
 }
 
@@ -173,9 +184,14 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactor
 
 		backward := queryParamSet(query, "backward")
 
+		afterMode := true
 		cursor := int64(0)
-		if query.Has("cursor") {
-			cursor, _ = strconv.ParseInt(query.Get("cursor"), 10, 64)
+		if query.Has("after") {
+			cursor, _ = strconv.ParseInt(query.Get("after"), 10, 64)
+			cursor = max(0, cursor)
+		} else if query.Has("before") {
+			afterMode = false
+			cursor, _ = strconv.ParseInt(query.Get("before"), 10, 64)
 			cursor = max(0, cursor)
 		} else if backward {
 			cursor = math.MaxInt64
@@ -188,23 +204,27 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactor
 		}
 
 		res := struct {
-			Items    []T    `json:"items"`
-			Cursor   uint64 `json:"cursor"`
-			HasMore  bool   `json:"hasMore"`
-			NextPage string `json:"nextPage,omitempty"`
+			util.QueryResult[T]
+			PrevPageURL string `json:"prevPageURL"`
+			NextPageURL string `json:"nextPageURL"`
 		}{}
 
-		if backward {
-			res.Items, res.Cursor, res.HasMore = stream.QueryBackward(uint64(cursor), count, filter)
+		if backward == afterMode {
+			res.QueryResult = stream.QueryBackward(uint64(cursor), count, filter)
 		} else {
-			res.Items, res.Cursor, res.HasMore = stream.Query(uint64(cursor), count, filter)
+			res.QueryResult = stream.Query(uint64(cursor), count, filter)
 		}
+
+		if backward == !afterMode {
+			res.Reverse()
+		}
+
+		res.PrevPageURL = updateURLQuery(*req.URL, map[string]string{"after": "\x00", "before": fmt.Sprint(res.FirstCursor)})
+		res.NextPageURL = updateURLQuery(*req.URL, map[string]string{"after": fmt.Sprint(res.LastCursor), "before": "\x00"})
+
 		if res.Items == nil {
 			res.Items = []T{}
 		}
-
-		nextPageURL := updateURLQuery(*req.URL, map[string]string{"cursor": fmt.Sprint(res.Cursor)})
-		res.NextPage = nextPageURL.String()
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(res)
@@ -219,11 +239,15 @@ func queryParamSet(q url.Values, name string) bool {
 	return false
 }
 
-func updateURLQuery(u url.URL, values map[string]string) url.URL {
+func updateURLQuery(u url.URL, values map[string]string) string {
 	q := u.Query()
 	for k, v := range values {
-		q.Set(k, v)
+		if v == "\x00" {
+			q.Del(k)
+		} else {
+			q.Set(k, v)
+		}
 	}
 	u.RawQuery = q.Encode()
-	return u
+	return u.String()
 }

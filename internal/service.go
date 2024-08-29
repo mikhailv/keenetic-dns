@@ -18,16 +18,14 @@ const (
 var _ DNSResolver = (*DNSRoutingService)(nil)
 
 type DNSRoutingService struct {
-	config        *RoutingConfig
 	logger        *slog.Logger
 	resolver      DNSResolver
 	ipRoutes      *IPRouteController
 	resolveStream *util.BufferedStream[DomainResolve]
 }
 
-func NewDNSRoutingService(config *RoutingConfig, logger *slog.Logger, resolver DNSResolver, ipRoutes *IPRouteController) *DNSRoutingService {
+func NewDNSRoutingService(logger *slog.Logger, resolver DNSResolver, ipRoutes *IPRouteController) *DNSRoutingService {
 	return &DNSRoutingService{
-		config:        config,
 		logger:        logger,
 		resolver:      resolver,
 		ipRoutes:      ipRoutes,
@@ -59,7 +57,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 		}
 		s.resolveStream.Append(res)
 
-		if iface := s.config.LookupHost(res.Domain); iface != "" {
+		if iface := s.ipRoutes.LookupHost(res.Domain); iface != "" {
 			for _, it := range res.A {
 				s.ipRoutes.AddRoute(ctx, NewDNSRecord(res.Domain, it.IP, now.Add(time.Duration(it.TTL)*time.Second)), iface)
 			}

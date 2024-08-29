@@ -27,6 +27,10 @@ func (s *ringBuf[T]) Add(item T) {
 	s.buf[s.end] = item
 }
 
+func (s *ringBuf[T]) Get(i int) T {
+	return s.buf[(s.start+i)%cap(s.buf)]
+}
+
 func (s *ringBuf[T]) Size() int {
 	return s.size
 }
@@ -47,20 +51,14 @@ func (s *ringBuf[T]) Values() []T {
 	return s.Slice(0, s.size)
 }
 
-func (s *ringBuf[T]) Iterator() iter.Seq[T] {
-	return s.iterator(s.start, 1)
-}
-
-func (s *ringBuf[T]) BackwardIterator() iter.Seq[T] {
-	return s.iterator(s.end, -1)
-}
-
-func (s *ringBuf[T]) iterator(start, step int) iter.Seq[T] {
+func (s *ringBuf[T]) Iterator(from, step int) iter.Seq[T] {
+	if step == 0 {
+		step = 1
+	}
 	return func(yield func(T) bool) {
 		capacity := cap(s.buf)
-		start += capacity
-		for i := 0; i < s.size; i++ {
-			if !yield(s.buf[(start+i*step)%capacity]) {
+		for i := from; i >= 0 && i < s.size; i += step {
+			if !yield(s.buf[(s.start+i)%capacity]) {
 				break
 			}
 		}
