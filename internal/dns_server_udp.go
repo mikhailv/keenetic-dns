@@ -30,19 +30,18 @@ func NewDNSServer(addr string, logger *slog.Logger, resolver DNSResolver) *DNSSe
 func (s *DNSServer) Serve(ctx context.Context) {
 	s.server.Handler = s.createHandler(ctx)
 
-	go func() {
-		<-ctx.Done()
+	context.AfterFunc(ctx, func() {
 		s.logger.Info("dns: shutting down server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.server.ShutdownContext(shutdownCtx); err != nil {
-			s.logger.Error("dns: failed to shutdown server", slog.Any("err", err))
+			s.logger.Error("dns: failed to shutdown server", "err", err)
 		}
-	}()
+	})
 
-	s.logger.Info("dns: server starting...", slog.String("addr", s.server.Addr))
+	s.logger.Info("dns: server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil {
-		s.logger.Error("dns: failed to start server", slog.Any("err", err))
+		s.logger.Error("dns: failed to start server", "err", err)
 	}
 }
 
@@ -51,7 +50,7 @@ func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {
 		defer TrackDuration("dns.handle")()
 		resp, err := s.resolver.Resolve(ctx, req)
 		if err != nil {
-			s.logger.Error("dns: failed to handle request", slog.Any("err", err))
+			s.logger.Error("dns: failed to handle request", "err", err)
 			resp = &dns.Msg{}
 			resp.SetRcode(req, dns.RcodeServerFailure)
 			TrackStatus("dns.handle", "failed")

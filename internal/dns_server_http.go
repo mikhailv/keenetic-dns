@@ -16,6 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket/wsjson"
+
+	"github.com/coder/websocket"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -26,6 +29,8 @@ import (
 const (
 	dnsMessageMediaType = "application/dns-message"
 )
+
+type FilterFunc[T any] func(val T) bool
 
 type HTTPServer struct {
 	logger        *slog.Logger
@@ -60,19 +65,18 @@ func NewHTTPServer(
 func (s *HTTPServer) Serve(ctx context.Context) {
 	s.server.Handler = s.createHandler()
 
-	go func() {
-		<-ctx.Done()
+	context.AfterFunc(ctx, func() {
 		s.logger.Info("http: shutting down server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.server.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("http: failed to shutdown server", slog.Any("err", err))
+			s.logger.Error("http: failed to shutdown server", "err", err)
 		}
-	}()
+	})
 
-	s.logger.Info("http: server starting...", slog.String("addr", s.server.Addr))
+	s.logger.Info("http: server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		s.logger.Error("http: failed to start server", slog.Any("err", err))
+		s.logger.Error("http: failed to start server", "err", err)
 	}
 }
 
@@ -81,12 +85,14 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
 	mux.Handle("GET /routes", http.HandlerFunc(s.handleRoutes))
-	mux.Handle("GET /logs", createStreamListHandler(s.logStream, s.filterLogs))
-	mux.Handle("GET /dns-resolve", createStreamListHandler(s.resolveStream, s.filterResolves))
+	mux.Handle("GET /logs", createListHandler(s.logStream, s.filterLogs))
+	mux.Handle("GET /logs/ws", createStreamHandler(s.logStream, s.logger, s.filterLogs))
+	mux.Handle("GET /dns-resolve", createListHandler(s.resolveStream, s.filterResolves))
+	mux.Handle("GET /dns-resolve/ws", createStreamHandler(s.resolveStream, s.logger, s.filterResolves))
 	return mux
 }
 
-func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) func(val log.Entry) bool {
+func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) FilterFunc[log.Entry] {
 	levels := slices.DeleteFunc(strings.Split(query.Get("level"), ","), func(s string) bool { return s == "" })
 	if len(levels) == 0 {
 		return nil
@@ -100,7 +106,7 @@ func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) func(val log.
 	}
 }
 
-func (s *HTTPServer) filterResolves(_ *http.Request, query url.Values) func(val DomainResolve) bool {
+func (s *HTTPServer) filterResolves(_ *http.Request, query url.Values) FilterFunc[DomainResolve] {
 	domain := strings.TrimSpace(query.Get("domain"))
 	search := strings.TrimSpace(query.Get("search"))
 	excludeRouted := queryParamSet(query, "exclude_routed")
@@ -177,7 +183,9 @@ func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
 	_ = json.NewEncoder(w).Encode(routes) //nolint:errchkjson // ignore any error
 }
 
-func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactory func(r *http.Request, q url.Values) func(val T) bool) http.Handler {
+type requestFilterFactory[T any] func(r *http.Request, q url.Values) FilterFunc[T]
+
+func createListHandler[T any](stream *util.BufferedStream[T], filterFactory requestFilterFactory[T]) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
@@ -229,6 +237,82 @@ func createStreamListHandler[T any](stream *util.BufferedStream[T], filterFactor
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(res)
 	})
+}
+
+func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		query := req.URL.Query()
+		filter := filterFactory(req, query)
+
+		conn, err := websocket.Accept(w, req, nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			logger.Error("http.ws: failed to accept websocket connection", "err", err)
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+
+		logger.Debug("http.ws: accept websocket connection", "client", req.RemoteAddr)
+		ctx := conn.CloseRead(req.Context())
+
+		cursor := stream.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
+
+		updateCh := make(chan struct{})
+		throttledUpdateCh := throttleUpdateChannel(ctx, time.Second, updateCh)
+
+		stopListen := stream.Listen(func(uint64, T) {
+			select {
+			case <-ctx.Done():
+			case updateCh <- struct{}{}: // signal about update
+			default: // do not block
+			}
+		})
+		defer stopListen()
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Debug("http.ws: websocket connection closed", "err", ctx.Err())
+				return
+			case <-throttledUpdateCh:
+				res := stream.Query(cursor, 1000, filter)
+				if len(res.Items) > 0 {
+					if err := wsjson.Write(ctx, conn, res.Items); err != nil {
+						logger.Error("http.ws: failed to send data", "err", err, "cursor", cursor)
+					} else {
+						cursor = res.LastCursor
+					}
+				}
+			}
+		}
+	})
+}
+
+func throttleUpdateChannel(ctx context.Context, interval time.Duration, ch <-chan struct{}) <-chan struct{} {
+	out := make(chan struct{})
+	go func() {
+		var timer <-chan time.Time
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+				if timer == nil {
+					timer = time.After(interval)
+				}
+			case <-timer:
+				timer = nil
+				select {
+				case <-ctx.Done():
+				case out <- struct{}{}:
+				}
+			}
+		}
+	}()
+	return out
 }
 
 func queryParamSet(q url.Values, name string) bool {

@@ -91,7 +91,7 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 
 	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "rule", "list"))
 	if err != nil {
-		s.logger.Error("failed to load rule list", slog.Any("err", err), slog.String("output", errOutput))
+		s.logger.Error("failed to load rule list", "err", err, "output", errOutput)
 		return
 	}
 
@@ -173,7 +173,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 
 	key := route.Key()
 	if _, ok := s.routes[key]; ok { // route already defined
-		s.logger.Info("route updated", slog.Any("", route))
+		s.logger.Info("route updated", "", route)
 		s.routes[key] = route // update route info (ttl, domain)
 		return
 	}
@@ -181,9 +181,9 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	//nolint:gosec // all fine
 	_, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface))
 	if err != nil {
-		s.logger.Error("failed to add route", slog.Any("err", err), slog.Any("", route), slog.Int("table", s.cfg.Table), slog.String("output", errOutput))
+		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table, "output", errOutput)
 	} else {
-		s.logger.Info("route added", slog.Any("", route), slog.Int("table", s.cfg.Table))
+		s.logger.Info("route added", "", route, "table", s.cfg.Table)
 		s.routes[key] = route
 	}
 }
@@ -207,9 +207,9 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface)
 	if err := cmd.Run(); err != nil {
-		s.logger.Error("failed to delete route", slog.Any("err", err), slog.Any("", route), slog.Int("table", s.cfg.Table))
+		s.logger.Error("failed to delete route", "err", err, "", route, "table", s.cfg.Table)
 	} else {
-		s.logger.Info("route deleted", slog.Any("", route), slog.Int("table", s.cfg.Table))
+		s.logger.Info("route deleted", "", route, "table", s.cfg.Table)
 		delete(s.routes, route.Key())
 	}
 }
@@ -220,9 +220,9 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iff", rule.Iif, "table", strconv.Itoa(rule.TableID), "priority", strconv.Itoa(rule.Priority))
 	if err := cmd.Run(); err != nil {
-		s.logger.Error("failed to add rule", slog.Any("err", err), slog.Any("rule", rule))
+		s.logger.Error("failed to add rule", "err", err, "rule", rule)
 	} else {
-		s.logger.Info("rule added", slog.Any("rule", rule))
+		s.logger.Info("rule added", "rule", rule)
 	}
 }
 
@@ -232,7 +232,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 	//nolint:gosec // all fine
 	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)))
 	if err != nil {
-		s.logger.Error("failed to load route table", slog.Any("err", err), slog.Int("table", s.cfg.Table), slog.String("output", errOutput))
+		s.logger.Error("failed to load route table", "err", err, "table", s.cfg.Table, "output", errOutput)
 		return nil
 	}
 
@@ -247,7 +247,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 			route := IPRoute{NewDNSRecord("", ip, routeExpires), iface}
 			routes[route.Key()] = route
 		} else {
-			s.logger.Warn("unexpected route output", slog.String("line", line))
+			s.logger.Warn("unexpected route output", "line", line)
 		}
 	}
 	return routes

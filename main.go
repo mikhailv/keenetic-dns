@@ -37,7 +37,7 @@ func main() {
 
 	cfg, err := LoadConfig("config.yaml")
 	if err != nil {
-		logger.Error("failed to load config", slog.Any("err", err))
+		logger.Error("failed to load config", "err", err)
 		os.Exit(1)
 	}
 
@@ -75,14 +75,14 @@ func main() {
 }
 
 func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func()) {
-	logger = logger.With(slog.String("file", file))
+	logger = logger.With("file", file)
 	if err := store.Load(file); err != nil {
-		logger.Error("dns_store: failed to load", slog.Any("err", err))
+		logger.Error("dns_store: failed to load", "err", err)
 	}
 	return func() {
 		logger.Info("dns_store: saving ...")
 		if err := store.Save(file); err != nil {
-			logger.Error("dns_store: failed to save", slog.Any("err", err))
+			logger.Error("dns_store: failed to save", "err", err)
 		}
 	}
 }
@@ -123,17 +123,16 @@ func setupPprof(ctx context.Context, addr string, logger *slog.Logger) {
 	}
 
 	go func() {
-		logger.Info("pprof handler started", slog.String("addr", addr))
+		logger.Info("pprof handler started", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil {
-			logger.Error("failed to serve pprof handler", slog.Any("err", err))
+			logger.Error("failed to serve pprof handler", "err", err)
 		}
 	}()
 
-	go func() {
-		<-ctx.Done()
+	context.AfterFunc(ctx, func() {
 		_ = srv.Close()
 		logger.Info("pprof handler stopped")
-	}()
+	})
 }
 
 func listenStopSignal(parentCtx context.Context) context.Context {

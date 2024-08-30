@@ -63,7 +63,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 			}
 		}
 
-		s.logger.Debug("domain resolved", slog.String("domain", res.Domain), slog.Int("ips", len(res.A)))
+		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.A))
 	}
 
 	return resp, nil

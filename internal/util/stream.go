@@ -20,7 +20,7 @@ var _ Stream[string] = (*BufferedStream[string])(nil)
 type BufferedStream[T any] struct {
 	mu           sync.RWMutex
 	buf          *ringBuf[streamEntry[T]]
-	cursor       uint32
+	index        uint32
 	listeners    map[int]func(cursor uint64, val T)
 	nextListener int
 }
@@ -44,18 +44,19 @@ type streamEntry[T any] struct {
 
 func NewBufferedStream[T any](bufferSize int) *BufferedStream[T] {
 	return &BufferedStream[T]{
-		buf: newRingBuf[streamEntry[T]](bufferSize),
+		buf:       newRingBuf[streamEntry[T]](bufferSize),
+		listeners: map[int]func(cursor uint64, val T){},
 	}
 }
 
 func (s *BufferedStream[T]) Append(value T) {
-	cursor := (uint64(time.Now().UnixMilli()) << 20) | uint64(atomic.AddUint32(&s.cursor, 1)&0xfffff) // store only 52 bits
+	cursor := (uint64(time.Now().UnixMilli()) << 20) | uint64(atomic.AddUint32(&s.index, 1)&0xfffff) // store only 52 bits (JS Number limitation)
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.buf.Add(streamEntry[T]{cursor, value})
 	for _, listener := range s.listeners {
 		listener(cursor, value)
 	}
-	s.mu.Unlock()
 }
 
 func (s *BufferedStream[T]) Query(cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
@@ -102,8 +103,6 @@ func (s *BufferedStream[T]) query(forward bool, cursor uint64, count int, predic
 		iterator = s.buf.Iterator(pos, -1)
 	}
 
-	res.LastCursor = cursor
-	res.FirstCursor = cursor
 	for it := range iterator {
 		if predicate != nil && !predicate(it.Val) {
 			continue

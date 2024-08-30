@@ -3,6 +3,7 @@ module github.com/mikhailv/keenetic-dns
 go 1.23.0
 
 require (
+	github.com/coder/websocket v1.8.12
 	github.com/miekg/dns v1.1.62
 	github.com/prometheus/client_golang v1.20.2
 	gopkg.in/yaml.v3 v3.0.1
