@@ -1,0 +1,21 @@
+routing:
+  hosts:
+    ovpn_br0:
+    # youtube
+    - youtube.com
+    - googlevideo.com
+    - ytimg.com
+    - ggpht.com
+
+    # instagram
+    - instagram.com
+    - cdninstagram.com
+
+    # facebook
+    - facebook.com
+    - fbcdn.net
+
+    # misc
+    - medium.com
+    - linkedin.com
+    - autodesk.com
