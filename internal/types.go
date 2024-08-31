@@ -47,12 +47,12 @@ func NewDNSRecord(domain string, ip IPv4, expires time.Time) DNSRecord {
 	return DNSRecord{DNSRecordKey{ip, domain}, expires}
 }
 
-func (r DNSRecord) Expired() bool {
-	return time.Now().After(r.Expires)
+func (r DNSRecord) Expired(extraTTL time.Duration) bool {
+	return time.Now().After(r.Expires.Add(extraTTL))
 }
 
 func (r DNSRecord) TTL() time.Duration {
-	if r.Expired() {
+	if r.Expired(0) {
 		return 0
 	}
 	return time.Until(r.Expires).Truncate(time.Second)
@@ -85,10 +85,6 @@ type IPRouteKey struct {
 type IPRoute struct {
 	DNSRecord
 	Iface string `json:"iface"`
-}
-
-func (r IPRoute) Expired(extraTTL time.Duration) bool {
-	return time.Now().After(r.Expires.Add(extraTTL))
 }
 
 func (r IPRoute) Key() IPRouteKey {

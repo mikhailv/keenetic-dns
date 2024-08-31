@@ -16,9 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/coder/websocket/wsjson"
-
 	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 

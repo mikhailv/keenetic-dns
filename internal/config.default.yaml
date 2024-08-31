@@ -3,8 +3,9 @@ addr: '0.0.0.0:5333'
 #dns_provider: https://1.1.1.1/dns-query
 dns_provider: 1.1.1.1:53
 dns_provider_timeout: 20s
+dns_ttl_override: 60s
 
-reconcile_interval: 5m
+reconcile_interval: 2m
 
 dump:
   file: domains.json

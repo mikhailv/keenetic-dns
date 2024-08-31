@@ -18,6 +18,7 @@ type Config struct {
 
 	DNSProvider        string        `yaml:"dns_provider"`
 	DNSProviderTimeout time.Duration `yaml:"dns_provider_timeout"`
+	DNSTTLOverride     time.Duration `yaml:"dns_ttl_override"`
 
 	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 

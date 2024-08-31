@@ -44,11 +44,7 @@ func main() {
 	dnsStore := NewDNSStore()
 	saveStore := initDNSStore(cfg.Dump.File, logger, dnsStore)
 
-	go func() {
-		util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) {
-			saveStore()
-		})
-	}()
+	go util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) { saveStore() })
 
 	ipRoutes := NewIPRouteController(cfg.Routing, logger, dnsStore, cfg.ReconcileInterval)
 	ipRoutes.Start(ctx)
@@ -60,8 +56,13 @@ func main() {
 		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
 
+	dnsCache := NewDNSCache()
+	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
+
 	service := NewDNSRoutingService(logger, dnsProvider, ipRoutes)
+
 	resolver := NewSingleInflightDNSResolver(service)
+	resolver = NewCachedDNSResolver(resolver, dnsCache, cfg.DNSTTLOverride)
 
 	httpServer := NewHTTPServer(cfg.Addr, logger, resolver, ipRoutes, logStream, service.ResolveStream())
 	go httpServer.Serve(ctx)

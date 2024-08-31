@@ -122,7 +122,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
 			route := IPRoute{rec, iface}
 			actual[route.Key()] = route
-		} else if rec.Expired() {
+		} else if rec.Expired(0) {
 			s.dnsStore.Remove(rec.DNSRecordKey)
 		}
 	}
@@ -218,7 +218,7 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	defer TrackDuration("add_rule")()
 
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iff", rule.Iif, "table", strconv.Itoa(rule.TableID), "priority", strconv.Itoa(rule.Priority))
+	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", strconv.Itoa(rule.TableID), "priority", strconv.Itoa(rule.Priority))
 	if err := cmd.Run(); err != nil {
 		s.logger.Error("failed to add rule", "err", err, "rule", rule)
 	} else {
