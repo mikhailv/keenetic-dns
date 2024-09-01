@@ -56,7 +56,7 @@ func (s *IPRouteController) Routes() []IPRoute {
 func (s *IPRouteController) Start(ctx context.Context) {
 	go s.startQueueProcessor(ctx)
 	s.reconcile(ctx)
-	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcileRoutes)
+	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcile)
 }
 
 func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
