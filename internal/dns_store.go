@@ -51,6 +51,7 @@ func (s *DNSStore) Load(file string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
+	defer f.Close()
 	var records []DNSRecord
 	if err := json.NewDecoder(f).Decode(&records); err != nil {
 		return fmt.Errorf("failed to load DNS records: %w", err)
@@ -69,6 +70,7 @@ func (s *DNSStore) Save(file string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create dump file: %w", err)
 	}
+	defer f.Close()
 	if err := json.NewEncoder(f).Encode(s.Records()); err != nil {
 		return fmt.Errorf("failed to save records to dump file: %w", err)
 	}

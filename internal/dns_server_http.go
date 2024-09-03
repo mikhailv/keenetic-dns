@@ -257,7 +257,7 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 		cursor := stream.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
 
 		updateCh := make(chan struct{})
-		throttledUpdateCh := throttleUpdateChannel(ctx, time.Second, updateCh)
+		debouncedUpdateCh := debounceUpdateChannel(ctx, time.Second/2, time.Second*2, updateCh)
 
 		stopListen := stream.Listen(func(uint64, T) {
 			select {
@@ -273,7 +273,7 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 			case <-ctx.Done():
 				logger.Debug("http.ws: websocket connection closed", "err", ctx.Err())
 				return
-			case <-throttledUpdateCh:
+			case <-debouncedUpdateCh:
 				res := stream.Query(cursor, 1000, filter)
 				if len(res.Items) > 0 {
 					if err := wsjson.Write(ctx, conn, res.Items); err != nil {
@@ -287,10 +287,18 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 	})
 }
 
-func throttleUpdateChannel(ctx context.Context, interval time.Duration, ch <-chan struct{}) <-chan struct{} {
+func debounceUpdateChannel(ctx context.Context, minInterval, maxInterval time.Duration, ch <-chan struct{}) <-chan struct{} {
 	out := make(chan struct{})
 	go func() {
-		var timer <-chan time.Time
+		var minTimer, maxTimer <-chan time.Time
+		sendUpdate := func() {
+			minTimer = nil
+			maxTimer = nil
+			select {
+			case <-ctx.Done():
+			case out <- struct{}{}:
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -299,15 +307,14 @@ func throttleUpdateChannel(ctx context.Context, interval time.Duration, ch <-cha
 				if !ok {
 					return
 				}
-				if timer == nil {
-					timer = time.After(interval)
+				minTimer = time.After(minInterval)
+				if maxTimer == nil {
+					maxTimer = time.After(maxInterval)
 				}
-			case <-timer:
-				timer = nil
-				select {
-				case <-ctx.Done():
-				case out <- struct{}{}:
-				}
+			case <-minTimer:
+				sendUpdate()
+			case <-maxTimer:
+				sendUpdate()
 			}
 		}
 	}()

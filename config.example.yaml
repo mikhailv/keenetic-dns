@@ -6,6 +6,7 @@ routing:
     - googlevideo.com
     - ytimg.com
     - ggpht.com
+    - googleapis.com
 
     # instagram
     - instagram.com

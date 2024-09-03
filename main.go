@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
 	pp "runtime/pprof"
 	"strings"
 	"syscall"
@@ -102,6 +103,8 @@ func setupPprof(ctx context.Context, addr string, logger *slog.Logger) {
 	if addr == "" {
 		return
 	}
+
+	runtime.MemProfileRate = 1
 
 	var mux http.ServeMux
 	mux.HandleFunc("/", pprof.Index)

@@ -6,10 +6,10 @@ import (
 )
 
 type Entry struct {
-	Time  int64          `json:"time"`
-	Level string         `json:"level"`
-	Msg   string         `json:"msg"`
-	Attrs map[string]any `json:"attrs,omitempty"`
+	Time  int64             `json:"time"`
+	Level string            `json:"level"`
+	Msg   string            `json:"msg"`
+	Attrs map[string]string `json:"attrs,omitempty"`
 }
 
 func NewEntry(rec slog.Record) Entry {
@@ -19,7 +19,7 @@ func NewEntry(rec slog.Record) Entry {
 		Msg:   rec.Message,
 	}
 	if rec.NumAttrs() > 0 {
-		entry.Attrs = make(map[string]any, rec.NumAttrs())
+		entry.Attrs = make(map[string]string, rec.NumAttrs())
 		rec.Attrs(entry.addAttr)
 	}
 	return entry
@@ -35,12 +35,8 @@ func (s *Entry) addAttr(attr slog.Attr) bool {
 	val := attr.Value.Resolve().Any()
 	if attrs, ok := val.([]slog.Attr); ok {
 		s.addAttrs(attrs)
-	} else if err, ok := val.(error); ok {
-		s.Attrs[attr.Key] = err.Error()
-	} else if str, ok := val.(fmt.Stringer); ok {
-		s.Attrs[attr.Key] = str.String()
 	} else {
-		s.Attrs[attr.Key] = val
+		s.Attrs[attr.Key] = fmt.Sprint(val)
 	}
 	return true
 }
