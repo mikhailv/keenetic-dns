@@ -36,6 +36,7 @@ type RoutingConfig struct {
 	Rule         RoutingRuleConfig `yaml:"rule"`
 	RouteTimeout time.Duration     `yaml:"route_timeout"`
 	Hosts        map[string]Hosts  `yaml:"hosts"`
+	Static       map[string][]IPv4 `yaml:"static"`
 }
 
 type RoutingRuleConfig struct {
@@ -87,7 +88,7 @@ func LoadConfig(file string) (*Config, error) {
 	defer f.Close()
 
 	cfg := DefaultConfig()
-	if err := yaml.NewDecoder(f).Decode(cfg); err != nil {
+	if err = yaml.NewDecoder(f).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 	return cfg, nil

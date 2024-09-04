@@ -1,36 +1,74 @@
 package internal
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
+	"strings"
 	"time"
 )
 
-type IPv4 [4]byte
+type IPv4 [5]byte
 
-func NewIPv4(ip net.IP) IPv4 {
+func newIPv4(ip net.IP, prefix int) IPv4 {
 	ip = ip.To4()
 	if len(ip) != 4 {
 		panic("invalid IPv4 address")
 	}
-	return IPv4(ip.To4())
+	if prefix < 0 || prefix > 33 { // 33 is special case
+		panic("prefix must be between 0 and 33")
+	}
+	var r IPv4
+	copy(r[:], ip)
+	r[4] = byte(prefix)
+	return r
+}
+
+func NewIPv4(ip net.IP) IPv4 {
+	return newIPv4(ip.To4(), 33)
+}
+
+func ParseIPv4(s string) (IPv4, error) {
+	var ip net.IP
+	var prefix int
+	if p := strings.IndexByte(s, '/'); p < 0 {
+		ip = net.ParseIP(s)
+		prefix = 33
+	} else {
+		ip = net.ParseIP(s[:p])
+		if n, err := strconv.Atoi(s[p+1:]); err != nil {
+			return IPv4{}, fmt.Errorf("failed to parse IP prefix '%s': %w", s[p+1:], err)
+		} else {
+			prefix = n
+		}
+	}
+	return newIPv4(ip, prefix), nil
+}
+
+func (ip IPv4) HasPrefix() bool {
+	return ip[4] <= 32
+}
+
+func (ip IPv4) Prefix() int {
+	return min(int(ip[4]), 32)
 }
 
 func (ip IPv4) String() string {
-	return net.IP(ip[:]).String()
+	if ip[4] == 33 {
+		return net.IP(ip[:4]).String()
+	}
+	return net.IP(ip[:4]).String() + "/" + strconv.Itoa(int(ip[4]))
 }
 
 func (ip IPv4) MarshalText() ([]byte, error) {
-	return net.IP(ip[:]).MarshalText()
+	return []byte(ip.String()), nil
 }
 
 func (ip *IPv4) UnmarshalText(b []byte) error {
-	var v net.IP
-	if err := v.UnmarshalText(b); err != nil {
-		return err
-	}
-	*ip = IPv4(v.To4())
-	return nil
+	var err error
+	*ip, err = ParseIPv4(string(b))
+	return err
 }
 
 type DNSRecordKey struct {
@@ -48,6 +86,9 @@ func NewDNSRecord(domain string, ip IPv4, expires time.Time) DNSRecord {
 }
 
 func (r DNSRecord) Expired(extraTTL time.Duration) bool {
+	if r.Expires.IsZero() {
+		return false
+	}
 	return time.Now().After(r.Expires.Add(extraTTL))
 }
 
@@ -77,30 +118,34 @@ type ARecord struct {
 	TTL uint32 `json:"ttl"`
 }
 
-type IPRouteKey struct {
-	IP    IPv4
-	Iface string
-}
-
 type IPRoute struct {
-	DNSRecord
+	Addr  IPv4   `json:"addr"`
 	Iface string `json:"iface"`
-}
-
-func (r IPRoute) Key() IPRouteKey {
-	return IPRouteKey{
-		IP:    r.IP,
-		Iface: r.Iface,
-	}
 }
 
 func (r IPRoute) LogValue() slog.Value {
 	return slog.GroupValue(
-		slog.String("domain", r.Domain),
-		slog.String("ip", r.IP.String()),
-		slog.Duration("ttl", r.TTL()),
+		slog.String("addr", r.Addr.String()),
 		slog.String("iface", r.Iface),
 	)
+}
+
+type IPRouteDNS struct {
+	IPRoute
+	DNSRecord []DNSRecord `json:"dns_records,omitempty"`
+}
+
+func (r IPRouteDNS) LogValue() slog.Value {
+	attrs := make([]slog.Attr, 0, 2+2*len(r.DNSRecord))
+	attrs = append(attrs, slog.String("addr", r.Addr.String()), slog.String("iface", r.Iface))
+	for i, rec := range r.DNSRecord {
+		if i == 0 {
+			attrs = append(attrs, slog.String("domain", rec.Domain), slog.Duration("ttl", rec.TTL()))
+		} else {
+			attrs = append(attrs, slog.String(fmt.Sprintf("domain%d", i+1), rec.Domain), slog.Duration(fmt.Sprintf("ttl%d", i+1), rec.TTL()))
+		}
+	}
+	return slog.GroupValue(attrs...)
 }
 
 type IPRoutingRule struct {

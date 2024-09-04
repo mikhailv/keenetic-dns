@@ -5,23 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type IPRouteController struct {
-	mu                sync.Mutex
 	cfg               RoutingConfig
 	logger            *slog.Logger
 	dnsStore          *DNSStore
-	routes            map[IPRouteKey]IPRoute
+	routes            *util.SyncSet[IPRoute]
 	addQueue          chan IPRoute
 	deleteQueue       chan IPRoute
 	reconcileInterval time.Duration
@@ -32,7 +29,7 @@ func NewIPRouteController(cfg RoutingConfig, logger *slog.Logger, dnsStore *DNSS
 		cfg:               cfg,
 		logger:            logger,
 		dnsStore:          dnsStore,
-		routes:            map[IPRouteKey]IPRoute{},
+		routes:            util.NewSyncSet[IPRoute](),
 		addQueue:          make(chan IPRoute),
 		deleteQueue:       make(chan IPRoute),
 		reconcileInterval: reconcileInterval,
@@ -43,20 +40,28 @@ func (s *IPRouteController) LookupHost(host string) (iface string) {
 	return s.cfg.LookupHost(host)
 }
 
-func (s *IPRouteController) Routes() []IPRoute {
-	s.mu.Lock()
-	res := make([]IPRoute, 0, len(s.routes))
-	for _, route := range s.routes {
-		res = append(res, route)
-	}
-	s.mu.Unlock()
+func (s *IPRouteController) Routes() []IPRouteDNS {
+	res := make([]IPRouteDNS, 0, s.routes.Size())
+	s.routes.Iterate(func(route IPRoute) bool {
+		res = append(res, IPRouteDNS{route, removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)})
+		return true
+	})
 	return res
 }
 
 func (s *IPRouteController) Start(ctx context.Context) {
+	s.init()
 	go s.startQueueProcessor(ctx)
 	s.reconcile(ctx)
 	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcile)
+}
+
+func (s *IPRouteController) init() {
+	for _, rec := range s.dnsStore.Records() {
+		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
+			s.routes.Add(IPRoute{rec.IP, iface})
+		}
+	}
 }
 
 func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
@@ -116,43 +121,42 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 
 	s.logger.Info("reconcile routes")
 
-	defined := s.loadRoutes(ctx)
-	actual := map[IPRouteKey]IPRoute{}
-	for _, rec := range s.dnsStore.Records() {
-		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
-			route := IPRoute{rec, iface}
-			actual[route.Key()] = route
-		} else if rec.Expired(0) {
-			s.dnsStore.Remove(rec.DNSRecordKey)
+	definedRoutes := s.loadRoutes(ctx)
+
+	addRoute := func(route IPRoute) {
+		_, defined := definedRoutes[route]
+		delete(definedRoutes, route) // delete from set, to track unexpected routes later
+		if !defined {
+			s.enqueueAddRoute(ctx, route)
 		}
 	}
 
-	for key, route := range actual {
-		expired := route.Expired(s.cfg.RouteTimeout)
-		if _, ok := defined[key]; ok {
-			if expired {
-				s.enqueueDeleteRoute(ctx, route)
-			} else {
-				s.mu.Lock()
-				s.routes[key] = route
-				s.mu.Unlock()
-			}
-			delete(defined, key)
-		} else {
-			if expired {
-				s.dnsStore.Remove(route.DNSRecordKey)
-			} else {
-				s.enqueueAddRoute(ctx, route)
-			}
+	s.routes.Iterate(func(route IPRoute) bool {
+		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
+		if len(records) > 0 {
+			addRoute(route)
+		}
+		return true
+	})
+
+	for iface, addresses := range s.cfg.Static {
+		for _, addr := range addresses {
+			route := IPRoute{addr, iface}
+			s.routes.Add(route)
+			addRoute(route)
 		}
 	}
-	for _, route := range defined {
+
+	for route := range definedRoutes {
+		s.routes.Remove(route)
 		s.enqueueDeleteRoute(ctx, route)
 	}
 }
 
-func (s *IPRouteController) AddRoute(ctx context.Context, rec DNSRecord, iface string) {
-	s.enqueueAddRoute(ctx, IPRoute{rec, iface})
+func (s *IPRouteController) AddRoute(ctx context.Context, route IPRoute) {
+	if s.routes.Add(route) {
+		s.enqueueAddRoute(ctx, route)
+	}
 }
 
 func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) {
@@ -166,25 +170,13 @@ func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("add_route")()
 
-	s.dnsStore.Add(route.DNSRecord)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	key := route.Key()
-	if _, ok := s.routes[key]; ok { // route already defined
-		s.logger.Info("route updated", "", route)
-		s.routes[key] = route // update route info (ttl, domain)
-		return
-	}
-
 	//nolint:gosec // all fine
-	_, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface))
+	_, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface))
 	if err != nil {
 		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table, "output", errOutput)
 	} else {
 		s.logger.Info("route added", "", route, "table", s.cfg.Table)
-		s.routes[key] = route
+		s.routes.Add(route)
 	}
 }
 
@@ -199,18 +191,12 @@ func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRout
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("delete_route")()
 
-	s.dnsStore.Remove(route.DNSRecordKey)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", strconv.Itoa(s.cfg.Table), route.IP.String(), "dev", route.Iface)
+	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface)
 	if err := cmd.Run(); err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route, "table", s.cfg.Table)
 	} else {
 		s.logger.Info("route deleted", "", route, "table", s.cfg.Table)
-		delete(s.routes, route.Key())
 	}
 }
 
@@ -226,7 +212,7 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	}
 }
 
-func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRoute {
+func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{} {
 	defer TrackDuration("load_routes")()
 
 	//nolint:gosec // all fine
@@ -236,16 +222,18 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRouteKey]IPRou
 		return nil
 	}
 
-	routeExpires := time.Now().Add(s.cfg.RouteTimeout)
-	routes := map[IPRouteKey]IPRoute{}
+	routes := map[IPRoute]struct{}{}
 	for _, line := range parseOutputLines(output) {
 		ss := strings.Split(line, " ")
 		if len(ss) == 5 {
 			// example: `209.85.233.100 dev ovpn_br0 scope link`
-			ip := NewIPv4(net.ParseIP(ss[0]))
-			iface := strings.Clone(ss[2])
-			route := IPRoute{NewDNSRecord("", ip, routeExpires), iface}
-			routes[route.Key()] = route
+			route := IPRoute{Iface: strings.Clone(ss[2])}
+			route.Addr, err = ParseIPv4(ss[0])
+			if err != nil {
+				s.logger.Warn("unexpected route address", "line", line, "err", err)
+			} else {
+				routes[route] = struct{}{}
+			}
 		} else {
 			s.logger.Warn("unexpected route output", "line", line)
 		}
