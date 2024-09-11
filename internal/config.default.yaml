@@ -6,6 +6,7 @@ dns_provider_timeout: 20s
 dns_ttl_override: 60s
 
 reconcile_interval: 2m
+reconcile_timeout: 20s
 
 dump:
   file: domains.json
@@ -16,4 +17,4 @@ routing:
   rule:
     iif: br0
     priority: 1995
-  route_timeout: 20m
+  route_timeout: 10m

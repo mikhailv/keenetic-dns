@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -22,9 +23,16 @@ type IPRouteController struct {
 	addQueue          chan IPRoute
 	deleteQueue       chan IPRoute
 	reconcileInterval time.Duration
+	reconcileTimeout  time.Duration
 }
 
-func NewIPRouteController(cfg RoutingConfig, logger *slog.Logger, dnsStore *DNSStore, reconcileInterval time.Duration) *IPRouteController {
+func NewIPRouteController(
+	cfg RoutingConfig,
+	logger *slog.Logger,
+	dnsStore *DNSStore,
+	reconcileInterval time.Duration,
+	reconcileTimeout time.Duration,
+) *IPRouteController {
 	return &IPRouteController{
 		cfg:               cfg,
 		logger:            logger,
@@ -33,6 +41,7 @@ func NewIPRouteController(cfg RoutingConfig, logger *slog.Logger, dnsStore *DNSS
 		addQueue:          make(chan IPRoute),
 		deleteQueue:       make(chan IPRoute),
 		reconcileInterval: reconcileInterval,
+		reconcileTimeout:  reconcileTimeout,
 	}
 }
 
@@ -43,7 +52,11 @@ func (s *IPRouteController) LookupHost(host string) (iface string) {
 func (s *IPRouteController) Routes() []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	s.routes.Iterate(func(route IPRoute) bool {
-		res = append(res, IPRouteDNS{route, removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)})
+		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
+		slices.SortFunc(records, func(a, b DNSRecord) int {
+			return cmp.Compare(a.Domain, b.Domain)
+		})
+		res = append(res, IPRouteDNS{route, records})
 		return true
 	})
 	return res
@@ -85,6 +98,9 @@ func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
 }
 
 func (s *IPRouteController) reconcile(ctx context.Context) {
+	s.dnsStore.RemoveExpired(s.cfg.RouteTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.reconcileTimeout)
+	defer cancel()
 	s.reconcileRoutes(ctx)
 	s.reconcileRules(ctx)
 }
@@ -222,7 +238,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{}
 		return nil
 	}
 
-	routes := map[IPRoute]struct{}{}
+	routes := make(map[IPRoute]struct{}, s.routes.Size())
 	for _, line := range parseOutputLines(output) {
 		ss := strings.Split(line, " ")
 		if len(ss) == 5 {

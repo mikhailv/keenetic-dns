@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type IPv4 [5]byte
@@ -107,15 +109,18 @@ func (r DNSRecord) LogValue() slog.Value {
 	)
 }
 
+var _ util.CursorAware = (*DomainResolve)(nil)
+
 type DomainResolve struct {
-	Time   uint32    `json:"time"`
+	Cursor uint64    `json:"cursor,omitempty"`
+	Time   time.Time `json:"time"`
 	Domain string    `json:"domain"`
-	A      []ARecord `json:"A"`
+	TTL    uint32    `json:"ttl"`
+	IPs    []IPv4    `json:"ips"`
 }
 
-type ARecord struct {
-	IP  IPv4   `json:"ip"`
-	TTL uint32 `json:"ttl"`
+func (s *DomainResolve) SetCursor(cursor uint64) {
+	s.Cursor = cursor
 }
 
 type IPRoute struct {

@@ -21,6 +21,7 @@ type Config struct {
 	DNSTTLOverride     time.Duration `yaml:"dns_ttl_override"`
 
 	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
+	ReconcileTimeout  time.Duration `yaml:"reconcile_timeout"`
 
 	Dump    DumpConfig    `yaml:"dump"`
 	Routing RoutingConfig `yaml:"routing"`

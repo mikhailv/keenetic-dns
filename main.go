@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -44,10 +45,9 @@ func main() {
 
 	dnsStore := NewDNSStore()
 	saveStore := initDNSStore(cfg.Dump.File, logger, dnsStore)
-	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsStore.RemoveExpired(cfg.Routing.RouteTimeout) })
 	go util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) { saveStore() })
 
-	ipRoutes := NewIPRouteController(cfg.Routing, logger, dnsStore, cfg.ReconcileInterval)
+	ipRoutes := NewIPRouteController(cfg.Routing, logger, dnsStore, cfg.ReconcileInterval, cfg.ReconcileTimeout)
 	ipRoutes.Start(ctx)
 
 	var dnsProvider DNSResolver
@@ -128,7 +128,7 @@ func setupPprof(ctx context.Context, addr string, logger *slog.Logger) {
 
 	go func() {
 		logger.Info("pprof handler started", "addr", addr)
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("failed to serve pprof handler", "err", err)
 		}
 	}()

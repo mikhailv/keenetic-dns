@@ -1,0 +1,4 @@
+/build/
+/node_modules/
+/static/app.js
+/static/app.js.map

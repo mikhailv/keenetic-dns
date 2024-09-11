@@ -1,8 +1,11 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
+	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,25 +51,33 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 	if resp.Question[0].Qtype == dns.TypeA {
 		now := time.Now()
 		res := DomainResolve{
-			Time:   uint32(now.Unix()), //nolint:gosec // no overflow
+			Time:   now,
 			Domain: strings.TrimRight(resp.Question[0].Name, "."),
-			A:      make([]ARecord, 0, len(resp.Answer)),
+			TTL:    math.MaxUint32,
+			IPs:    make([]IPv4, 0, len(resp.Answer)),
 		}
 		for _, it := range resp.Answer {
 			if a, ok := it.(*dns.A); ok {
-				res.A = append(res.A, ARecord{NewIPv4(a.A), a.Hdr.Ttl})
+				res.TTL = min(res.TTL, a.Hdr.Ttl)
+				res.IPs = append(res.IPs, NewIPv4(a.A))
 			}
 		}
-		s.resolveStream.Append(res)
+		slices.SortFunc(res.IPs, func(a, b IPv4) int {
+			return bytes.Compare(a[:], b[:])
+		})
 
-		if iface := s.ipRoutes.LookupHost(res.Domain); iface != "" {
-			for _, it := range res.A {
-				s.dnsStore.Add(NewDNSRecord(res.Domain, it.IP, now.Add(time.Duration(it.TTL)*time.Second)))
-				s.ipRoutes.AddRoute(ctx, IPRoute{it.IP, iface})
+		if len(res.IPs) > 0 {
+			s.resolveStream.Append(res)
+
+			if iface := s.ipRoutes.LookupHost(res.Domain); iface != "" {
+				for _, ip := range res.IPs {
+					s.dnsStore.Add(NewDNSRecord(res.Domain, ip, now.Add(time.Duration(res.TTL)*time.Second)))
+					s.ipRoutes.AddRoute(ctx, IPRoute{ip, iface})
+				}
 			}
-		}
 
-		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.A))
+			s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs))
+		}
 	}
 
 	return resp, nil

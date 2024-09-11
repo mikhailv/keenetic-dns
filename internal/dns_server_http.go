@@ -3,6 +3,7 @@ package internal
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,9 +21,11 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/miekg/dns"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/cors"
 
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/util"
+	"github.com/mikhailv/keenetic-dns/web/static"
 )
 
 const (
@@ -83,12 +86,15 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
-	mux.Handle("GET /routes", http.HandlerFunc(s.handleRoutes))
-	mux.Handle("GET /logs", createListHandler(s.logStream, s.filterLogs))
-	mux.Handle("GET /logs/ws", createStreamHandler(s.logStream, s.logger, s.filterLogs))
-	mux.Handle("GET /dns-resolve", createListHandler(s.resolveStream, s.filterResolves))
-	mux.Handle("GET /dns-resolve/ws", createStreamHandler(s.resolveStream, s.logger, s.filterResolves))
-	return mux
+	mux.Handle("GET /api/routes", http.HandlerFunc(s.handleRoutes))
+	mux.Handle("GET /api/logs", createListHandler(s.logStream, s.filterLogs))
+	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, s.logger, s.filterLogs))
+	mux.Handle("GET /api/dns-resolve", createListHandler(s.resolveStream, s.filterResolves))
+	mux.Handle("GET /api/dns-resolve/ws", createStreamHandler(s.resolveStream, s.logger, s.filterResolves))
+	mux.Handle("GET /app.js", staticFileHandler("app.js"))
+	mux.Handle("GET /", staticFileHandler("index.html"))
+
+	return cors.Default().Handler(mux)
 }
 
 func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) FilterFunc[log.Entry] {
@@ -176,6 +182,12 @@ func (s *HTTPServer) handleDNSQuery(w http.ResponseWriter, req *http.Request) (s
 func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
 	routes := s.ipRoutes.Routes()
 	slices.SortFunc(routes, func(a, b IPRouteDNS) int {
+		if ap, bp := a.Addr.HasPrefix(), b.Addr.HasPrefix(); ap != bp {
+			if ap {
+				return 1
+			}
+			return -1
+		}
 		return bytes.Compare(a.Addr[:], b.Addr[:])
 	})
 	w.Header().Set("Content-Type", "application/json")
@@ -243,7 +255,7 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
 
-		conn, err := websocket.Accept(w, req, nil)
+		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			logger.Error("http.ws: failed to accept websocket connection", "err", err)
@@ -340,4 +352,10 @@ func updateURLQuery(u url.URL, values map[string]string) string {
 	}
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+type staticFileHandler string
+
+func (h staticFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	http.ServeFileFS(w, r, static.FS, string(h))
 }

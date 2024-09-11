@@ -32,6 +32,10 @@ type QueryResult[T any] struct {
 	HasMore     bool   `json:"hasMore"`
 }
 
+type CursorAware interface {
+	SetCursor(cursor uint64)
+}
+
 func (s *QueryResult[T]) Reverse() {
 	slices.Reverse(s.Items)
 	s.FirstCursor, s.LastCursor = s.LastCursor, s.FirstCursor
@@ -53,6 +57,11 @@ func (s *BufferedStream[T]) Append(value T) {
 	cursor := (uint64(time.Now().UnixMilli()) << 20) | uint64(atomic.AddUint32(&s.index, 1)&0xfffff) // store only 52 bits (JS Number limitation)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if c, ok := any(value).(CursorAware); ok {
+		c.SetCursor(cursor)
+	} else if c, ok := any(&value).(CursorAware); ok {
+		c.SetCursor(cursor)
+	}
 	s.buf.Add(streamEntry[T]{cursor, value})
 	for _, listener := range s.listeners {
 		listener(cursor, value)
