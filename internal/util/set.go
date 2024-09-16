@@ -13,12 +13,11 @@ func NewSyncSet[T comparable]() *SyncSet[T] {
 
 func (s *SyncSet[T]) Add(v T) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if _, ok := s.entries[v]; ok {
-		s.mu.Unlock()
 		return false
 	}
 	s.entries[v] = struct{}{}
-	s.mu.Unlock()
 	return true
 }
 
@@ -47,12 +46,12 @@ func (s *SyncSet[T]) Remove(v T) {
 	s.mu.Unlock()
 }
 
-func (s *SyncSet[T]) Iterate(fn func(v T) bool) {
+func (s *SyncSet[T]) Values() []T {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+	values := make([]T, 0, len(s.entries))
 	for v := range s.entries {
-		if !fn(v) {
-			break
-		}
+		values = append(values, v)
 	}
-	s.mu.RUnlock()
+	return values
 }

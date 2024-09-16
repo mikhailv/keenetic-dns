@@ -4,24 +4,24 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/mikhailv/keenetic-dns/internal/util"
+	"github.com/mikhailv/keenetic-dns/internal/stream"
 )
 
 var _ slog.Handler = Recorder{}
 
 type Recorder struct {
 	handler slog.Handler
-	stream  *util.BufferedStream[Entry]
+	stream  *stream.Buffered[Entry]
 }
 
 func NewRecorder(handler slog.Handler, bufferSize int) Recorder {
 	return Recorder{
 		handler: handler,
-		stream:  util.NewBufferedStream[Entry](bufferSize),
+		stream:  stream.NewBufferedStream[Entry](bufferSize),
 	}
 }
 
-func (s Recorder) Stream() *util.BufferedStream[Entry] {
+func (s Recorder) Stream() *stream.Buffered[Entry] {
 	return s.stream
 }
 

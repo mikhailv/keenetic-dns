@@ -17,6 +17,7 @@ import (
 
 	. "github.com/mikhailv/keenetic-dns/internal" //nolint:stylecheck //ignore
 	"github.com/mikhailv/keenetic-dns/internal/log"
+	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -89,7 +90,7 @@ func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func(
 	}
 }
 
-func setupLogger(debug bool) (*slog.Logger, *util.BufferedStream[log.Entry]) {
+func setupLogger(debug bool) (*slog.Logger, *stream.Buffered[log.Entry]) {
 	logLevel := slog.LevelInfo
 	if debug {
 		logLevel = slog.LevelDebug

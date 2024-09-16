@@ -121,6 +121,6 @@ function filterRoutes(routes: IPRoute[], filter: string): IPRoute[] {
     return routes;
   }
   return routes.filter(route => route.addr.includes(filter)
-      || route.iface.includes('filter')
+      || route.iface.includes(filter)
       || route.dns_records?.some(rec => rec.domain.includes(filter) || rec.ip.includes(filter)));
 }

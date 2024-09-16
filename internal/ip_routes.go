@@ -51,14 +51,13 @@ func (s *IPRouteController) LookupHost(host string) (iface string) {
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
-	s.routes.Iterate(func(route IPRoute) bool {
+	for _, route := range s.routes.Values() {
 		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
 		slices.SortFunc(records, func(a, b DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
 		res = append(res, IPRouteDNS{route, records})
-		return true
-	})
+	}
 	return res
 }
 
@@ -99,10 +98,14 @@ func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
 
 func (s *IPRouteController) reconcile(ctx context.Context) {
 	s.dnsStore.RemoveExpired(s.cfg.RouteTimeout)
+	s.doReconcile(ctx, s.reconcileRoutes)
+	s.doReconcile(ctx, s.reconcileRules)
+}
+
+func (s *IPRouteController) doReconcile(ctx context.Context, fn func(context.Context)) {
 	ctx, cancel := context.WithTimeout(ctx, s.reconcileTimeout)
 	defer cancel()
-	s.reconcileRoutes(ctx)
-	s.reconcileRules(ctx)
+	fn(ctx)
 }
 
 func (s *IPRouteController) reconcileRules(ctx context.Context) {
@@ -110,7 +113,7 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 
 	s.logger.Info("reconcile rules")
 
-	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "rule", "list"))
+	output, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "rule", "list"))
 	if err != nil {
 		s.logger.Error("failed to load rule list", "err", err, "output", errOutput)
 		return
@@ -147,13 +150,12 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 		}
 	}
 
-	s.routes.Iterate(func(route IPRoute) bool {
+	for _, route := range s.routes.Values() {
 		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
 		if len(records) > 0 {
 			addRoute(route)
 		}
-		return true
-	})
+	}
 
 	for iface, addresses := range s.cfg.Static {
 		for _, addr := range addresses {
@@ -178,6 +180,7 @@ func (s *IPRouteController) AddRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) {
 	select {
 	case <-ctx.Done():
+		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route, "table", s.cfg.Table)
 		return
 	case s.addQueue <- route:
 	}
@@ -187,7 +190,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("add_route")()
 
 	//nolint:gosec // all fine
-	_, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface))
+	_, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface))
 	if err != nil {
 		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table, "output", errOutput)
 	} else {
@@ -199,6 +202,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRoute) {
 	select {
 	case <-ctx.Done():
+		s.logger.Error("failed to delete route", "err", context.Cause(ctx), "", route, "table", s.cfg.Table)
 		return
 	case s.deleteQueue <- route:
 	}
@@ -232,7 +236,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{}
 	defer TrackDuration("load_routes")()
 
 	//nolint:gosec // all fine
-	output, errOutput, err := runCmd(exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)))
+	output, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)))
 	if err != nil {
 		s.logger.Error("failed to load route table", "err", err, "table", s.cfg.Table, "output", errOutput)
 		return nil
@@ -257,19 +261,28 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{}
 	return routes
 }
 
+func (s *IPRouteController) runCmd(cmd *exec.Cmd) (stdout string, stderr string, err error) {
+	cmdArgs := strings.Join(cmd.Args, " ")
+	s.logger.Debug("command start", slog.String("cmd", cmdArgs))
+	startTime := time.Now()
+
+	output, err := cmd.Output()
+
+	var exitCode int
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+		stderr = string(exitErr.Stderr)
+	}
+
+	s.logger.Debug("command exit", slog.String("cmd", cmdArgs), slog.Int("exit_code", exitCode), slog.Duration("duration", time.Since(startTime)))
+	return string(output), stderr, err
+}
+
 func parseOutputLines(output string) []string {
 	lines := strings.Split(output, "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimSpace(line)
 	}
 	return slices.DeleteFunc(lines, func(s string) bool { return s == "" })
-}
-
-func runCmd(cmd *exec.Cmd) (stdout string, stderr string, err error) {
-	output, err := cmd.Output()
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return string(output), string(exitErr.Stderr), err
-	}
-	return string(output), "", err
 }

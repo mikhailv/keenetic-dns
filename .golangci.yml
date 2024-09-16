@@ -209,3 +209,8 @@ issues:
   # To list all excluded by default patterns execute `golangci-lint run --help`.
   # Default: true.
   exclude-use-default: true
+
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    - text: 'G115: integer overflow conversion'
+      linters: [ gosec ]

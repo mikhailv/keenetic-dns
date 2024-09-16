@@ -2,21 +2,21 @@ package util
 
 import "iter"
 
-func newRingBuf[T any](capacity int) *ringBuf[T] {
-	return &ringBuf[T]{
+func NewRingBuf[T any](capacity int) *RingBuf[T] {
+	return &RingBuf[T]{
 		end: -1,
 		buf: make([]T, capacity),
 	}
 }
 
-type ringBuf[T any] struct {
+type RingBuf[T any] struct {
 	start int
 	end   int
 	size  int
 	buf   []T
 }
 
-func (s *ringBuf[T]) Add(item T) {
+func (s *RingBuf[T]) Add(item T) {
 	capacity := cap(s.buf)
 	if s.size == capacity {
 		s.start = (s.start + 1) % capacity
@@ -27,15 +27,15 @@ func (s *ringBuf[T]) Add(item T) {
 	s.buf[s.end] = item
 }
 
-func (s *ringBuf[T]) Get(i int) T {
+func (s *RingBuf[T]) Get(i int) T {
 	return s.buf[(s.start+i)%cap(s.buf)]
 }
 
-func (s *ringBuf[T]) Size() int {
+func (s *RingBuf[T]) Size() int {
 	return s.size
 }
 
-func (s *ringBuf[T]) Slice(from, count int) []T {
+func (s *RingBuf[T]) Slice(from, count int) []T {
 	if s.size == 0 || from < 0 || count <= 0 || from >= s.size {
 		return nil
 	}
@@ -47,11 +47,11 @@ func (s *ringBuf[T]) Slice(from, count int) []T {
 	return res
 }
 
-func (s *ringBuf[T]) Values() []T {
+func (s *RingBuf[T]) Values() []T {
 	return s.Slice(0, s.size)
 }
 
-func (s *ringBuf[T]) Iterator(from, step int) iter.Seq[T] {
+func (s *RingBuf[T]) Iterator(from, step int) iter.Seq[T] {
 	if step == 0 {
 		step = 1
 	}

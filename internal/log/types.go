@@ -5,13 +5,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/mikhailv/keenetic-dns/internal/util"
+	"github.com/mikhailv/keenetic-dns/internal/stream"
 )
 
-var _ util.CursorAware = (*Entry)(nil)
+var _ stream.CursorAware = (*Entry)(nil)
 
 type Entry struct {
-	Cursor uint64            `json:"cursor,omitempty"`
+	Cursor stream.Cursor     `json:"cursor,omitempty"`
 	Time   time.Time         `json:"time"`
 	Level  string            `json:"level"`
 	Msg    string            `json:"msg"`
@@ -31,7 +31,7 @@ func NewEntry(rec slog.Record) Entry {
 	return entry
 }
 
-func (s *Entry) SetCursor(cursor uint64) {
+func (s *Entry) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
 

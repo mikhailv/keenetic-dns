@@ -7,6 +7,13 @@ export interface Stream<T> {
   cancel(): void;
 }
 
+export type StreamSource<T> = () => Promise<T>;
+
+export interface StreamSink<T> {
+  push(value: T): void;
+  cancel(): void;
+}
+
 export function listenStream<T>(stream: Stream<T>, listener: (res: Result<T> | 'cancelled') => void): void {
   setTimeout(async() => {
     for (;;) {
@@ -24,35 +31,51 @@ export function listenStream<T>(stream: Stream<T>, listener: (res: Result<T> | '
 }
 
 export function tickerStream<T>(interval: number, provider: () => Promise<T>): Stream<T> {
-  return newStream(async (ctx) => {
-    if (!ctx.initial) {
-      await new Promise(resolve => setTimeout(resolve, interval));
+  return newStream({
+    async next(ctx) {
+      if (!ctx.initial) {
+        await new Promise(resolve => setTimeout(resolve, interval));
+      }
+      ctx.notCancelled();
+      return provider();
     }
-    ctx.notCancelled();
-    return provider();
   });
 }
 
 export function websocketStream<T>(provider: () => WebSocket, mapper?: (data: string) => T): Stream<T> {
   mapper ??= data => JSON.parse(data) as T;
   let ws: WebSocket | null;
+  const pushProvider = newPushStreamDataProvider<T>();
   connect();
-  const [streamPush, streamProvider] = pushStreamProvider<T>();
-  return newStream(streamProvider, () => {
+  return newStream(pushProvider, () => {
+    // stream close
     ws?.close();
     ws = null;
   });
 
   function connect() {
     ws = provider();
-    ws.addEventListener('message', msg => streamPush(mapper!(msg.data)));
-    ws.addEventListener('close', (e) => {
-      console.log(e);
+    ws.addEventListener('message', msg => pushProvider.push(mapper!(msg.data)));
+    ws.addEventListener('close', () => {
       if (ws) {
+        // reconnect
         connect();
       }
     });
   }
+}
+
+export function mapStream<T, R>(stream: Stream<T>, mapper: (value: Result<T>, sink: (value: R) => void) => void): Stream<R> {
+  const provider = newPushStreamDataProvider<R>();
+  const result = newStream<R>(provider);
+  listenStream(stream, res => {
+    if (res === 'cancelled') {
+      result.cancel();
+    } else {
+      mapper(res, provider.push);
+    }
+  });
+  return result;
 }
 
 export interface ProviderContext {
@@ -61,9 +84,11 @@ export interface ProviderContext {
   notCancelled(): void;
 }
 
-export type StreamProvider<T> = (ctx: ProviderContext) => Promise<T>;
+export interface StreamDataProvider<T> {
+  next(ctx: ProviderContext): Promise<T>;
+}
 
-export function newStream<T>(provider: StreamProvider<T>, oncancel?: () => void): Stream<T> {
+export function newStream<T>(provider: StreamDataProvider<T>, oncancel?: () => void): Stream<T> {
   let calls = 0;
   let cancelled = false;
   let promise: Promise<T>;
@@ -83,7 +108,7 @@ export function newStream<T>(provider: StreamProvider<T>, oncancel?: () => void)
 
   function scheduleNext() {
     if (!cancelled) {
-      promise = provider(providerCtx);
+      promise = provider.next(providerCtx);
       calls++;
       promise.then(scheduleNext, scheduleNext).catch(() => {});
     }
@@ -111,16 +136,18 @@ export function newStream<T>(provider: StreamProvider<T>, oncancel?: () => void)
   }
 }
 
-export function pushStreamProvider<T>(): [(value: T) => void, StreamProvider<T>] {
+export interface PushStreamDataProvider<T> extends StreamDataProvider<T> {
+  push(value: T): void;
+}
+
+export function newPushStreamDataProvider<T>(): PushStreamDataProvider<T> {
   let resolveCallback: (value: T) => void;
-
-  function push(value: T) {
-    resolveCallback?.(value);
-  }
-
-  return [push, (): Promise<T> => {
-    return new Promise(resolve => {
-      resolveCallback = resolve;
-    });
-  }];
+  return {
+    next(): Promise<T> {
+      return new Promise(resolve => resolveCallback = resolve);
+    },
+    push(value: T) {
+      resolveCallback?.(value);
+    },
+  };
 }

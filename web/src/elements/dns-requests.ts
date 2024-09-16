@@ -60,7 +60,7 @@ export class DNSRequestsElement extends LitElement {
         </tr>
         </thead>
         <tbody class="table-group-divider">
-        ${repeat(this._items, it => `${it.time.getTime()}\t${it.domain}`, it => html`
+        ${repeat(this._items, it => it.cursor, it => html`
           <tr>
             <td title=${it.time.toLocaleString()}>${formatTime(it.time)}</td>
             <td>${it.domain}</td>

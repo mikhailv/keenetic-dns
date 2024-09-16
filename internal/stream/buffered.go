@@ -1,39 +1,31 @@
-package util
+package stream
 
 import (
 	"cmp"
-	"iter" //nolint:gci // some linter bug
+	"iter"
 	"slices"
 	"sort"
 	"sync"
-	"sync/atomic"
-	"time" //nolint:gci // some linter bug
+	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-type Stream[T any] interface {
-	Append(value T)
-	Listen(listener func(cursor uint64, val T)) (stop func())
-}
+var _ Stream[string] = (*Buffered[string])(nil)
 
-var _ Stream[string] = (*BufferedStream[string])(nil)
-
-type BufferedStream[T any] struct {
+type Buffered[T any] struct {
 	mu           sync.RWMutex
-	buf          *ringBuf[streamEntry[T]]
-	index        uint32
-	listeners    map[int]func(cursor uint64, val T)
-	nextListener int
+	buf          *util.RingBuf[streamEntry[T]]
+	index        int32
+	listeners    map[uint16]func(cursor Cursor, val T)
+	nextListener uint16
 }
 
 type QueryResult[T any] struct {
 	Items       []T    `json:"items"`
-	FirstCursor uint64 `json:"firstCursor"`
-	LastCursor  uint64 `json:"lastCursor"`
+	FirstCursor Cursor `json:"firstCursor"`
+	LastCursor  Cursor `json:"lastCursor"`
 	HasMore     bool   `json:"hasMore"`
-}
-
-type CursorAware interface {
-	SetCursor(cursor uint64)
 }
 
 func (s *QueryResult[T]) Reverse() {
@@ -42,21 +34,22 @@ func (s *QueryResult[T]) Reverse() {
 }
 
 type streamEntry[T any] struct {
-	Cursor uint64
+	Cursor Cursor
 	Val    T
 }
 
-func NewBufferedStream[T any](bufferSize int) *BufferedStream[T] {
-	return &BufferedStream[T]{
-		buf:       newRingBuf[streamEntry[T]](bufferSize),
-		listeners: map[int]func(cursor uint64, val T){},
+func NewBufferedStream[T any](bufferSize int) *Buffered[T] {
+	return &Buffered[T]{
+		buf:       util.NewRingBuf[streamEntry[T]](bufferSize),
+		listeners: map[uint16]func(cursor Cursor, val T){},
 	}
 }
 
-func (s *BufferedStream[T]) Append(value T) {
-	cursor := (uint64(time.Now().UnixMilli()) << 20) | uint64(atomic.AddUint32(&s.index, 1)&0xfffff) // store only 52 bits (JS Number limitation)
+func (s *Buffered[T]) Append(value T) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cursor := Cursor((uint64(time.Now().UnixMilli()) << 32) | uint64(s.index))
+	s.index++
 	if c, ok := any(value).(CursorAware); ok {
 		c.SetCursor(cursor)
 	} else if c, ok := any(&value).(CursorAware); ok {
@@ -68,25 +61,25 @@ func (s *BufferedStream[T]) Append(value T) {
 	}
 }
 
-func (s *BufferedStream[T]) Query(cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
+func (s *Buffered[T]) Query(cursor Cursor, count int, predicate func(val T) bool) QueryResult[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.query(true, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) QueryBackward(cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
+func (s *Buffered[T]) QueryBackward(cursor Cursor, count int, predicate func(val T) bool) QueryResult[T] {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.query(false, cursor, count, predicate)
 }
 
-func (s *BufferedStream[T]) lookupPos(cursor uint64) (i int, found bool) {
+func (s *Buffered[T]) lookupPos(cursor Cursor) (i int, found bool) {
 	return sort.Find(s.buf.Size(), func(i int) int {
 		return cmp.Compare(cursor, s.buf.Get(i).Cursor)
 	})
 }
 
-func (s *BufferedStream[T]) query(forward bool, cursor uint64, count int, predicate func(val T) bool) QueryResult[T] {
+func (s *Buffered[T]) query(forward bool, cursor Cursor, count int, predicate func(val T) bool) QueryResult[T] {
 	backward := !forward
 
 	pos, found := s.lookupPos(cursor)
@@ -132,7 +125,7 @@ func (s *BufferedStream[T]) query(forward bool, cursor uint64, count int, predic
 	return res
 }
 
-func (s *BufferedStream[T]) Listen(listener func(cursor uint64, val T)) (stop func()) {
+func (s *Buffered[T]) Listen(listener func(cursor Cursor, val T)) (stop func()) {
 	s.mu.Lock()
 	listenerKey := s.nextListener
 	s.nextListener++

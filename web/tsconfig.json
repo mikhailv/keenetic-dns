@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2021",
+    "target": "es2018",
     "module": "esnext",
-    "lib": ["ES7", "DOM", "DOM.Iterable"],
+    "lib": ["ES7", "DOM", "DOM.Iterable", "ES2015.Iterable", "ES2018.AsyncIterable", "ES2015.Generator", "ES2018.AsyncGenerator"],
     "declaration": false,
     "declarationMap": false,
     "sourceMap": true,

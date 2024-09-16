@@ -11,7 +11,7 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/mikhailv/keenetic-dns/internal/util"
+	"github.com/mikhailv/keenetic-dns/internal/stream"
 )
 
 const (
@@ -25,7 +25,7 @@ type DNSRoutingService struct {
 	resolver      DNSResolver
 	dnsStore      *DNSStore
 	ipRoutes      *IPRouteController
-	resolveStream *util.BufferedStream[DomainResolve]
+	resolveStream *stream.Buffered[DomainResolve]
 }
 
 func NewDNSRoutingService(logger *slog.Logger, resolver DNSResolver, dnsStore *DNSStore, ipRoutes *IPRouteController) *DNSRoutingService {
@@ -34,11 +34,11 @@ func NewDNSRoutingService(logger *slog.Logger, resolver DNSResolver, dnsStore *D
 		resolver:      resolver,
 		dnsStore:      dnsStore,
 		ipRoutes:      ipRoutes,
-		resolveStream: util.NewBufferedStream[DomainResolve](dnsResolveBufferSize),
+		resolveStream: stream.NewBufferedStream[DomainResolve](dnsResolveBufferSize),
 	}
 }
 
-func (s *DNSRoutingService) ResolveStream() *util.BufferedStream[DomainResolve] {
+func (s *DNSRoutingService) ResolveStream() *stream.Buffered[DomainResolve] {
 	return s.resolveStream
 }
 

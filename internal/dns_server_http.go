@@ -24,7 +24,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/mikhailv/keenetic-dns/internal/log"
-	"github.com/mikhailv/keenetic-dns/internal/util"
+	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/web/static"
 )
 
@@ -39,8 +39,8 @@ type HTTPServer struct {
 	resolver      DNSResolver
 	server        http.Server
 	ipRoutes      *IPRouteController
-	logStream     *util.BufferedStream[log.Entry]
-	resolveStream *util.BufferedStream[DomainResolve]
+	logStream     *stream.Buffered[log.Entry]
+	resolveStream *stream.Buffered[DomainResolve]
 }
 
 func NewHTTPServer(
@@ -48,8 +48,8 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	resolver DNSResolver,
 	ipRoutes *IPRouteController,
-	logStream *util.BufferedStream[log.Entry],
-	resolveStream *util.BufferedStream[DomainResolve],
+	logStream *stream.Buffered[log.Entry],
+	resolveStream *stream.Buffered[DomainResolve],
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
@@ -196,7 +196,7 @@ func (s *HTTPServer) handleRoutes(w http.ResponseWriter, req *http.Request) {
 
 type requestFilterFactory[T any] func(r *http.Request, q url.Values) FilterFunc[T]
 
-func createListHandler[T any](stream *util.BufferedStream[T], filterFactory requestFilterFactory[T]) http.Handler {
+func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilterFactory[T]) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
@@ -204,16 +204,14 @@ func createListHandler[T any](stream *util.BufferedStream[T], filterFactory requ
 		backward := queryParamSet(query, "backward")
 
 		afterMode := true
-		cursor := int64(0)
+		cursor := stream.Cursor(0)
 		if query.Has("after") {
-			cursor, _ = strconv.ParseInt(query.Get("after"), 10, 64)
-			cursor = max(0, cursor)
+			cursor, _ = stream.ParseCursor(query.Get("after"))
 		} else if query.Has("before") {
+			cursor, _ = stream.ParseCursor(query.Get("before"))
 			afterMode = false
-			cursor, _ = strconv.ParseInt(query.Get("before"), 10, 64)
-			cursor = max(0, cursor)
 		} else if backward {
-			cursor = math.MaxInt64
+			cursor = math.MaxUint64
 		}
 
 		count := 50
@@ -223,18 +221,21 @@ func createListHandler[T any](stream *util.BufferedStream[T], filterFactory requ
 		}
 
 		res := struct {
-			util.QueryResult[T]
+			stream.QueryResult[T]
 			PrevPageURL string `json:"prevPageURL"`
 			NextPageURL string `json:"nextPageURL"`
 		}{}
 
-		if backward == afterMode {
-			res.QueryResult = stream.QueryBackward(uint64(cursor), count, filter)
-		} else {
-			res.QueryResult = stream.Query(uint64(cursor), count, filter)
-		}
+		//             after     before
+		// forward     -         back+reverse
+		// backward    back      reverse
 
-		if backward == !afterMode {
+		if backward == afterMode {
+			res.QueryResult = st.QueryBackward(cursor, count, filter)
+		} else {
+			res.QueryResult = st.Query(cursor, count, filter)
+		}
+		if !afterMode {
 			res.Reverse()
 		}
 
@@ -250,7 +251,7 @@ func createListHandler[T any](stream *util.BufferedStream[T], filterFactory requ
 	})
 }
 
-func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
+func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
@@ -266,12 +267,12 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 		logger.Debug("http.ws: accept websocket connection", "client", req.RemoteAddr)
 		ctx := conn.CloseRead(req.Context())
 
-		cursor := stream.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
+		cursor := st.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
 
 		updateCh := make(chan struct{})
 		debouncedUpdateCh := debounceUpdateChannel(ctx, time.Second/2, time.Second*2, updateCh)
 
-		stopListen := stream.Listen(func(uint64, T) {
+		stopListen := st.Listen(func(stream.Cursor, T) {
 			select {
 			case <-ctx.Done():
 			case updateCh <- struct{}{}: // signal about update
@@ -286,7 +287,7 @@ func createStreamHandler[T any](stream *util.BufferedStream[T], logger *slog.Log
 				logger.Debug("http.ws: websocket connection closed", "err", ctx.Err())
 				return
 			case <-debouncedUpdateCh:
-				res := stream.Query(cursor, 1000, filter)
+				res := st.Query(cursor, 1000, filter)
 				if len(res.Items) > 0 {
 					if err := wsjson.Write(ctx, conn, res.Items); err != nil {
 						logger.Error("http.ws: failed to send data", "err", err, "cursor", cursor)
