@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package router_agent.v1;
+
+option go_package = "github.com/mikhailv/keenetic-dns/agent/rpc/v1;agentv1";
+
+service NetworkService {
+  rpc HasRule(HasRuleReq) returns (HasRuleResp) {}
+  rpc AddRule(AddRuleReq) returns (AddRuleResp) {}
+  rpc ListRoutes(ListRoutesReq) returns (ListRoutesResp) {}
+  rpc AddRoute(AddRouteReq) returns (AddRouteResp) {}
+  rpc DeleteRoute(DeleteRouteReq) returns (DeleteRouteResp) {}
+}
+
+message Route {
+  uint32 table = 1;
+  string iface = 2;
+  string address = 3;
+}
+
+message Rule {
+  uint32 table = 1;
+  string iif = 2;
+  uint32 priority = 3;
+}
+
+message CmdErrorInfo {
+  int32 exit_code = 1;
+  string output = 2;
+}
+
+message HasRuleReq {
+  Rule rule = 1;
+}
+message HasRuleResp {
+  bool exists = 1;
+}
+
+message AddRuleReq {
+  Rule rule = 1;
+}
+message AddRuleResp {}
+
+message ListRoutesReq {
+  uint32 table = 1;
+}
+message ListRoutesResp {
+  repeated Route routes = 1;
+}
+
+message AddRouteReq {
+  Route route = 1;
+}
+message AddRouteResp {}
+
+message DeleteRouteReq {
+  Route route = 1;
+}
+message DeleteRouteResp {}

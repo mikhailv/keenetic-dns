@@ -3,7 +3,3 @@
 *.a
 *.so
 *.exe
-
-./keenetic-dns
-./config.yaml
-./domains.json

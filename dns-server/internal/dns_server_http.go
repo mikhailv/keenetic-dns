@@ -23,9 +23,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/web/static"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
-	"github.com/mikhailv/keenetic-dns/web/static"
 )
 
 const (
@@ -68,29 +68,31 @@ func (s *HTTPServer) Serve(ctx context.Context) {
 	s.server.Handler = s.createHandler()
 
 	context.AfterFunc(ctx, func() {
-		s.logger.Info("http: shutting down server...")
+		s.logger.Info("shutting down server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.server.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("http: failed to shutdown server", "err", err)
+			s.logger.Error("failed to shutdown server", "err", err)
 		}
 	})
 
-	s.logger.Info("http: server starting...", "addr", s.server.Addr)
+	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		s.logger.Error("http: failed to start server", "err", err)
+		s.logger.Error("failed to start server", "err", err)
 	}
 }
 
 func (s *HTTPServer) createHandler() http.Handler {
+	wsLogger := log.WithPrefix(s.logger, "ws")
+
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
 	mux.Handle("GET /api/routes", http.HandlerFunc(s.handleRoutes))
 	mux.Handle("GET /api/logs", createListHandler(s.logStream, s.filterLogs))
-	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, s.logger, s.filterLogs))
+	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, wsLogger, s.filterLogs))
 	mux.Handle("GET /api/dns-resolve", createListHandler(s.resolveStream, s.filterResolves))
-	mux.Handle("GET /api/dns-resolve/ws", createStreamHandler(s.resolveStream, s.logger, s.filterResolves))
+	mux.Handle("GET /api/dns-resolve/ws", createStreamHandler(s.resolveStream, wsLogger, s.filterResolves))
 	mux.Handle("GET /app.js", staticFileHandler("app.js"))
 	mux.Handle("GET /", staticFileHandler("index.html"))
 
@@ -259,12 +261,12 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			logger.Error("http.ws: failed to accept websocket connection", "err", err)
+			logger.Error("failed to accept websocket connection", "err", err)
 			return
 		}
 		defer func() { _ = conn.CloseNow() }()
 
-		logger.Debug("http.ws: accept websocket connection", "client", req.RemoteAddr)
+		logger.Debug("accept websocket connection", "client", req.RemoteAddr)
 		ctx := conn.CloseRead(req.Context())
 
 		cursor := st.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
@@ -284,13 +286,13 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Debug("http.ws: websocket connection closed", "err", ctx.Err())
+				logger.Debug("websocket connection closed", "err", ctx.Err())
 				return
 			case <-debouncedUpdateCh:
 				res := st.Query(cursor, 1000, filter)
 				if len(res.Items) > 0 {
 					if err := wsjson.Write(ctx, conn, res.Items); err != nil {
-						logger.Error("http.ws: failed to send data", "err", err, "cursor", cursor)
+						logger.Error("failed to send data", "err", err, "cursor", cursor)
 					} else {
 						cursor = res.LastCursor
 					}

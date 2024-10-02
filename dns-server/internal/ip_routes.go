@@ -3,15 +3,14 @@ package internal
 import (
 	"cmp"
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
-	"os/exec"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
+	"github.com/mikhailv/keenetic-dns/agent"
+	agentv1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -19,6 +18,7 @@ type IPRouteController struct {
 	cfg               RoutingConfig
 	logger            *slog.Logger
 	dnsStore          *DNSStore
+	networkService    agent.NetworkServiceClient
 	routes            *util.SyncSet[IPRoute]
 	addQueue          chan IPRoute
 	deleteQueue       chan IPRoute
@@ -30,6 +30,7 @@ func NewIPRouteController(
 	cfg RoutingConfig,
 	logger *slog.Logger,
 	dnsStore *DNSStore,
+	networkService agent.NetworkServiceClient,
 	reconcileInterval time.Duration,
 	reconcileTimeout time.Duration,
 ) *IPRouteController {
@@ -37,6 +38,7 @@ func NewIPRouteController(
 		cfg:               cfg,
 		logger:            logger,
 		dnsStore:          dnsStore,
+		networkService:    networkService,
 		routes:            util.NewSyncSet[IPRoute](),
 		addQueue:          make(chan IPRoute),
 		deleteQueue:       make(chan IPRoute),
@@ -113,25 +115,14 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 
 	s.logger.Info("reconcile rules")
 
-	output, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "rule", "list"))
+	rule := s.cfg.RoutingRule()
+	res, err := s.networkService.HasRule(ctx, connect.NewRequest(&agentv1.HasRuleReq{
+		Rule: mapToAgentRule(rule),
+	}))
 	if err != nil {
-		s.logger.Error("failed to load rule list", "err", err, "output", errOutput)
-		return
-	}
-
-	definedRules := map[string]bool{}
-	for _, line := range parseOutputLines(output) {
-		ss := strings.Split(line, ":")
-		if len(ss) == 2 {
-			definedRules[strings.TrimSpace(ss[1])] = true
-		}
-	}
-
-	for _, rule := range []IPRoutingRule{s.cfg.RoutingRule()} {
-		def := fmt.Sprintf("from all iif %s lookup %d", rule.Iif, rule.TableID)
-		if !definedRules[def] {
-			s.addRule(ctx, rule)
-		}
+		s.logger.Error("failed to check if rule exists", "err", err, "rule", rule)
+	} else if !res.Msg.Exists {
+		s.addRule(ctx, rule)
 	}
 }
 
@@ -189,10 +180,11 @@ func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("add_route")()
 
-	//nolint:gosec // all fine
-	_, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "route", "add", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface))
+	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
+		Route: mapToAgentRoute(s.cfg.Table, route),
+	}))
 	if err != nil {
-		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table, "output", errOutput)
+		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table)
 	} else {
 		s.logger.Info("route added", "", route, "table", s.cfg.Table)
 		s.routes.Add(route)
@@ -211,9 +203,10 @@ func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRout
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("delete_route")()
 
-	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", strconv.Itoa(s.cfg.Table), route.Addr.String(), "dev", route.Iface)
-	if err := cmd.Run(); err != nil {
+	_, err := s.networkService.DeleteRoute(ctx, connect.NewRequest(&agentv1.DeleteRouteReq{
+		Route: mapToAgentRoute(s.cfg.Table, route),
+	}))
+	if err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route, "table", s.cfg.Table)
 	} else {
 		s.logger.Info("route deleted", "", route, "table", s.cfg.Table)
@@ -223,9 +216,10 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	defer TrackDuration("add_rule")()
 
-	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", strconv.Itoa(rule.TableID), "priority", strconv.Itoa(rule.Priority))
-	if err := cmd.Run(); err != nil {
+	_, err := s.networkService.AddRule(ctx, connect.NewRequest(&agentv1.AddRuleReq{
+		Rule: mapToAgentRule(rule),
+	}))
+	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "rule", rule)
 	} else {
 		s.logger.Info("rule added", "rule", rule)
@@ -235,54 +229,41 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{} {
 	defer TrackDuration("load_routes")()
 
-	//nolint:gosec // all fine
-	output, errOutput, err := s.runCmd(exec.CommandContext(ctx, "ip", "route", "list", "table", strconv.Itoa(s.cfg.Table)))
+	tableId := s.cfg.Table
+	res, err := s.networkService.ListRoutes(ctx, connect.NewRequest(&agentv1.ListRoutesReq{Table: uint32(tableId)}))
 	if err != nil {
-		s.logger.Error("failed to load route table", "err", err, "table", s.cfg.Table, "output", errOutput)
+		s.logger.Error("failed to load route table", "err", err, "table", s.cfg.Table)
 		return nil
 	}
 
-	routes := make(map[IPRoute]struct{}, s.routes.Size())
-	for _, line := range parseOutputLines(output) {
-		ss := strings.Split(line, " ")
-		if len(ss) == 5 {
-			// example: `209.85.233.100 dev ovpn_br0 scope link`
-			route := IPRoute{Iface: strings.Clone(ss[2])}
-			route.Addr, err = ParseIPv4(ss[0])
-			if err != nil {
-				s.logger.Warn("unexpected route address", "line", line, "err", err)
-			} else {
-				routes[route] = struct{}{}
-			}
-		} else {
-			s.logger.Warn("unexpected route output", "line", line)
+	routes := make(map[IPRoute]struct{}, len(res.Msg.Routes))
+	for _, it := range res.Msg.Routes {
+		addr, err := ParseIPv4(it.Address)
+		if err != nil {
+			s.logger.Warn("unexpected route address", "addr", it.Address)
+			continue
 		}
+		route := IPRoute{
+			Addr:  addr,
+			Iface: it.Iface,
+		}
+		routes[route] = struct{}{}
 	}
 	return routes
 }
 
-func (s *IPRouteController) runCmd(cmd *exec.Cmd) (stdout string, stderr string, err error) {
-	cmdArgs := strings.Join(cmd.Args, " ")
-	s.logger.Debug("command start", slog.String("cmd", cmdArgs))
-	startTime := time.Now()
-
-	output, err := cmd.Output()
-
-	var exitCode int
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		exitCode = exitErr.ExitCode()
-		stderr = string(exitErr.Stderr)
+func mapToAgentRule(rule IPRoutingRule) *agentv1.Rule {
+	return &agentv1.Rule{
+		Table:    uint32(rule.TableID),
+		Iif:      rule.Iif,
+		Priority: uint32(rule.Priority),
 	}
-
-	s.logger.Debug("command exit", slog.String("cmd", cmdArgs), slog.Int("exit_code", exitCode), slog.Duration("duration", time.Since(startTime)))
-	return string(output), stderr, err
 }
 
-func parseOutputLines(output string) []string {
-	lines := strings.Split(output, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimSpace(line)
+func mapToAgentRoute(table int, route IPRoute) *agentv1.Route {
+	return &agentv1.Route{
+		Table:   uint32(table),
+		Iface:   route.Iface,
+		Address: route.Addr.String(),
 	}
-	return slices.DeleteFunc(lines, func(s string) bool { return s == "" })
 }

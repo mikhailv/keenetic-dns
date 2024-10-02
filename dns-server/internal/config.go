@@ -16,6 +16,9 @@ var defaultConfigYAML []byte
 type Config struct {
 	Addr string `yaml:"addr"`
 
+	AgentBaseURL string        `yaml:"agent_base_url"`
+	AgentTimeout time.Duration `yaml:"agent_timeout"`
+
 	DNSProvider        string        `yaml:"dns_provider"`
 	DNSProviderTimeout time.Duration `yaml:"dns_provider_timeout"`
 	DNSTTLOverride     time.Duration `yaml:"dns_ttl_override"`

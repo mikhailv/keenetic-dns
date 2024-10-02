@@ -1,0 +1,4 @@
+*.connect.go
+*.pb.go
+
+/agent
