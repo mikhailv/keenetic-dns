@@ -55,10 +55,10 @@ func (s *networkService) AddRule(ctx context.Context, req *connect.Request[v1.Ad
 	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", fmt.Sprint(rule.Table), "priority", fmt.Sprint(rule.Priority))
 	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to add rule", "err", err, "rule", rule, "output", res.ErrOutput)
+		s.logger.Error("failed to add rule", "err", err, "", rule, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
-	s.logger.Info("rule added", "rule", rule)
+	s.logger.Info("rule added", "", rule)
 	return connect.NewResponse(&v1.AddRuleResp{}), nil
 }
 
@@ -94,10 +94,10 @@ func (s *networkService) AddRoute(ctx context.Context, req *connect.Request[v1.A
 	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to add route", "err", err, "", route, "table", route.Table, "output", res.ErrOutput)
+		s.logger.Error("failed to add route", "err", err, "", route, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
-	s.logger.Info("route added", "", route, "table", route.Table)
+	s.logger.Info("route added", "", route)
 	return connect.NewResponse(&v1.AddRouteResp{}), nil
 }
 
@@ -107,10 +107,10 @@ func (s *networkService) DeleteRoute(ctx context.Context, req *connect.Request[v
 	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to delete route", "err", err, "", route, "table", route.Table, "output", res.ErrOutput)
+		s.logger.Error("failed to delete route", "err", err, "", route, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
-	s.logger.Info("route deleted", "", route, "table", route.Table)
+	s.logger.Info("route deleted", "", route)
 	return connect.NewResponse(&v1.DeleteRouteResp{}), nil
 }
 

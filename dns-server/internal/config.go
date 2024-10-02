@@ -71,7 +71,7 @@ func (c *RoutingConfig) LookupHost(host string) (iface string) {
 func (c *RoutingConfig) RoutingRule() IPRoutingRule {
 	return IPRoutingRule{
 		Iif:      c.Rule.Iif,
-		TableID:  c.Table,
+		Table:    c.Table,
 		Priority: c.Rule.Priority,
 	}
 }

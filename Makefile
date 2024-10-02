@@ -20,7 +20,7 @@ lint:
 	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0 run -v
 
 .PHONY: upload
-upload: upload-config upload-bin
+upload: upload-config upload-agent upload-dns-server
 
 .PHONY: upload-config
 upload-config:

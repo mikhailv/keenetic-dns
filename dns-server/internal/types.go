@@ -124,8 +124,9 @@ func (s *DomainResolve) SetCursor(cursor stream.Cursor) {
 }
 
 type IPRoute struct {
-	Addr  IPv4   `json:"addr"`
+	Table int    `json:"table"`
 	Iface string `json:"iface"`
+	Addr  IPv4   `json:"addr"`
 }
 
 func (r IPRoute) LogValue() slog.Value {
@@ -154,15 +155,15 @@ func (r IPRouteDNS) LogValue() slog.Value {
 }
 
 type IPRoutingRule struct {
+	Table    int
 	Iif      string
-	TableID  int
 	Priority int
 }
 
 func (r IPRoutingRule) LogValue() slog.Value {
 	return slog.GroupValue(
+		slog.Int("table", r.Table),
 		slog.String("iif", r.Iif),
-		slog.Int("table", r.TableID),
 		slog.Int("priority", r.Priority),
 	)
 }

@@ -72,7 +72,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 			if iface := s.ipRoutes.LookupHost(res.Domain); iface != "" {
 				for _, ip := range res.IPs {
 					s.dnsStore.Add(NewDNSRecord(res.Domain, ip, now.Add(time.Duration(res.TTL)*time.Second)))
-					s.ipRoutes.AddRoute(ctx, IPRoute{ip, iface})
+					s.ipRoutes.AddRoute(ctx, iface, ip)
 				}
 			}
 

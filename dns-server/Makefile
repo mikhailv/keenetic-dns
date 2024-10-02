@@ -10,5 +10,5 @@ build-web:
 
 .PHONY: build-bin
 build-bin:
+	# flags to reduce binary size: -trimpath -ldflags="-s -w"
 	env GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -o dns-server ./cmd
-	#env GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath -ldflags="-s -w" .

@@ -73,7 +73,7 @@ func (s *IPRouteController) Start(ctx context.Context) {
 func (s *IPRouteController) init() {
 	for _, rec := range s.dnsStore.Records() {
 		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
-			s.routes.Add(IPRoute{rec.IP, iface})
+			s.routes.Add(IPRoute{s.cfg.Table, iface, rec.IP})
 		}
 	}
 }
@@ -120,7 +120,7 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 		Rule: mapToAgentRule(rule),
 	}))
 	if err != nil {
-		s.logger.Error("failed to check if rule exists", "err", err, "rule", rule)
+		s.logger.Error("failed to check if rule exists", "err", err, "", rule)
 	} else if !res.Msg.Exists {
 		s.addRule(ctx, rule)
 	}
@@ -131,7 +131,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 
 	s.logger.Info("reconcile routes")
 
-	definedRoutes := s.loadRoutes(ctx)
+	definedRoutes := s.loadRoutes(ctx, s.cfg.Table)
 
 	addRoute := func(route IPRoute) {
 		_, defined := definedRoutes[route]
@@ -150,7 +150,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 
 	for iface, addresses := range s.cfg.Static {
 		for _, addr := range addresses {
-			route := IPRoute{addr, iface}
+			route := IPRoute{s.cfg.Table, iface, addr}
 			s.routes.Add(route)
 			addRoute(route)
 		}
@@ -162,7 +162,8 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 	}
 }
 
-func (s *IPRouteController) AddRoute(ctx context.Context, route IPRoute) {
+func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4) {
+	route := IPRoute{s.cfg.Table, iface, ip}
 	if s.routes.Add(route) {
 		s.enqueueAddRoute(ctx, route)
 	}
@@ -171,7 +172,7 @@ func (s *IPRouteController) AddRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) {
 	select {
 	case <-ctx.Done():
-		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route, "table", s.cfg.Table)
+		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
 		return
 	case s.addQueue <- route:
 	}
@@ -181,12 +182,12 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
-		Route: mapToAgentRoute(s.cfg.Table, route),
+		Route: mapToAgentRoute(route),
 	}))
 	if err != nil {
-		s.logger.Error("failed to add route", "err", err, "", route, "table", s.cfg.Table)
+		s.logger.Error("failed to add route", "err", err, "", route)
 	} else {
-		s.logger.Info("route added", "", route, "table", s.cfg.Table)
+		s.logger.Info("route added", "", route)
 		s.routes.Add(route)
 	}
 }
@@ -194,7 +195,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRoute) {
 	select {
 	case <-ctx.Done():
-		s.logger.Error("failed to delete route", "err", context.Cause(ctx), "", route, "table", s.cfg.Table)
+		s.logger.Error("failed to delete route", "err", context.Cause(ctx), "", route)
 		return
 	case s.deleteQueue <- route:
 	}
@@ -204,12 +205,12 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("delete_route")()
 
 	_, err := s.networkService.DeleteRoute(ctx, connect.NewRequest(&agentv1.DeleteRouteReq{
-		Route: mapToAgentRoute(s.cfg.Table, route),
+		Route: mapToAgentRoute(route),
 	}))
 	if err != nil {
-		s.logger.Error("failed to delete route", "err", err, "", route, "table", s.cfg.Table)
+		s.logger.Error("failed to delete route", "err", err, "", route)
 	} else {
-		s.logger.Info("route deleted", "", route, "table", s.cfg.Table)
+		s.logger.Info("route deleted", "", route)
 	}
 }
 
@@ -220,19 +221,18 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 		Rule: mapToAgentRule(rule),
 	}))
 	if err != nil {
-		s.logger.Error("failed to add rule", "err", err, "rule", rule)
+		s.logger.Error("failed to add rule", "err", err, "", rule)
 	} else {
-		s.logger.Info("rule added", "rule", rule)
+		s.logger.Info("rule added", "", rule)
 	}
 }
 
-func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{} {
+func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) map[IPRoute]struct{} {
 	defer TrackDuration("load_routes")()
 
-	tableId := s.cfg.Table
 	res, err := s.networkService.ListRoutes(ctx, connect.NewRequest(&agentv1.ListRoutesReq{Table: uint32(tableId)}))
 	if err != nil {
-		s.logger.Error("failed to load route table", "err", err, "table", s.cfg.Table)
+		s.logger.Error("failed to load route table", "err", err, "table", tableId)
 		return nil
 	}
 
@@ -243,10 +243,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{}
 			s.logger.Warn("unexpected route address", "addr", it.Address)
 			continue
 		}
-		route := IPRoute{
-			Addr:  addr,
-			Iface: it.Iface,
-		}
+		route := IPRoute{int(it.Table), it.Iface, addr}
 		routes[route] = struct{}{}
 	}
 	return routes
@@ -254,15 +251,15 @@ func (s *IPRouteController) loadRoutes(ctx context.Context) map[IPRoute]struct{}
 
 func mapToAgentRule(rule IPRoutingRule) *agentv1.Rule {
 	return &agentv1.Rule{
-		Table:    uint32(rule.TableID),
+		Table:    uint32(rule.Table),
 		Iif:      rule.Iif,
 		Priority: uint32(rule.Priority),
 	}
 }
 
-func mapToAgentRoute(table int, route IPRoute) *agentv1.Route {
+func mapToAgentRoute(route IPRoute) *agentv1.Route {
 	return &agentv1.Route{
-		Table:   uint32(table),
+		Table:   uint32(route.Table),
 		Iface:   route.Iface,
 		Address: route.Addr.String(),
 	}
