@@ -64,7 +64,7 @@ func main() {
 	resolver := NewSingleInflightDNSResolver(service)
 	resolver = NewCachedDNSResolver(resolver, dnsCache, cfg.DNSTTLOverride)
 
-	httpServer := NewHTTPServer(cfg.Addr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.ResolveStream())
+	httpServer := NewHTTPServer(cfg.Addr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream())
 	go httpServer.Serve(ctx)
 
 	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), resolver)

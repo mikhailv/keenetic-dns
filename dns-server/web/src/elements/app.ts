@@ -7,14 +7,14 @@ import { provide } from '@lit/context';
 import { serviceContext } from '../context';
 
 import './routes';
-import './dns-requests';
+import './dns-queries';
 
 @customElement('x-app')
 export class AppElement extends LitElement {
   private readonly _router = new Router(this, [
     { path: '/', enter: () => this._router.goto('/routes').then(() => false) },
     { path: '/routes', render: () => html`<x-routes></x-routes>` },
-    { path: '/dns-requests', render: () => html`<x-dns-requests></x-dns-requests>` },
+    { path: '/dns-queries', render: () => html`<x-dns-queries></x-dns-queries>` },
     { path: '/logs', render: () => html`<h1>Logs</h1>` },
   ]);
 

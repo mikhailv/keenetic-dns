@@ -1,7 +1,7 @@
 export interface IPRoute {
   addr: string;
   iface: string;
-  dns_records?: DNSRecord[];
+  dnsRecords?: DNSRecord[];
 }
 
 export interface DNSRecord {
@@ -10,7 +10,7 @@ export interface DNSRecord {
   expires: Date;
 }
 
-export interface DomainResolve {
+export interface DNSQuery {
   cursor: string;
   time: Date;
   domain: string;

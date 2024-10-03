@@ -1,11 +1,11 @@
 import { AppElement } from './app';
 import { RoutesElement } from './routes';
-import { DNSRequestsElement } from './dns-requests';
+import { DNSRequestsElement } from './dns-queries';
 
 declare global {
   interface HTMLElementTagNameMap {
     'x-app': AppElement;
     'x-routes': RoutesElement;
-    'x-dns-requests': DNSRequestsElement;
+    'x-dns-queries': DNSRequestsElement;
   }
 }

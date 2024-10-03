@@ -109,9 +109,9 @@ func (r DNSRecord) LogValue() slog.Value {
 	)
 }
 
-var _ stream.CursorAware = (*DomainResolve)(nil)
+var _ stream.CursorAware = (*DNSQuery)(nil)
 
-type DomainResolve struct {
+type DNSQuery struct {
 	Cursor stream.Cursor `json:"cursor,omitempty"`
 	Time   time.Time     `json:"time"`
 	Domain string        `json:"domain"`
@@ -119,7 +119,7 @@ type DomainResolve struct {
 	IPs    []IPv4        `json:"ips"`
 }
 
-func (s *DomainResolve) SetCursor(cursor stream.Cursor) {
+func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
 
@@ -138,7 +138,7 @@ func (r IPRoute) LogValue() slog.Value {
 
 type IPRouteDNS struct {
 	IPRoute
-	DNSRecord []DNSRecord `json:"dns_records,omitempty"`
+	DNSRecord []DNSRecord `json:"dnsRecords,omitempty"`
 }
 
 func (r IPRouteDNS) LogValue() slog.Value {

@@ -35,12 +35,12 @@ const (
 type FilterFunc[T any] func(val T) bool
 
 type HTTPServer struct {
-	logger        *slog.Logger
-	resolver      DNSResolver
-	server        http.Server
-	ipRoutes      *IPRouteController
-	logStream     *stream.Buffered[log.Entry]
-	resolveStream *stream.Buffered[DomainResolve]
+	logger      *slog.Logger
+	resolver    DNSResolver
+	server      http.Server
+	ipRoutes    *IPRouteController
+	logStream   *stream.Buffered[log.Entry]
+	queryStream *stream.Buffered[DNSQuery]
 }
 
 func NewHTTPServer(
@@ -49,7 +49,7 @@ func NewHTTPServer(
 	resolver DNSResolver,
 	ipRoutes *IPRouteController,
 	logStream *stream.Buffered[log.Entry],
-	resolveStream *stream.Buffered[DomainResolve],
+	queryStream *stream.Buffered[DNSQuery],
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
@@ -58,9 +58,9 @@ func NewHTTPServer(
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
-		ipRoutes:      ipRoutes,
-		logStream:     logStream,
-		resolveStream: resolveStream,
+		ipRoutes:    ipRoutes,
+		logStream:   logStream,
+		queryStream: queryStream,
 	}
 }
 
@@ -91,8 +91,8 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /api/routes", http.HandlerFunc(s.handleRoutes))
 	mux.Handle("GET /api/logs", createListHandler(s.logStream, s.filterLogs))
 	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, wsLogger, s.filterLogs))
-	mux.Handle("GET /api/dns-resolve", createListHandler(s.resolveStream, s.filterResolves))
-	mux.Handle("GET /api/dns-resolve/ws", createStreamHandler(s.resolveStream, wsLogger, s.filterResolves))
+	mux.Handle("GET /api/dns-queries", createListHandler(s.queryStream, s.filterQueries))
+	mux.Handle("GET /api/dns-queries/ws", createStreamHandler(s.queryStream, wsLogger, s.filterQueries))
 	mux.Handle("GET /app.js", staticFileHandler("app.js"))
 	mux.Handle("GET /", staticFileHandler("index.html"))
 
@@ -113,14 +113,14 @@ func (s *HTTPServer) filterLogs(_ *http.Request, query url.Values) FilterFunc[lo
 	}
 }
 
-func (s *HTTPServer) filterResolves(_ *http.Request, query url.Values) FilterFunc[DomainResolve] {
+func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc[DNSQuery] {
 	domain := strings.TrimSpace(query.Get("domain"))
 	search := strings.TrimSpace(query.Get("search"))
 	excludeRouted := queryParamSet(query, "exclude_routed")
 	if domain == "" && search == "" && !excludeRouted {
 		return nil
 	}
-	return func(val DomainResolve) bool {
+	return func(val DNSQuery) bool {
 		if excludeRouted && s.ipRoutes.LookupHost(val.Domain) != "" {
 			return false
 		}

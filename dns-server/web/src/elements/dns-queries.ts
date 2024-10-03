@@ -4,22 +4,22 @@ import { repeat } from 'lit/directives/repeat.js';
 import { consume } from '@lit/context';
 import { serviceContext } from '../context';
 import { Service } from '../service';
-import { DomainResolve } from '../types';
+import { DNSQuery } from '../types';
 import { listenStream, Stream } from '../stream';
 
-const maxItems = 100;
+const maxItems = 500;
 
-@customElement('x-dns-requests')
+@customElement('x-dns-queries')
 export class DNSRequestsElement extends LitElement {
   @consume({ context: serviceContext })
   @state()
   private _service?: Service;
 
   @state()
-  private _stream?: Stream<DomainResolve[]>;
+  private _stream?: Stream<DNSQuery[]>;
 
   @state()
-  private _items: DomainResolve[] = [];
+  private _items: DNSQuery[] = [];
 
   override createRenderRoot() {
     return this;
@@ -43,7 +43,7 @@ export class DNSRequestsElement extends LitElement {
 
   override render() {
     return html`
-      <h1>DNS Requests</h1>
+      <h1>DNS Queries</h1>
       ${this._renderTable()}
     `;
   }

@@ -84,7 +84,7 @@ export class RoutesElement extends LitElement {
                 <td style="font-size: 0.9rem">${route.iface}</td>
                 <td class="ps-2">
                   ${repeat(
-                      route.dns_records ?? [],
+                      route.dnsRecords ?? [],
                       rec => rec.domain,
                       rec => html`
                         <div class="row" style="font-size: 0.9rem">
@@ -122,5 +122,5 @@ function filterRoutes(routes: IPRoute[], filter: string): IPRoute[] {
   }
   return routes.filter(route => route.addr.includes(filter)
       || route.iface.includes(filter)
-      || route.dns_records?.some(rec => rec.domain.includes(filter) || rec.ip.includes(filter)));
+      || route.dnsRecords?.some(rec => rec.domain.includes(filter) || rec.ip.includes(filter)));
 }

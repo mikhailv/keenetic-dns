@@ -21,25 +21,25 @@ const (
 var _ DNSResolver = (*DNSRoutingService)(nil)
 
 type DNSRoutingService struct {
-	logger        *slog.Logger
-	resolver      DNSResolver
-	dnsStore      *DNSStore
-	ipRoutes      *IPRouteController
-	resolveStream *stream.Buffered[DomainResolve]
+	logger      *slog.Logger
+	resolver    DNSResolver
+	dnsStore    *DNSStore
+	ipRoutes    *IPRouteController
+	queryStream *stream.Buffered[DNSQuery]
 }
 
 func NewDNSRoutingService(logger *slog.Logger, resolver DNSResolver, dnsStore *DNSStore, ipRoutes *IPRouteController) *DNSRoutingService {
 	return &DNSRoutingService{
-		logger:        logger,
-		resolver:      resolver,
-		dnsStore:      dnsStore,
-		ipRoutes:      ipRoutes,
-		resolveStream: stream.NewBufferedStream[DomainResolve](dnsResolveBufferSize),
+		logger:      logger,
+		resolver:    resolver,
+		dnsStore:    dnsStore,
+		ipRoutes:    ipRoutes,
+		queryStream: stream.NewBufferedStream[DNSQuery](dnsResolveBufferSize),
 	}
 }
 
-func (s *DNSRoutingService) ResolveStream() *stream.Buffered[DomainResolve] {
-	return s.resolveStream
+func (s *DNSRoutingService) QueryStream() *stream.Buffered[DNSQuery] {
+	return s.queryStream
 }
 
 func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
@@ -50,7 +50,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 
 	if resp.Question[0].Qtype == dns.TypeA {
 		now := time.Now()
-		res := DomainResolve{
+		res := DNSQuery{
 			Time:   now,
 			Domain: strings.TrimRight(resp.Question[0].Name, "."),
 			TTL:    math.MaxUint32,
@@ -67,7 +67,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 		})
 
 		if len(res.IPs) > 0 {
-			s.resolveStream.Append(res)
+			s.queryStream.Append(res)
 
 			if iface := s.ipRoutes.LookupHost(res.Domain); iface != "" {
 				for _, ip := range res.IPs {
