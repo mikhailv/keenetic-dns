@@ -207,12 +207,13 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 
 		afterMode := true
 		cursor := stream.Cursor(0)
-		if query.Has("after") {
+		switch {
+		case query.Has("after"):
 			cursor, _ = stream.ParseCursor(query.Get("after"))
-		} else if query.Has("before") {
+		case query.Has("before"):
 			cursor, _ = stream.ParseCursor(query.Get("before"))
 			afterMode = false
-		} else if backward {
+		case backward:
 			cursor = math.MaxUint64
 		}
 

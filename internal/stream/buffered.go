@@ -79,6 +79,7 @@ func (s *Buffered[T]) lookupPos(cursor Cursor) (i int, found bool) {
 	})
 }
 
+//nolint:cyclop // readable enough
 func (s *Buffered[T]) query(forward bool, cursor Cursor, count int, predicate func(val T) bool) QueryResult[T] {
 	backward := !forward
 

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,7 +21,7 @@ func NewDNSCache() *DNSCache {
 func (s *DNSCache) Get(domain string) []dns.RR {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if entry, ok := s.entries[domain]; ok && !entry.Expired() {
+	if entry, ok := s.entries[strings.ToLower(domain)]; ok && !entry.Expired() {
 		return entry.Answer()
 	}
 	return nil
@@ -38,7 +39,7 @@ func (s *DNSCache) Put(domain string, answer []dns.RR) {
 	if len(records) > 0 {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.entries[domain] = dnsCacheEntry{records, time.Now().Add(time.Duration(ttl) * time.Second)}
+		s.entries[strings.ToLower(domain)] = dnsCacheEntry{records, time.Now().Add(time.Duration(ttl) * time.Second)}
 	}
 }
 
