@@ -14,13 +14,18 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
+type ipRouteJob struct {
+	IPRoute
+	done chan struct{}
+}
+
 type IPRouteController struct {
 	cfg               RoutingConfig
 	logger            *slog.Logger
 	dnsStore          *DNSStore
 	networkService    agent.NetworkServiceClient
 	routes            *util.SyncSet[IPRoute]
-	addQueue          chan IPRoute
+	addQueue          chan ipRouteJob
 	deleteQueue       chan IPRoute
 	reconcileInterval time.Duration
 	reconcileTimeout  time.Duration
@@ -40,7 +45,7 @@ func NewIPRouteController(
 		dnsStore:          dnsStore,
 		networkService:    networkService,
 		routes:            util.NewSyncSet[IPRoute](),
-		addQueue:          make(chan IPRoute),
+		addQueue:          make(chan ipRouteJob),
 		deleteQueue:       make(chan IPRoute),
 		reconcileInterval: reconcileInterval,
 		reconcileTimeout:  reconcileTimeout,
@@ -83,14 +88,16 @@ func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case route := <-s.addQueue:
-			s.addRoute(ctx, route)
+		case job := <-s.addQueue:
+			s.addRoute(ctx, job.IPRoute)
+			close(job.done)
 		default:
 			select {
 			case <-ctx.Done():
 				return
-			case route := <-s.addQueue:
-				s.addRoute(ctx, route)
+			case job := <-s.addQueue:
+				s.addRoute(ctx, job.IPRoute)
+				close(job.done)
 			case route := <-s.deleteQueue:
 				s.deleteRoute(ctx, route)
 			}
@@ -137,7 +144,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 		_, defined := definedRoutes[route]
 		delete(definedRoutes, route) // delete from set, to track unexpected routes later
 		if !defined {
-			s.enqueueAddRoute(ctx, route)
+			s.enqueueAddRoute(ctx, route, false)
 		}
 	}
 
@@ -165,16 +172,25 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4) {
 	route := IPRoute{s.cfg.Table, iface, ip}
 	if s.routes.Add(route) {
-		s.enqueueAddRoute(ctx, route)
+		s.enqueueAddRoute(ctx, route, true)
 	}
 }
 
-func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) {
+func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute, block bool) {
+	job := ipRouteJob{route, make(chan struct{})}
 	select {
 	case <-ctx.Done():
 		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
 		return
-	case s.addQueue <- route:
+	case s.addQueue <- job:
+		if block {
+			select {
+			case <-ctx.Done():
+				s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
+				return
+			case <-job.done:
+			}
+		}
 	}
 }
 
