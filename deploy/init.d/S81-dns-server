@@ -1,5 +1,6 @@
 #!/bin/sh
 
 SERVICE_NAME=dns-server
+ARGS=--debug
 
 . /opt/etc/init.d/watchdog.sh

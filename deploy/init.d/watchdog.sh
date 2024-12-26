@@ -6,7 +6,7 @@ PIDFILE="/opt/var/run/$SERVICE_NAME.pid"
 BIN="$DIR/$SERVICE_NAME"
 UPDATE_BIN="$DIR/update/$SERVICE_NAME"
 LOG="$DIR/$SERVICE_NAME.log"
-PROGRAM="cd $DIR && $BIN 2>&1 >> $LOG"
+PROGRAM="cd $DIR && $BIN $ARGS 2>&1 >> $LOG"
 
 WATCHDOG="$DIR/service_watchdog.sh"
 WATCHDOG_LOG="$DIR/$SERVICE_NAME-watchdog.log"

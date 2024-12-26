@@ -38,4 +38,4 @@ upload-dns-server:
 .PHONY: upload-deploy
 upload-deploy:
 	scp -p -P $(SSH_PORT) deploy/init.d/* $(SSH_PATH)/etc/init.d/
-	scp -p -P $(SSH_PORT) deploy/service_watchdog.sh $(SSH_PATH_KEENETIC)/
+	scp -p -P $(SSH_PORT) deploy/*.sh $(SSH_PATH_KEENETIC)/

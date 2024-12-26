@@ -11,10 +11,21 @@ LOGFILE=$7
 CHECK_INTERVAL=5
 PID=
 
+ansi_white="\033[1;37m";
+ansi_std="\033[m";
+ansi_SERVICE_NAME="$ansi_white$SERVICE_NAME$ansi_std"
+
 start()
 {
   if is_running; then
-    echo "$SERVICE_NAME already running"
+    echo -e "$ansi_SERVICE_NAME already running"
+    self_pid=$(cut -d' ' -f4 < /proc/self/stat)
+    run_pid=$(pgrep -o -f "service_watchdog.sh start $SERVICE_NAME")
+    if [ "$self_pid" = "$run_pid" ]; then
+      echo -e "$ansi_SERVICE_NAME start watchdog"
+      # no other watchdog started, keep running and watching
+      watchdog &
+    fi
   else
     log "starting"
     eval "$PROGRAM &"
@@ -30,9 +41,9 @@ start()
 status()
 {
   if is_running; then
-    echo "$SERVICE_NAME started and running"
+    echo -e "$ansi_SERVICE_NAME is running"
   else
-    echo "$SERVICE_NAME not started"
+    echo -e "$ansi_SERVICE_NAME not started"
   fi
 }
 
@@ -94,7 +105,7 @@ log()
 {
   MSG=$1
   if [ -n "$LOGFILE" ] && [ -n "$MSG" ]; then
-    echo "$MSG" >> "$LOGFILE"
+    echo "[$(date +"%Y-%m-%d %T")] $MSG" >> "$LOGFILE"
   else
     echo "$MSG"
   fi
