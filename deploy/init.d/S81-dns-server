@@ -2,4 +2,4 @@
 
 SERVICE_NAME=dns-server
 
-. ./watchdog.sh
+. /opt/etc/init.d/watchdog.sh

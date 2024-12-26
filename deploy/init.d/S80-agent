@@ -2,4 +2,4 @@
 
 SERVICE_NAME=agent
 
-. ./watchdog.sh
+. /opt/etc/init.d/watchdog.sh

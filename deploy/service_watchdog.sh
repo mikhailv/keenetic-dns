@@ -1,11 +1,12 @@
 #!/bin/sh
 
 CMD=$1
-PROGRAM=$2
-PIDFILE=$3
-BIN=$4
-UPDATE_BIN=$5
-LOGFILE=$6
+SERVICE_NAME=$2
+PROGRAM=$3
+PIDFILE=$4
+BIN=$5
+UPDATE_BIN=$6
+LOGFILE=$7
 
 CHECK_INTERVAL=5
 PID=
@@ -13,7 +14,7 @@ PID=
 start()
 {
   if is_running; then
-    echo "already running"
+    echo "$SERVICE_NAME already running"
   else
     log "starting"
     eval "$PROGRAM &"
@@ -21,7 +22,7 @@ start()
     echo "$PID" > "$PIDFILE"
     log "started (pid $PID)"
     if [ "$1" = "watch" ]; then
-      watchdog
+      watchdog &
     fi
   fi
 }
@@ -29,9 +30,9 @@ start()
 status()
 {
   if is_running; then
-    echo "started and running"
+    echo "$SERVICE_NAME started and running"
   else
-    echo "not started"
+    echo "$SERVICE_NAME not started"
   fi
 }
 
@@ -46,12 +47,6 @@ stop()
     rm "$PIDFILE"
     PID=
   fi
-}
-
-restart()
-{
-  stop
-  start
 }
 
 is_running()
@@ -73,7 +68,7 @@ watchdog()
   log "watchdog started"
   while true; do
     update_pid
-    if [ -n "$UPDATE_BIN" ] && [ -n "$BIN" ] && [ "$UPDATE_BIN" -nt "$BIN" ]; then
+    if [ -n "$UPDATE_BIN" ] && [ -n "$BIN" ] && [ "$UPDATE_BIN" -nt "$BIN" -o ! -f "$BIN" ]; then
       # update is ready
       log "update is ready"
       stop
@@ -111,20 +106,18 @@ case "$CMD" in
   start)
     start watch
     ;;
-
   stop)
     stop
     ;;
-
   restart)
-    restart
+    stop
+    start
     ;;
-
   status)
     status
     ;;
-
   *)
     echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
     ;;
 esac
