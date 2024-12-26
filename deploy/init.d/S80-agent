@@ -1,0 +1,5 @@
+#!/bin/sh
+
+SERVICE_NAME=agent
+
+. ./watchdog.sh

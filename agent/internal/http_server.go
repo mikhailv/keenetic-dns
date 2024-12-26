@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -45,6 +46,7 @@ func (s *HTTPServer) Serve(ctx context.Context) {
 	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		s.logger.Error("failed to start server", "err", err)
+		os.Exit(1)
 	}
 }
 

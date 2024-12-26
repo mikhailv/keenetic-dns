@@ -1,0 +1,5 @@
+#!/bin/sh
+
+SERVICE_NAME=dns-server
+
+. ./watchdog.sh

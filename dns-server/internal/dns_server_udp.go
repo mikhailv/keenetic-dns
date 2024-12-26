@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/miekg/dns"
@@ -42,6 +43,7 @@ func (s *DNSServer) Serve(ctx context.Context) {
 	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil {
 		s.logger.Error("failed to start server", "err", err)
+		os.Exit(1)
 	}
 }
 

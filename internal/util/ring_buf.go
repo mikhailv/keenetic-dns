@@ -40,7 +40,9 @@ func (s *RingBuf[T]) Slice(from, count int) []T {
 		return nil
 	}
 	capacity := cap(s.buf)
+	count = min(count, s.size)
 	res := make([]T, count)
+	from += s.start
 	for i := 0; i < count; i++ {
 		res[i] = s.buf[(from+i)%capacity]
 	}

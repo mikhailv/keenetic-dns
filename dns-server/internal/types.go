@@ -11,6 +11,8 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 )
 
+type Provider[T any] func() T
+
 type IPv4 [5]byte
 
 func newIPv4(ip net.IP, prefix int) IPv4 {
@@ -154,11 +156,7 @@ func (r IPRouteDNS) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-type IPRoutingRule struct {
-	Table    int
-	Iif      string
-	Priority int
-}
+type IPRoutingRule RoutingRuleConfig
 
 func (r IPRoutingRule) LogValue() slog.Value {
 	return slog.GroupValue(

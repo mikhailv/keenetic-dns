@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -79,6 +80,7 @@ func (s *HTTPServer) Serve(ctx context.Context) {
 	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		s.logger.Error("failed to start server", "err", err)
+		os.Exit(1)
 	}
 }
 

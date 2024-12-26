@@ -5,6 +5,8 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -20,13 +22,16 @@ type ipRouteJob struct {
 }
 
 type IPRouteController struct {
-	cfg               RoutingConfig
+	cfg               atomic.Pointer[RoutingConfig]
+	tableId           int
+	rule              IPRoutingRule
 	logger            *slog.Logger
 	dnsStore          *DNSStore
 	networkService    agent.NetworkServiceClient
 	routes            *util.SyncSet[IPRoute]
 	addQueue          chan ipRouteJob
 	deleteQueue       chan IPRoute
+	reconcileMux      sync.Mutex
 	reconcileInterval time.Duration
 	reconcileTimeout  time.Duration
 }
@@ -39,8 +44,9 @@ func NewIPRouteController(
 	reconcileInterval time.Duration,
 	reconcileTimeout time.Duration,
 ) *IPRouteController {
-	return &IPRouteController{
-		cfg:               cfg,
+	s := &IPRouteController{
+		tableId:           cfg.Rule.Table,
+		rule:              IPRoutingRule(cfg.Rule),
 		logger:            logger,
 		dnsStore:          dnsStore,
 		networkService:    networkService,
@@ -50,16 +56,19 @@ func NewIPRouteController(
 		reconcileInterval: reconcileInterval,
 		reconcileTimeout:  reconcileTimeout,
 	}
+	s.cfg.Store(&cfg)
+	return s
 }
 
 func (s *IPRouteController) LookupHost(host string) (iface string) {
-	return s.cfg.LookupHost(host)
+	return s.cfg.Load().LookupHost(host)
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
+	cfg := s.cfg.Load()
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for _, route := range s.routes.Values() {
-		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
+		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), cfg.RouteTimeout)
 		slices.SortFunc(records, func(a, b DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
@@ -69,16 +78,24 @@ func (s *IPRouteController) Routes() []IPRouteDNS {
 }
 
 func (s *IPRouteController) Start(ctx context.Context) {
-	s.init()
+	s.init(s.cfg.Load())
 	go s.startQueueProcessor(ctx)
 	s.reconcile(ctx)
 	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcile)
 }
 
-func (s *IPRouteController) init() {
+func (s *IPRouteController) UpdateConfig(ctx context.Context, cfg RoutingConfig) {
+	old := s.cfg.Load()
+	cfg.Rule = old.Rule // rule can't be updated
+	s.cfg.Store(&cfg)
+	s.logger.Info("routing config updated")
+	s.reconcile(ctx)
+}
+
+func (s *IPRouteController) init(cfg *RoutingConfig) {
 	for _, rec := range s.dnsStore.Records() {
-		if iface := s.cfg.LookupHost(rec.Domain); iface != "" {
-			s.routes.Add(IPRoute{s.cfg.Table, iface, rec.IP})
+		if iface := cfg.LookupHost(rec.Domain); iface != "" {
+			s.routes.Add(IPRoute{cfg.Rule.Table, iface, rec.IP})
 		}
 	}
 }
@@ -106,23 +123,26 @@ func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
 }
 
 func (s *IPRouteController) reconcile(ctx context.Context) {
-	s.dnsStore.RemoveExpired(s.cfg.RouteTimeout)
-	s.doReconcile(ctx, s.reconcileRoutes)
-	s.doReconcile(ctx, s.reconcileRules)
+	s.reconcileMux.Lock()
+	defer s.reconcileMux.Unlock()
+	cfg := s.cfg.Load()
+	s.dnsStore.RemoveExpired(cfg.RouteTimeout)
+	s.doReconcile(ctx, cfg, s.reconcileRoutes)
+	s.doReconcile(ctx, cfg, s.reconcileRules)
 }
 
-func (s *IPRouteController) doReconcile(ctx context.Context, fn func(context.Context)) {
+func (s *IPRouteController) doReconcile(ctx context.Context, cfg *RoutingConfig, fn func(context.Context, *RoutingConfig)) {
 	ctx, cancel := context.WithTimeout(ctx, s.reconcileTimeout)
 	defer cancel()
-	fn(ctx)
+	fn(ctx, cfg)
 }
 
-func (s *IPRouteController) reconcileRules(ctx context.Context) {
+func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *RoutingConfig) {
 	defer TrackDuration("reconcile_rules")()
 
 	s.logger.Info("reconcile rules")
 
-	rule := s.cfg.RoutingRule()
+	rule := IPRoutingRule(cfg.Rule)
 	res, err := s.networkService.HasRule(ctx, connect.NewRequest(&agentv1.HasRuleReq{
 		Rule: mapToAgentRule(rule),
 	}))
@@ -133,12 +153,12 @@ func (s *IPRouteController) reconcileRules(ctx context.Context) {
 	}
 }
 
-func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
+func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingConfig) {
 	defer TrackDuration("reconcile_routes")()
 
 	s.logger.Info("reconcile routes")
 
-	definedRoutes := s.loadRoutes(ctx, s.cfg.Table)
+	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
 
 	addRoute := func(route IPRoute) {
 		_, defined := definedRoutes[route]
@@ -149,15 +169,15 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 	}
 
 	for _, route := range s.routes.Values() {
-		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), s.cfg.RouteTimeout)
+		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), cfg.RouteTimeout)
 		if len(records) > 0 {
 			addRoute(route)
 		}
 	}
 
-	for iface, addresses := range s.cfg.Static {
+	for iface, addresses := range cfg.Static {
 		for _, addr := range addresses {
-			route := IPRoute{s.cfg.Table, iface, addr}
+			route := IPRoute{cfg.Rule.Table, iface, addr}
 			s.routes.Add(route)
 			addRoute(route)
 		}
@@ -170,10 +190,8 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context) {
 }
 
 func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4) {
-	route := IPRoute{s.cfg.Table, iface, ip}
-	if s.routes.Add(route) {
-		s.enqueueAddRoute(ctx, route, true)
-	}
+	route := IPRoute{s.tableId, iface, ip}
+	s.enqueueAddRoute(ctx, route, true)
 }
 
 func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute, block bool) {

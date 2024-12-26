@@ -36,7 +36,6 @@ type DumpConfig struct {
 }
 
 type RoutingConfig struct {
-	Table        int               `yaml:"table"`
 	Rule         RoutingRuleConfig `yaml:"rule"`
 	RouteTimeout time.Duration     `yaml:"route_timeout"`
 	Hosts        map[string]Hosts  `yaml:"hosts"`
@@ -44,6 +43,7 @@ type RoutingConfig struct {
 }
 
 type RoutingRuleConfig struct {
+	Table    int    `yaml:"table"`
 	Iif      string `yaml:"iif"`
 	Priority int    `yaml:"priority"`
 }
@@ -66,14 +66,6 @@ func (c *RoutingConfig) LookupHost(host string) (iface string) {
 		}
 	}
 	return ""
-}
-
-func (c *RoutingConfig) RoutingRule() IPRoutingRule {
-	return IPRoutingRule{
-		Iif:      c.Rule.Iif,
-		Table:    c.Table,
-		Priority: c.Rule.Priority,
-	}
 }
 
 func DefaultConfig() *Config {

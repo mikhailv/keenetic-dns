@@ -16,8 +16,8 @@ dump:
   interval: 10m
 
 routing:
-  table: 1001
   rule:
+    table: 1001
     iif: br0
     priority: 1995
-  route_timeout: 10m
+  route_timeout: 60m

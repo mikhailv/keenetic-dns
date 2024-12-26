@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	logBufferSize = 2_000
+	configFilePath = "config.yaml"
+	logBufferSize  = 2_000
 )
 
 func main() {
@@ -34,7 +35,7 @@ func main() {
 
 	setup.Pprof(ctx, pprofAddr, logger)
 
-	cfg, err := LoadConfig("config.yaml")
+	cfg, err := LoadConfig(configFilePath)
 	if err != nil {
 		logger.Error("failed to load config", "err", err)
 		os.Exit(1)
@@ -48,6 +49,10 @@ func main() {
 
 	ipRoutes := NewIPRouteController(cfg.Routing, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.ReconcileInterval, cfg.ReconcileTimeout)
 	ipRoutes.Start(ctx)
+
+	listenConfigUpdate(logger, 5*time.Second, func(cfg Config) {
+		ipRoutes.UpdateConfig(ctx, cfg.Routing)
+	})
 
 	var dnsProvider DNSResolver
 	if strings.HasPrefix(cfg.DNSProvider, "http") {
@@ -95,4 +100,37 @@ func setupLogger(debug bool) (*slog.Logger, *stream.Buffered[log.Entry]) {
 		return recorder
 	})
 	return logger, recorder.Stream()
+}
+
+func listenConfigUpdate(logger *slog.Logger, updateCheckInterval time.Duration, onUpdate func(cfg Config)) {
+	getModTime := func() (time.Time, bool) {
+		f, err := os.Stat(configFilePath)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return f.ModTime(), true
+	}
+
+	reloadConfig := func() bool {
+		if cfg, err := LoadConfig(configFilePath); err != nil {
+			logger.Error("failed to load config", "err", err)
+			return false
+		} else {
+			logger.Info("config change detected")
+			onUpdate(*cfg)
+			return true
+		}
+	}
+
+	modTime, _ := getModTime()
+
+	go func() {
+		for range time.Tick(updateCheckInterval) {
+			if t, ok := getModTime(); ok && t.After(modTime) {
+				if reloadConfig() {
+					modTime = t
+				}
+			}
+		}
+	}()
 }
