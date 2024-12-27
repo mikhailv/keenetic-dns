@@ -164,7 +164,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 		_, defined := definedRoutes[route]
 		delete(definedRoutes, route) // delete from set, to track unexpected routes later
 		if !defined {
-			s.enqueueAddRoute(ctx, route, false)
+			s.enqueueAddRoute(ctx, route)
 		}
 	}
 
@@ -191,28 +191,28 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 
 func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4) {
 	route := IPRoute{s.tableId, iface, ip}
-	s.enqueueAddRoute(ctx, route, true)
+	select {
+	case <-ctx.Done():
+	case <-s.enqueueAddRoute(ctx, route):
+	}
 }
 
-func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute, block bool) {
+func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) <-chan struct{} {
 	job := ipRouteJob{route, make(chan struct{})}
 	select {
 	case <-ctx.Done():
 		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
-		return
+		return ctx.Done()
 	case s.addQueue <- job:
-		if block {
-			select {
-			case <-ctx.Done():
-				s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
-				return
-			case <-job.done:
-			}
-		}
+		return job.done
 	}
 }
 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
+	if s.routes.Has(route) {
+		return
+	}
+
 	defer TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
