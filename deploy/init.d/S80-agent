@@ -2,4 +2,4 @@
 
 SERVICE_NAME=agent
 
-. /opt/etc/init.d/watchdog.sh
+. /opt/keenetic-dns/service_init.sh

@@ -53,6 +53,7 @@ stop()
     if is_running; then
       log "stopping"
       kill "$PID" 2>/dev/null
+      while [ -d "/proc/${PID}" ]; do sleep 1; done
       log "stopped"
     fi
     rm "$PIDFILE"
@@ -90,7 +91,8 @@ watchdog()
       if [ -f "$PIDFILE" ]; then
         # pid file exists, looks like program exited unexpectedly
         log "program exited unexpectedly"
-        restart
+        stop
+        start
       else
         # pid file not found, assume that program stopped
         log "exiting"

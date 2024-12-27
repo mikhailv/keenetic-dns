@@ -3,4 +3,4 @@
 SERVICE_NAME=dns-server
 ARGS=--debug
 
-. /opt/etc/init.d/watchdog.sh
+. /opt/keenetic-dns/service_init.sh
