@@ -13,13 +13,9 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/agent"
 	agentv1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
+	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
-
-type ipRouteJob struct {
-	IPRoute
-	done chan struct{}
-}
 
 type IPRouteController struct {
 	cfg               atomic.Pointer[RoutingConfig]
@@ -28,10 +24,9 @@ type IPRouteController struct {
 	logger            *slog.Logger
 	dnsStore          *DNSStore
 	networkService    agent.NetworkServiceClient
-	routes            *util.SyncSet[IPRoute]
-	addQueue          chan ipRouteJob
-	deleteQueue       chan IPRoute
-	reconcileMux      sync.Mutex
+	routes            util.Set[IPRoute]
+	routesMu          sync.RWMutex
+	reconcileMu       sync.Mutex
 	reconcileInterval time.Duration
 	reconcileTimeout  time.Duration
 }
@@ -50,9 +45,6 @@ func NewIPRouteController(
 		logger:            logger,
 		dnsStore:          dnsStore,
 		networkService:    networkService,
-		routes:            util.NewSyncSet[IPRoute](),
-		addQueue:          make(chan ipRouteJob),
-		deleteQueue:       make(chan IPRoute),
 		reconcileInterval: reconcileInterval,
 		reconcileTimeout:  reconcileTimeout,
 	}
@@ -65,6 +57,8 @@ func (s *IPRouteController) LookupHost(host string) (iface string) {
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
+	s.routesMu.RLock()
+	defer s.routesMu.RUnlock()
 	cfg := s.cfg.Load()
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for _, route := range s.routes.Values() {
@@ -79,7 +73,6 @@ func (s *IPRouteController) Routes() []IPRouteDNS {
 
 func (s *IPRouteController) Start(ctx context.Context) {
 	s.init(s.cfg.Load())
-	go s.startQueueProcessor(ctx)
 	s.reconcile(ctx)
 	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcile)
 }
@@ -100,35 +93,13 @@ func (s *IPRouteController) init(cfg *RoutingConfig) {
 	}
 }
 
-func (s *IPRouteController) startQueueProcessor(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case job := <-s.addQueue:
-			s.addRoute(ctx, job.IPRoute)
-			close(job.done)
-		default:
-			select {
-			case <-ctx.Done():
-				return
-			case job := <-s.addQueue:
-				s.addRoute(ctx, job.IPRoute)
-				close(job.done)
-			case route := <-s.deleteQueue:
-				s.deleteRoute(ctx, route)
-			}
-		}
-	}
-}
-
 func (s *IPRouteController) reconcile(ctx context.Context) {
-	s.reconcileMux.Lock()
-	defer s.reconcileMux.Unlock()
+	s.reconcileMu.Lock()
+	defer s.reconcileMu.Unlock()
 	cfg := s.cfg.Load()
 	s.dnsStore.RemoveExpired(cfg.RouteTimeout)
-	s.doReconcile(ctx, cfg, s.reconcileRoutes)
 	s.doReconcile(ctx, cfg, s.reconcileRules)
+	s.doReconcile(ctx, cfg, s.reconcileRoutes)
 }
 
 func (s *IPRouteController) doReconcile(ctx context.Context, cfg *RoutingConfig, fn func(context.Context, *RoutingConfig)) {
@@ -139,8 +110,7 @@ func (s *IPRouteController) doReconcile(ctx context.Context, cfg *RoutingConfig,
 
 func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *RoutingConfig) {
 	defer TrackDuration("reconcile_rules")()
-
-	s.logger.Info("reconcile rules")
+	defer log.Profile(s.logger, "reconcile rules")()
 
 	rule := IPRoutingRule(cfg.Rule)
 	res, err := s.networkService.HasRule(ctx, connect.NewRequest(&agentv1.HasRuleReq{
@@ -155,8 +125,10 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *RoutingConf
 
 func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingConfig) {
 	defer TrackDuration("reconcile_routes")()
+	defer log.Profile(s.logger, "reconcile routes")()
 
-	s.logger.Info("reconcile routes")
+	s.routesMu.Lock()
+	defer s.routesMu.Unlock()
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
 
@@ -164,7 +136,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 		_, defined := definedRoutes[route]
 		delete(definedRoutes, route) // delete from set, to track unexpected routes later
 		if !defined {
-			s.enqueueAddRoute(ctx, route)
+			s.addRoute(ctx, route)
 		}
 	}
 
@@ -177,42 +149,25 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 
 	for iface, addresses := range cfg.Static {
 		for _, addr := range addresses {
-			route := IPRoute{cfg.Rule.Table, iface, addr}
-			s.routes.Add(route)
-			addRoute(route)
+			addRoute(IPRoute{cfg.Rule.Table, iface, addr})
 		}
 	}
 
 	for route := range definedRoutes {
-		s.routes.Remove(route)
-		s.enqueueDeleteRoute(ctx, route)
+		s.deleteRoute(ctx, route)
 	}
 }
 
 func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4) {
+	s.routesMu.Lock()
+	defer s.routesMu.Unlock()
 	route := IPRoute{s.tableId, iface, ip}
-	select {
-	case <-ctx.Done():
-	case <-s.enqueueAddRoute(ctx, route):
-	}
-}
-
-func (s *IPRouteController) enqueueAddRoute(ctx context.Context, route IPRoute) <-chan struct{} {
-	job := ipRouteJob{route, make(chan struct{})}
-	select {
-	case <-ctx.Done():
-		s.logger.Error("failed to add route", "err", context.Cause(ctx), "", route)
-		return ctx.Done()
-	case s.addQueue <- job:
-		return job.done
+	if !s.routes.Has(route) {
+		s.addRoute(ctx, route)
 	}
 }
 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
-	if s.routes.Has(route) {
-		return
-	}
-
 	defer TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
@@ -226,15 +181,6 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	}
 }
 
-func (s *IPRouteController) enqueueDeleteRoute(ctx context.Context, route IPRoute) {
-	select {
-	case <-ctx.Done():
-		s.logger.Error("failed to delete route", "err", context.Cause(ctx), "", route)
-		return
-	case s.deleteQueue <- route:
-	}
-}
-
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	defer TrackDuration("delete_route")()
 
@@ -245,6 +191,7 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 		s.logger.Error("failed to delete route", "err", err, "", route)
 	} else {
 		s.logger.Info("route deleted", "", route)
+		s.routes.Remove(route)
 	}
 }
 

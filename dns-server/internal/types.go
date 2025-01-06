@@ -20,8 +20,8 @@ func newIPv4(ip net.IP, prefix int) IPv4 {
 	if len(ip) != 4 {
 		panic("invalid IPv4 address")
 	}
-	if prefix < 0 || prefix > 33 { // 33 is special case
-		panic("prefix must be between 0 and 33")
+	if prefix < 0 || prefix > 32 {
+		panic("prefix must be between 0 and 32")
 	}
 	var r IPv4
 	copy(r[:], ip)
@@ -30,7 +30,7 @@ func newIPv4(ip net.IP, prefix int) IPv4 {
 }
 
 func NewIPv4(ip net.IP) IPv4 {
-	return newIPv4(ip.To4(), 33)
+	return newIPv4(ip.To4(), 32)
 }
 
 func ParseIPv4(s string) (IPv4, error) {
@@ -38,7 +38,7 @@ func ParseIPv4(s string) (IPv4, error) {
 	var prefix int
 	if p := strings.IndexByte(s, '/'); p < 0 {
 		ip = net.ParseIP(s)
-		prefix = 33
+		prefix = 32
 	} else {
 		ip = net.ParseIP(s[:p])
 		if n, err := strconv.Atoi(s[p+1:]); err != nil {
@@ -51,15 +51,15 @@ func ParseIPv4(s string) (IPv4, error) {
 }
 
 func (ip IPv4) HasPrefix() bool {
-	return ip[4] <= 32
+	return ip[4] < 32
 }
 
 func (ip IPv4) Prefix() int {
-	return min(int(ip[4]), 32)
+	return int(ip[4])
 }
 
 func (ip IPv4) String() string {
-	if ip[4] == 33 {
+	if ip[4] == 32 {
 		return net.IP(ip[:4]).String()
 	}
 	return net.IP(ip[:4]).String() + "/" + strconv.Itoa(int(ip[4]))

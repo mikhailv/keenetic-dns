@@ -3,8 +3,8 @@ addr: '0.0.0.0:5333'
 agent_base_url: 'http://127.0.0.1:5332/api/'
 agent_timeout: 10s
 
-#dns_provider: https://1.1.1.1/dns-query
-dns_provider: 1.1.1.1:53
+dns_provider: https://1.1.1.1/dns-query
+#dns_provider: 1.1.1.1:53
 dns_provider_timeout: 20s
 dns_ttl_override: 60s
 

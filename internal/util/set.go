@@ -55,3 +55,41 @@ func (s *SyncSet[T]) Values() []T {
 	}
 	return values
 }
+
+type Set[T comparable] map[T]struct{}
+
+func (s *Set[T]) Add(v T) bool {
+	if *s == nil {
+		*s = map[T]struct{}{}
+	}
+	if _, ok := (*s)[v]; ok {
+		return false
+	}
+	(*s)[v] = struct{}{}
+	return true
+}
+
+func (s *Set[T]) Has(v T) bool {
+	_, ok := (*s)[v]
+	return ok
+}
+
+func (s *Set[T]) Size() int {
+	return len(*s)
+}
+
+func (s *Set[T]) Clear() {
+	clear(*s)
+}
+
+func (s *Set[T]) Remove(v T) {
+	delete(*s, v)
+}
+
+func (s *Set[T]) Values() []T {
+	values := make([]T, 0, len(*s))
+	for v := range *s {
+		values = append(values, v)
+	}
+	return values
+}
