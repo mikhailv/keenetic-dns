@@ -2,7 +2,6 @@ package internal
 
 import (
 	"math"
-	"strings"
 	"sync"
 	"time"
 
@@ -11,35 +10,36 @@ import (
 
 type DNSCache struct {
 	mu      sync.RWMutex
-	entries map[string]dnsCacheEntry
+	entries map[dns.Question]dnsCacheEntry
 }
 
 func NewDNSCache() *DNSCache {
-	return &DNSCache{entries: map[string]dnsCacheEntry{}}
+	return &DNSCache{entries: map[dns.Question]dnsCacheEntry{}}
 }
 
-func (s *DNSCache) Get(domain string) []dns.RR {
+func (s *DNSCache) Get(query dns.Question) *dns.Msg {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if entry, ok := s.entries[strings.ToLower(domain)]; ok && !entry.Expired() {
-		return entry.Answer()
+	if entry, ok := s.entries[query]; ok && !entry.Expired() {
+		return entry.Result()
 	}
 	return nil
 }
 
-func (s *DNSCache) Put(domain string, answer []dns.RR) {
-	records := make([]dns.A, 0, len(answer))
-	ttl := math.MaxInt
-	for _, it := range answer {
-		if a, ok := it.(*dns.A); ok {
-			records = append(records, *a)
-			ttl = min(ttl, int(a.Hdr.Ttl))
+func (s *DNSCache) Put(query dns.Question, result *dns.Msg) {
+	if len(result.Answer) == 0 {
+		return
+	}
+	minTTL := math.MaxInt
+	for _, rec := range result.Answer {
+		if ttl := int(rec.Header().Ttl); ttl > 0 && ttl < minTTL {
+			minTTL = ttl
 		}
 	}
-	if len(records) > 0 {
+	if minTTL < math.MaxInt {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		s.entries[strings.ToLower(domain)] = dnsCacheEntry{records, time.Now().Add(time.Duration(ttl) * time.Second)}
+		s.entries[query] = dnsCacheEntry{*result.Copy(), time.Now().Add(time.Duration(minTTL) * time.Second)}
 	}
 }
 
@@ -54,7 +54,7 @@ func (s *DNSCache) RemoveExpired() {
 }
 
 type dnsCacheEntry struct {
-	answer  []dns.A
+	result  dns.Msg
 	expires time.Time
 }
 
@@ -62,12 +62,11 @@ func (s dnsCacheEntry) Expired() bool {
 	return time.Now().After(s.expires)
 }
 
-func (s dnsCacheEntry) Answer() []dns.RR {
-	res := make([]dns.RR, len(s.answer))
+func (s dnsCacheEntry) Result() *dns.Msg {
+	res := s.result.Copy()
 	ttl := max(1, uint32(time.Until(s.expires).Seconds()))
-	for i, it := range s.answer {
-		it.Hdr.Ttl = ttl
-		res[i] = &it
+	for i := range res.Answer {
+		res.Answer[i].Header().Ttl = ttl
 	}
 	return res
 }

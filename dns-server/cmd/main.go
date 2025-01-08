@@ -67,7 +67,8 @@ func main() {
 	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), dnsProvider, dnsStore, ipRoutes)
 
 	resolver := NewSingleInflightDNSResolver(service)
-	resolver = NewCachedDNSResolver(resolver, dnsCache, cfg.DNSTTLOverride)
+	resolver = NewCachedDNSResolver(resolver, dnsCache)
+	resolver = NewTTLOverridingDNSResolver(resolver, cfg.DNSTTLOverride)
 
 	httpServer := NewHTTPServer(cfg.Addr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream())
 	go httpServer.Serve(ctx)

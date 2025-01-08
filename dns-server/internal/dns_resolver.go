@@ -2,6 +2,9 @@ package internal
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,12 +22,22 @@ func NewSingleInflightDNSResolver(resolver DNSResolver) DNSResolver {
 	}
 }
 
-func NewCachedDNSResolver(resolver DNSResolver, cache *DNSCache, ttlOverride time.Duration) DNSResolver {
+func NewCachedDNSResolver(resolver DNSResolver, cache *DNSCache) DNSResolver {
 	return &cachedDNSResolver{
-		resolver:    resolver,
-		cache:       cache,
-		ttlOverride: ttlOverride,
+		resolver: resolver,
+		cache:    cache,
 	}
+}
+
+func NewTTLOverridingDNSResolver(resolver DNSResolver, ttl time.Duration) DNSResolver {
+	if ttl <= 0 {
+		return resolver
+	}
+	return ttlOverridingDNSResolver{resolver, ttl}
+}
+
+func NewVerboseDNSResolver(resolver DNSResolver) DNSResolver {
+	return verboseDNSResolver{resolver}
 }
 
 var _ DNSResolver = (*singleInflightResolver)(nil)
@@ -42,6 +55,10 @@ type singleInflightResolver struct {
 }
 
 func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	if !hasSingleQuestion(msg) {
+		return s.resolver.Resolve(ctx, msg)
+	}
+
 	reqKey := msg.Question[0]
 
 	s.mu.Lock()
@@ -83,25 +100,20 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 var _ DNSResolver = cachedDNSResolver{}
 
 type cachedDNSResolver struct {
-	resolver    DNSResolver
-	cache       *DNSCache
-	ttlOverride time.Duration
+	resolver DNSResolver
+	cache    *DNSCache
 }
 
 func (s cachedDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	if len(msg.Question) == 1 && msg.Question[0].Qtype == dns.TypeA {
-		domain := msg.Question[0].Name
-		if answer := s.cache.Get(domain); len(answer) > 0 {
-			resp := msg.Copy()
-			resp.Response = true
-			resp.Answer = answer
-			s.overrideTTL(resp.Answer)
+	if hasSingleQuestion(msg, dns.TypeA) {
+		query := msg.Question[0]
+		if resp := s.cache.Get(query); resp != nil {
+			resp.Id = msg.Id
 			return resp, nil
 		}
 		resp, err := s.resolver.Resolve(ctx, msg)
 		if err == nil {
-			s.cache.Put(domain, resp.Answer)
-			s.overrideTTL(resp.Answer)
+			s.cache.Put(query, resp)
 		}
 		return resp, err
 	}
@@ -109,14 +121,55 @@ func (s cachedDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg,
 	return s.resolver.Resolve(ctx, msg)
 }
 
-func (s cachedDNSResolver) overrideTTL(answer []dns.RR) {
-	ttlOverride := uint32(s.ttlOverride.Seconds())
-	if ttlOverride == 0 {
-		return
+var _ DNSResolver = ttlOverridingDNSResolver{}
+
+type ttlOverridingDNSResolver struct {
+	resolver DNSResolver
+	ttl      time.Duration
+}
+
+func (s ttlOverridingDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	resp, err := s.resolver.Resolve(ctx, msg)
+	if err != nil {
+		return nil, err
 	}
-	for _, rr := range answer {
-		if a, ok := rr.(*dns.A); ok {
-			a.Hdr.Ttl = min(a.Hdr.Ttl, ttlOverride)
+	if hasSingleQuestion(msg, dns.TypeA) {
+		ttlOverride := uint32(s.ttl.Seconds())
+		if ttlOverride > 0 {
+			for _, rr := range resp.Answer {
+				if a, ok := rr.(*dns.A); ok {
+					a.Hdr.Ttl = min(a.Hdr.Ttl, ttlOverride)
+				}
+			}
 		}
 	}
+	return resp, nil
+}
+
+var _ DNSResolver = verboseDNSResolver{}
+
+type verboseDNSResolver struct {
+	resolver DNSResolver
+}
+
+func (s verboseDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	fmt.Println(">> DNS:\n" + indent(msg.Question[0].String()))
+	resp, err := s.resolver.Resolve(ctx, msg)
+	if err != nil {
+		fmt.Println("<< DNS error: " + err.Error())
+	} else {
+		fmt.Println("<< DNS:\n" + indent(resp.String()))
+	}
+	return resp, err
+}
+
+func indent(text string) string {
+	return "\t" + strings.Join(strings.Split(text, "\n"), "\n\t")
+}
+
+func hasSingleQuestion(msg *dns.Msg, types ...uint16) bool {
+	if len(msg.Question) != 1 {
+		return false
+	}
+	return len(types) == 0 || slices.Contains(types, msg.Question[0].Qtype)
 }

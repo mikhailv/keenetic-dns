@@ -119,6 +119,7 @@ type DNSQuery struct {
 	Domain string        `json:"domain"`
 	TTL    uint32        `json:"ttl"`
 	IPs    []IPv4        `json:"ips"`
+	Routed []string      `json:"routed,omitempty"`
 }
 
 func (s *DNSQuery) SetCursor(cursor stream.Cursor) {

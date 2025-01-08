@@ -57,6 +57,7 @@ export class DNSRequestsElement extends LitElement {
           <th scope="col">Domain</th>
           <th scope="col">TTL</th>
           <th scope="col">IP</th>
+          <th scope="col">Routed</th>
         </tr>
         </thead>
         <tbody class="table-group-divider">
@@ -67,6 +68,9 @@ export class DNSRequestsElement extends LitElement {
             <td>${it.ttl}</td>
             <td class="fw-light" style="font-size: 0.9rem">
               ${it.ips.map(ip => html`<div>${ip}</div>`)}
+            </td>
+            <td class="fw-light" style="font-size: 0.9rem">
+              ${it.routed?.map(iface => html`<div>${iface}</div>`) ?? '-'}
             </td>
           </tr>
         `)}

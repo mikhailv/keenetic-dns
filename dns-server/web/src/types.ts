@@ -16,6 +16,7 @@ export interface DNSQuery {
   domain: string;
   ttl: number;
   ips: string[];
+  routed?: string[];
 }
 
 export interface LogEntry {
