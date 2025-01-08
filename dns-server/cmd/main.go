@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -16,30 +17,23 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-const (
-	configFilePath = "config.yaml"
-	logBufferSize  = 2_000
-)
-
 func main() {
 	ctx := setup.ListenStopSignal(context.Background())
 
-	var pprofAddr string
-	var debug bool
-
-	flag.StringVar(&pprofAddr, "pprof", "", "pprof handler address")
-	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	configFile := flag.String("config", "./config.yaml", "config file path")
+	pprofAddr := flag.String("pprof", "", "pprof handler address")
+	debug := flag.Bool("debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger, logStream := setupLogger(debug)
-
-	setup.Pprof(ctx, pprofAddr, logger)
-
-	cfg, err := LoadConfig(configFilePath)
+	cfg, err := LoadConfig(*configFile)
 	if err != nil {
-		logger.Error("failed to load config", "err", err)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to load config: %v", err)
 		os.Exit(1)
 	}
+
+	logger, logStream := setupLogger(*debug, cfg.LogHistorySize)
+
+	setup.Pprof(ctx, *pprofAddr, logger)
 
 	dnsStore := NewDNSStore()
 	saveStore := initDNSStore(cfg.Dump.File, log.WithPrefix(logger, "dns_store"), dnsStore)
@@ -50,8 +44,8 @@ func main() {
 	ipRoutes := NewIPRouteController(cfg.Routing, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.ReconcileInterval, cfg.ReconcileTimeout)
 	ipRoutes.Start(ctx)
 
-	listenConfigUpdate(logger, 5*time.Second, func(cfg Config) {
-		ipRoutes.UpdateConfig(ctx, cfg.Routing)
+	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg Config) {
+		ipRoutes.UpdateConfig(ctx, cfg.Routing.RoutingDynamicConfig)
 	})
 
 	var dnsProvider DNSResolver
@@ -64,13 +58,13 @@ func main() {
 	dnsCache := NewDNSCache()
 	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
 
-	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), dnsProvider, dnsStore, ipRoutes)
+	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), dnsProvider, dnsStore, ipRoutes, cfg.DNSQueryHistorySize)
 
 	resolver := NewSingleInflightDNSResolver(service)
 	resolver = NewCachedDNSResolver(resolver, dnsCache)
 	resolver = NewTTLOverridingDNSResolver(resolver, cfg.DNSTTLOverride)
 
-	httpServer := NewHTTPServer(cfg.Addr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream())
+	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream(), service.RawQueryStream())
 	go httpServer.Serve(ctx)
 
 	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), resolver)
@@ -94,18 +88,18 @@ func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func(
 	}
 }
 
-func setupLogger(debug bool) (*slog.Logger, *stream.Buffered[log.Entry]) {
+func setupLogger(debug bool, historySize int) (*slog.Logger, *stream.Buffered[log.Entry]) {
 	var recorder log.Recorder
 	logger := setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		recorder = log.NewRecorder(handler, logBufferSize)
+		recorder = log.NewRecorder(handler, historySize)
 		return recorder
 	})
 	return logger, recorder.Stream()
 }
 
-func listenConfigUpdate(logger *slog.Logger, updateCheckInterval time.Duration, onUpdate func(cfg Config)) {
+func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg Config)) {
 	getModTime := func() (time.Time, bool) {
-		f, err := os.Stat(configFilePath)
+		f, err := os.Stat(configFile)
 		if err != nil {
 			return time.Time{}, false
 		}
@@ -113,7 +107,7 @@ func listenConfigUpdate(logger *slog.Logger, updateCheckInterval time.Duration, 
 	}
 
 	reloadConfig := func() bool {
-		if cfg, err := LoadConfig(configFilePath); err != nil {
+		if cfg, err := LoadConfig(configFile); err != nil {
 			logger.Error("failed to load config", "err", err)
 			return false
 		} else {

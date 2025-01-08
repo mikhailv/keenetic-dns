@@ -54,6 +54,7 @@ export class DNSRequestsElement extends LitElement {
         <thead>
         <tr>
           <th scope="col">Time</th>
+          <th scope="col">Client</th>
           <th scope="col">Domain</th>
           <th scope="col">TTL</th>
           <th scope="col">IP</th>
@@ -64,6 +65,7 @@ export class DNSRequestsElement extends LitElement {
         ${repeat(this._items, it => it.cursor, it => html`
           <tr>
             <td title=${it.time.toLocaleString()}>${formatTime(it.time)}</td>
+            <td>${it.client_addr.split(':')[0]}</td>
             <td>${it.domain}</td>
             <td>${it.ttl}</td>
             <td class="fw-light" style="font-size: 0.9rem">

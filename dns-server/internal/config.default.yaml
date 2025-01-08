@@ -1,4 +1,8 @@
 addr: '0.0.0.0:5333'
+http_addr: '' # if empty the same value as `addr` will be used
+
+log_history_size: 2000
+dns_query_history_size: 2000
 
 agent_base_url: 'http://127.0.0.1:5332/api/'
 agent_timeout: 10s

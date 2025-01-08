@@ -14,7 +14,11 @@ import (
 var defaultConfigYAML []byte
 
 type Config struct {
-	Addr string `yaml:"addr"`
+	Addr     string `yaml:"addr"`
+	HTTPAddr string `yaml:"http_addr"`
+
+	LogHistorySize      int `yaml:"log_history_size"`
+	DNSQueryHistorySize int `yaml:"dns_query_history_size"`
 
 	AgentBaseURL string        `yaml:"agent_base_url"`
 	AgentTimeout time.Duration `yaml:"agent_timeout"`
@@ -36,7 +40,11 @@ type DumpConfig struct {
 }
 
 type RoutingConfig struct {
-	Rule         RoutingRuleConfig `yaml:"rule"`
+	Rule                 RoutingRuleConfig `yaml:"rule"`
+	RoutingDynamicConfig `yaml:",inline"`
+}
+
+type RoutingDynamicConfig struct {
 	RouteTimeout time.Duration     `yaml:"route_timeout"`
 	Hosts        map[string]Hosts  `yaml:"hosts"`
 	Static       map[string][]IPv4 `yaml:"static"`
@@ -68,6 +76,12 @@ func (c *RoutingConfig) LookupHost(host string) (iface string) {
 	return ""
 }
 
+func (c *Config) setDefaults() {
+	if c.HTTPAddr == "" {
+		c.HTTPAddr = c.Addr
+	}
+}
+
 func DefaultConfig() *Config {
 	var cfg Config
 	if err := yaml.Unmarshal(defaultConfigYAML, &cfg); err != nil {
@@ -87,5 +101,6 @@ func LoadConfig(file string) (*Config, error) {
 	if err = yaml.NewDecoder(f).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
+	cfg.setDefaults()
 	return cfg, nil
 }

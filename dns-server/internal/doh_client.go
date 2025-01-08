@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
 var _ DNSResolver = (*dohClient)(nil)
@@ -28,7 +30,7 @@ func NewDoHClient(url string, timeout time.Duration) DNSResolver {
 }
 
 func (s *dohClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	defer TrackDuration("doh_client.resolve")()
+	defer metrics.TrackDuration("doh_client.resolve")()
 
 	reqBody, err := msg.Pack()
 	if err != nil {

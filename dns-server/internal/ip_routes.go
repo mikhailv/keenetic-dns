@@ -13,6 +13,7 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/agent"
 	agentv1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
@@ -77,10 +78,10 @@ func (s *IPRouteController) Start(ctx context.Context) {
 	go util.RunPeriodically(ctx, s.reconcileInterval, s.reconcile)
 }
 
-func (s *IPRouteController) UpdateConfig(ctx context.Context, cfg RoutingConfig) {
-	old := s.cfg.Load()
-	cfg.Rule = old.Rule // rule can't be updated
-	s.cfg.Store(&cfg)
+func (s *IPRouteController) UpdateConfig(ctx context.Context, cfg RoutingDynamicConfig) {
+	current := *s.cfg.Load()
+	current.RoutingDynamicConfig = cfg
+	s.cfg.Store(&current)
 	s.logger.Info("routing config updated")
 	s.reconcile(ctx)
 }
@@ -109,7 +110,7 @@ func (s *IPRouteController) doReconcile(ctx context.Context, cfg *RoutingConfig,
 }
 
 func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *RoutingConfig) {
-	defer TrackDuration("reconcile_rules")()
+	defer metrics.TrackDuration("reconcile_rules")()
 	defer log.Profile(s.logger, "reconcile rules")()
 
 	rule := IPRoutingRule(cfg.Rule)
@@ -124,7 +125,7 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *RoutingConf
 }
 
 func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingConfig) {
-	defer TrackDuration("reconcile_routes")()
+	defer metrics.TrackDuration("reconcile_routes")()
 	defer log.Profile(s.logger, "reconcile routes")()
 
 	s.routesMu.Lock()
@@ -168,7 +169,7 @@ func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip IPv4)
 }
 
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
-	defer TrackDuration("add_route")()
+	defer metrics.TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
 		Route: mapToAgentRoute(route),
@@ -182,7 +183,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 }
 
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
-	defer TrackDuration("delete_route")()
+	defer metrics.TrackDuration("delete_route")()
 
 	_, err := s.networkService.DeleteRoute(ctx, connect.NewRequest(&agentv1.DeleteRouteReq{
 		Route: mapToAgentRoute(route),
@@ -196,7 +197,7 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 }
 
 func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
-	defer TrackDuration("add_rule")()
+	defer metrics.TrackDuration("add_rule")()
 
 	_, err := s.networkService.AddRule(ctx, connect.NewRequest(&agentv1.AddRuleReq{
 		Rule: mapToAgentRule(rule),
@@ -209,7 +210,7 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 }
 
 func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) map[IPRoute]struct{} {
-	defer TrackDuration("load_routes")()
+	defer metrics.TrackDuration("load_routes")()
 
 	res, err := s.networkService.ListRoutes(ctx, connect.NewRequest(&agentv1.ListRoutesReq{Table: uint32(tableId)}))
 	if err != nil {

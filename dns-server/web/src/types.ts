@@ -13,6 +13,7 @@ export interface DNSRecord {
 export interface DNSQuery {
   cursor: string;
   time: Date;
+  client_addr: string;
   domain: string;
   ttl: number;
   ips: string[];

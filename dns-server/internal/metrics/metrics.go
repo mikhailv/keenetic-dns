@@ -1,4 +1,4 @@
-package internal
+package metrics
 
 import (
 	"time"
@@ -18,12 +18,12 @@ var (
 		Namespace: promNamespace,
 		Name:      "operation_duration_seconds",
 		Buckets:   durationBuckets,
-	}, []string{"operation"})
+	}, []string{"op"})
 
 	operationStatusCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: promNamespace,
 		Name:      "operation_status",
-	}, []string{"operation", "status"})
+	}, []string{"op", "status"})
 )
 
 func TrackDuration(operation string) func() {

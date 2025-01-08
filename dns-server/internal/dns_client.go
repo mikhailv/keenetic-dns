@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
 var _ DNSResolver = (*dnsClient)(nil)
@@ -25,7 +27,7 @@ func NewDNSClient(address string, timeout time.Duration) DNSResolver {
 }
 
 func (c *dnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	defer TrackDuration("dns_client.resolve")()
+	defer metrics.TrackDuration("dns_client.resolve")()
 	resp, _, err := c.client.ExchangeContext(ctx, msg, c.address)
 	return resp, err
 }

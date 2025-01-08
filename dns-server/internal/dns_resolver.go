@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
 type DNSResolver interface {
@@ -105,12 +107,15 @@ type cachedDNSResolver struct {
 }
 
 func (s cachedDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	defer metrics.TrackDuration("dns.cache.handle")()
 	if hasSingleQuestion(msg, dns.TypeA) {
 		query := msg.Question[0]
 		if resp := s.cache.Get(query); resp != nil {
+			metrics.TrackStatus("dns.cache", "hit")
 			resp.Id = msg.Id
 			return resp, nil
 		}
+		metrics.TrackStatus("dns.cache", "miss")
 		resp, err := s.resolver.Resolve(ctx, msg)
 		if err == nil {
 			s.cache.Put(query, resp)

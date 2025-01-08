@@ -114,15 +114,30 @@ func (r DNSRecord) LogValue() slog.Value {
 var _ stream.CursorAware = (*DNSQuery)(nil)
 
 type DNSQuery struct {
-	Cursor stream.Cursor `json:"cursor,omitempty"`
-	Time   time.Time     `json:"time"`
-	Domain string        `json:"domain"`
-	TTL    uint32        `json:"ttl"`
-	IPs    []IPv4        `json:"ips"`
-	Routed []string      `json:"routed,omitempty"`
+	Cursor     stream.Cursor `json:"cursor,omitempty"`
+	Time       time.Time     `json:"time"`
+	ClientAddr string        `json:"client_addr"`
+	Domain     string        `json:"domain"`
+	TTL        uint32        `json:"ttl"`
+	IPs        []IPv4        `json:"ips"`
+	Routed     []string      `json:"routed,omitempty"`
 }
 
 func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
+	s.Cursor = cursor
+}
+
+var _ stream.CursorAware = (*DNSRawQuery)(nil)
+
+type DNSRawQuery struct {
+	Cursor     stream.Cursor `json:"cursor,omitempty"`
+	Time       time.Time     `json:"time"`
+	ClientAddr string        `json:"client_addr"`
+	Response   bool          `json:"response,omitempty"`
+	Text       string        `json:"text"`
+}
+
+func (s *DNSRawQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
 

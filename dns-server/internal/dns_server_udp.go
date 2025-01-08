@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
 type DNSServer struct {
@@ -49,15 +51,15 @@ func (s *DNSServer) Serve(ctx context.Context) {
 
 func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
-		defer TrackDuration("dns.handle")()
-		resp, err := s.resolver.Resolve(ctx, req)
+		defer metrics.TrackDuration("dns.handle")()
+		resp, err := s.resolver.Resolve(withDNSQueryRemoteAddr(ctx, w.RemoteAddr().String()), req)
 		if err != nil {
 			s.logger.Error("failed to handle request", "err", err)
 			resp = &dns.Msg{}
 			resp.SetRcode(req, dns.RcodeServerFailure)
-			TrackStatus("dns.handle", "failed")
+			metrics.TrackStatus("dns.handle", "failed")
 		} else {
-			TrackStatus("dns.handle", "success")
+			metrics.TrackStatus("dns.handle", "success")
 		}
 		_ = w.WriteMsg(resp)
 	})

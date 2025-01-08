@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/dns-server/web/static"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
@@ -36,12 +37,13 @@ const (
 type FilterFunc[T any] func(val T) bool
 
 type HTTPServer struct {
-	logger      *slog.Logger
-	resolver    DNSResolver
-	server      http.Server
-	ipRoutes    *IPRouteController
-	logStream   *stream.Buffered[log.Entry]
-	queryStream *stream.Buffered[DNSQuery]
+	logger         *slog.Logger
+	resolver       DNSResolver
+	server         http.Server
+	ipRoutes       *IPRouteController
+	logStream      *stream.Buffered[log.Entry]
+	queryStream    *stream.Buffered[DNSQuery]
+	rawQueryStream *stream.Buffered[DNSRawQuery]
 }
 
 func NewHTTPServer(
@@ -51,6 +53,7 @@ func NewHTTPServer(
 	ipRoutes *IPRouteController,
 	logStream *stream.Buffered[log.Entry],
 	queryStream *stream.Buffered[DNSQuery],
+	rawQueryStream *stream.Buffered[DNSRawQuery],
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
@@ -59,9 +62,10 @@ func NewHTTPServer(
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
-		ipRoutes:    ipRoutes,
-		logStream:   logStream,
-		queryStream: queryStream,
+		ipRoutes:       ipRoutes,
+		logStream:      logStream,
+		queryStream:    queryStream,
+		rawQueryStream: rawQueryStream,
 	}
 }
 
@@ -95,6 +99,8 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, wsLogger, s.filterLogs))
 	mux.Handle("GET /api/dns-queries", createListHandler(s.queryStream, s.filterQueries))
 	mux.Handle("GET /api/dns-queries/ws", createStreamHandler(s.queryStream, wsLogger, s.filterQueries))
+	mux.Handle("GET /api/dns-raw-queries", createListHandler(s.rawQueryStream, s.filterRawQueries))
+	mux.Handle("GET /api/dns-raw-queries/ws", createStreamHandler(s.rawQueryStream, wsLogger, s.filterRawQueries))
 	mux.Handle("GET /app.js", staticFileHandler("app.js"))
 	mux.Handle("GET /", staticFileHandler("index.html"))
 
@@ -126,11 +132,28 @@ func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc
 		if excludeRouted && s.ipRoutes.LookupHost(val.Domain) != "" {
 			return false
 		}
-		if search != "" {
-			return strings.Contains(val.Domain, search)
+		if search != "" && !strings.Contains(val.Domain, search) {
+			return false
 		}
-		if domain != "" {
-			return val.Domain == domain
+		if domain != "" && val.Domain != domain {
+			return false
+		}
+		return true
+	}
+}
+
+func (s *HTTPServer) filterRawQueries(_ *http.Request, query url.Values) FilterFunc[DNSRawQuery] {
+	search := strings.TrimSpace(query.Get("search"))
+	onlyResponses := queryParamSet(query, "only_responses")
+	if search == "" && !onlyResponses {
+		return nil
+	}
+	return func(val DNSRawQuery) bool {
+		if onlyResponses && !val.Response {
+			return false
+		}
+		if search != "" && !strings.Contains(val.Text, search) {
+			return false
 		}
 		return true
 	}
@@ -140,13 +163,13 @@ func (s *HTTPServer) wrapHandler(handler func(w http.ResponseWriter, req *http.R
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method, path := r.Method, r.URL.Path
 		operation := fmt.Sprintf("%s %s", method, path)
-		defer TrackDuration(operation)()
+		defer metrics.TrackDuration(operation)()
 		statusCode, err := handler(w, r)
 		if err != nil {
 			w.WriteHeader(statusCode)
 			s.logger.Error(err.Error(), "method", method, "path", path, "statusCode", statusCode)
 		}
-		TrackStatus(operation, strconv.Itoa(statusCode))
+		metrics.TrackStatus(operation, strconv.Itoa(statusCode))
 	})
 }
 
@@ -165,7 +188,7 @@ func (s *HTTPServer) handleDNSQuery(w http.ResponseWriter, req *http.Request) (s
 		return http.StatusBadRequest, fmt.Errorf("http: failed to unpack DNS request: %w", err)
 	}
 
-	dnsResp, err := s.resolver.Resolve(req.Context(), &dnsReq)
+	dnsResp, err := s.resolver.Resolve(withDNSQueryRemoteAddr(req.Context(), req.RemoteAddr), &dnsReq)
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("http: failed to send DNS request: %w", err)
 	}
