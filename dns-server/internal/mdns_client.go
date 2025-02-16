@@ -18,6 +18,7 @@ import (
 var _ DNSResolver = (*mdnsClient)(nil)
 
 type mdnsClient struct {
+	address string
 	timeout time.Duration
 	conn    struct {
 		sync.RWMutex
@@ -25,8 +26,9 @@ type mdnsClient struct {
 	}
 }
 
-func newMDNSClient(timeout time.Duration) *mdnsClient {
+func newMDNSClient(address string, timeout time.Duration) *mdnsClient {
 	return &mdnsClient{
+		address: address,
 		timeout: timeout,
 	}
 }
@@ -73,7 +75,7 @@ func (s *mdnsClient) connection() (*mdns.Conn, error) {
 		return s.conn.Conn, nil
 	}
 
-	addr, err := net.ResolveUDPAddr("udp4", mdns.DefaultAddress)
+	addr, err := net.ResolveUDPAddr("udp4", s.address)
 	if err != nil {
 		return nil, err
 	}

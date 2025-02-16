@@ -18,7 +18,7 @@ type mdnsResolver struct {
 func NewMDNSResolver(resolver DNSResolver, cfg MDNSConfig) DNSResolver {
 	return mdnsResolver{
 		cfg:      cfg,
-		client:   newMDNSClient(cfg.QueryTimeout),
+		client:   newMDNSClient(cfg.Addr, cfg.QueryTimeout),
 		resolver: resolver,
 	}
 }

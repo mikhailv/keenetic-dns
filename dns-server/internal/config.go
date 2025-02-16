@@ -37,6 +37,7 @@ type Config struct {
 
 type MDNSConfig struct {
 	Domains      []string      `yaml:"domains"`
+	Addr         string        `yaml:"addr"`
 	QueryTimeout time.Duration `yaml:"query_timeout"`
 }
 

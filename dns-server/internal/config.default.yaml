@@ -17,6 +17,7 @@ reconcile_timeout: 20s
 
 mdns:
   domains: [local]
+  addr: '224.0.0.0:5353'
   query_timeout: 500ms
 
 dump:
