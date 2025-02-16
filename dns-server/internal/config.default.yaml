@@ -15,6 +15,10 @@ dns_ttl_override: 60s
 reconcile_interval: 2m
 reconcile_timeout: 20s
 
+mdns:
+  domains: [local]
+  query_timeout: 500ms
+
 dump:
   file: domains.json
   interval: 10m

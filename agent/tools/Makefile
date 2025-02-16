@@ -4,7 +4,7 @@ DIR := $(shell pwd)
 all: buf protoc-gen-go protoc-gen-connect-go
 
 buf:
-	$(call go-get-tool,'$(DIR)/buf','github.com/bufbuild/buf/cmd/buf@v1.43.0')
+	$(call go-get-tool,'$(DIR)/buf','github.com/bufbuild/buf/cmd/buf@v1.50.0')
 
 protoc-gen-go:
 	$(call go-get-tool,'$(DIR)/protoc-gen-go','google.golang.org/protobuf/cmd/protoc-gen-go@latest')

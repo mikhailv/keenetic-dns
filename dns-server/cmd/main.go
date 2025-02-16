@@ -54,6 +54,7 @@ func main() {
 	} else {
 		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
 	}
+	dnsProvider = NewMDNSResolver(dnsProvider, cfg.MDNS)
 
 	dnsCache := NewDNSCache()
 	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })

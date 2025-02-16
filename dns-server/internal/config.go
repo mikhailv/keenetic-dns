@@ -30,8 +30,14 @@ type Config struct {
 	ReconcileInterval time.Duration `yaml:"reconcile_interval"`
 	ReconcileTimeout  time.Duration `yaml:"reconcile_timeout"`
 
+	MDNS    MDNSConfig    `yaml:"mdns"`
 	Dump    DumpConfig    `yaml:"dump"`
 	Routing RoutingConfig `yaml:"routing"`
+}
+
+type MDNSConfig struct {
+	Domains      []string      `yaml:"domains"`
+	QueryTimeout time.Duration `yaml:"query_timeout"`
 }
 
 type DumpConfig struct {
@@ -76,18 +82,27 @@ func (c *RoutingConfig) LookupHost(host string) (iface string) {
 	return ""
 }
 
+func (c *Config) init() {
+	c.setDefaults()
+	c.MDNS.normalize()
+}
+
 func (c *Config) setDefaults() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = c.Addr
 	}
 }
 
-func DefaultConfig() *Config {
-	var cfg Config
-	if err := yaml.Unmarshal(defaultConfigYAML, &cfg); err != nil {
-		panic(fmt.Errorf("failed to load default config: %w", err))
+func (c *MDNSConfig) normalize() {
+	for i := range c.Domains {
+		c.Domains[i] = "." + strings.Trim(c.Domains[i], ".") + "."
 	}
-	return &cfg
+}
+
+func DefaultConfig() *Config {
+	cfg := defaultConfig()
+	cfg.init()
+	return cfg
 }
 
 func LoadConfig(file string) (*Config, error) {
@@ -97,10 +112,18 @@ func LoadConfig(file string) (*Config, error) {
 	}
 	defer f.Close()
 
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	if err = yaml.NewDecoder(f).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
-	cfg.setDefaults()
+	cfg.init()
 	return cfg, nil
+}
+
+func defaultConfig() *Config {
+	var cfg Config
+	if err := yaml.Unmarshal(defaultConfigYAML, &cfg); err != nil {
+		panic(fmt.Errorf("failed to load default config: %w", err))
+	}
+	return &cfg
 }
