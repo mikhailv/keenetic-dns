@@ -246,3 +246,9 @@ func mapToAgentRoute(route IPRoute) *agentv1.Route {
 		Address: route.Addr.String(),
 	}
 }
+
+func removeExpiredRecords(records []DNSRecord, extraTTL time.Duration) []DNSRecord {
+	return slices.DeleteFunc(records, func(rec DNSRecord) bool {
+		return rec.Expired(extraTTL)
+	})
+}
