@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -132,11 +133,12 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 	defer s.routesMu.Unlock()
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
+	unknownRoutes := maps.Clone(definedRoutes)
 
 	addRoute := func(route IPRoute) {
-		_, defined := definedRoutes[route]
-		delete(definedRoutes, route) // delete from set, to track unexpected routes later
-		if !defined {
+		if _, defined := definedRoutes[route]; defined {
+			delete(unknownRoutes, route) // route is defined, delete it from set of unknown routes
+		} else {
 			s.addRoute(ctx, route)
 		}
 	}
@@ -154,7 +156,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *RoutingCon
 		}
 	}
 
-	for route := range definedRoutes {
+	for route := range unknownRoutes {
 		s.deleteRoute(ctx, route)
 	}
 }
