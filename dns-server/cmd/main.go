@@ -6,11 +6,17 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:stylecheck //ignore
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnsclient" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"    //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"  //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing"   //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"    //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage"   //nolint:stylecheck //ignore
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/setup"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
@@ -23,47 +29,51 @@ func main() {
 	configFile := flag.String("config", "./config.yaml", "config file path")
 	pprofAddr := flag.String("pprof", "", "pprof handler address")
 	debug := flag.Bool("debug", false, "enable debug logging")
+	verbose := flag.Bool("verbose", false, "enable verbose output")
 	flag.Parse()
 
-	cfg, err := LoadConfig(*configFile)
+	cfg, err := config.LoadConfig(*configFile)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to load config: %v", err)
 		os.Exit(1)
 	}
 
-	logger, logStream := setupLogger(*debug, cfg.LogHistorySize)
+	logger, logStream := setupLogger(*debug, cfg.History.LogSize)
 
 	setup.Pprof(ctx, *pprofAddr, logger)
 
 	dnsStore := NewDNSStore()
-	saveStore := initDNSStore(cfg.Dump.File, log.WithPrefix(logger, "dns_store"), dnsStore)
-	go util.RunPeriodically(ctx, cfg.Dump.Interval, func(ctx context.Context) { saveStore() })
+	saveStore := initDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
+	go util.RunPeriodically(ctx, cfg.Storage.Local.SaveInterval, func(ctx context.Context) { saveStore() })
 
-	networkService := agent.NewNetworkServiceClient(cfg.AgentBaseURL, cfg.AgentTimeout)
+	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 
-	ipRoutes := NewIPRouteController(cfg.Routing, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.ReconcileInterval, cfg.ReconcileTimeout)
+	ipRoutes := NewIPRouteController(cfg.Routing, log.WithPrefix(logger, "routes"), dnsStore, networkService)
 	ipRoutes.Start(ctx)
 
-	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg Config) {
-		ipRoutes.UpdateConfig(ctx, cfg.Routing.RoutingDynamicConfig)
+	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
+		ipRoutes.UpdateConfig(ctx, cfg.Routing.RoutingDynamic)
 	})
 
-	var dnsProvider DNSResolver
-	if strings.HasPrefix(cfg.DNSProvider, "http") {
-		dnsProvider = NewDoHClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
-	} else {
-		dnsProvider = NewDNSClient(cfg.DNSProvider, cfg.DNSProviderTimeout)
+	providers := make([]*DNSProvider, len(cfg.DNS.Providers))
+	for i, c := range cfg.DNS.Providers {
+		providers[i] = createDNSProvider(c)
+		logger.Info("DNS provider registered", slog.String("name", c.Name), slog.String("endpoint", c.Endpoint.String()))
 	}
-	dnsProvider = NewMDNSResolver(dnsProvider, cfg.MDNS)
+	provider := NewMultiProviderDNSResolver(providers)
 
 	dnsCache := NewDNSCache()
 	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
 
-	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), dnsProvider, dnsStore, ipRoutes, cfg.DNSQueryHistorySize)
+	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), provider, dnsStore, ipRoutes, cfg.History.DNSQuerySize)
 
 	resolver := NewSingleInflightDNSResolver(service)
 	resolver = NewCachedDNSResolver(resolver, dnsCache)
-	resolver = NewTTLOverridingDNSResolver(resolver, cfg.DNSTTLOverride)
+	resolver = NewTTLOverridingDNSResolver(resolver, cfg.DNS.TTLOverride)
+	if *verbose {
+		resolver = NewVerboseDNSResolver(resolver)
+	}
+	resolver = NewErrorSafeDNSResolver(resolver)
 
 	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream(), service.RawQueryStream())
 	go httpServer.Serve(ctx)
@@ -98,7 +108,7 @@ func setupLogger(debug bool, historySize int) (*slog.Logger, *stream.Buffered[lo
 	return logger, recorder.Stream()
 }
 
-func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg Config)) {
+func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg config.Config)) {
 	getModTime := func() (time.Time, bool) {
 		f, err := os.Stat(configFile)
 		if err != nil {
@@ -108,7 +118,7 @@ func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInter
 	}
 
 	reloadConfig := func() bool {
-		if cfg, err := LoadConfig(configFile); err != nil {
+		if cfg, err := config.LoadConfig(configFile); err != nil {
 			logger.Error("failed to load config", "err", err)
 			return false
 		} else {
@@ -129,4 +139,17 @@ func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInter
 			}
 		}
 	}()
+}
+
+func createDNSProvider(cfg config.DNSProvider) *DNSProvider {
+	var client DNSResolver
+	switch cfg.Endpoint.Scheme {
+	case "http", "https":
+		client = NewDoHClient(cfg.Name, cfg.Endpoint.String(), cfg.Timeout)
+	case "dns":
+		client = NewUDPClient(cfg.Name, cfg.Endpoint.Host, cfg.Timeout)
+	case "mdns":
+		client = NewMDNSClient(cfg.Name, cfg.Endpoint.Host, cfg.Timeout)
+	}
+	return NewDNSProvider(client, cfg)
 }

@@ -1,0 +1,51 @@
+addr: '0.0.0.0:5333'
+http_addr: '' # if empty the same value as `addr` will be used
+
+history:
+  log_size: 2000
+  dns_query_size: 2000
+
+agent:
+  base_url: 'http://127.0.0.1:5332/api/'
+  timeout: 10s
+
+dns:
+  ttl_override: 60s
+  providers:
+    - name: cloudflare
+      endpoint: 'https://1.1.1.1/dns-query'
+      ignore: [local]
+      timeout: 10s
+    - name: k0s
+      endpoint: 'dns://10.96.0.10:53'
+      domains: [cluster.local]
+      timeout: 500ms
+      types: [A]
+    - name: mdns
+      endpoint: 'mdns://224.0.0.0:5353'
+      domains: [local]
+      ignore: [cluster.local]
+      timeout: 500ms
+      types: [A]
+
+cache:
+  size: 5000
+  negative: true
+  negative_ttl: 30s
+
+storage:
+  local:
+    file: domains.json
+    save_interval: 10m
+
+routing:
+  rule:
+    table: 1001
+    iif: br0
+    priority: 1995
+  reconcile:
+    interval: 2m
+    timeout: 20s
+  route_timeout: 60m
+  hosts: { }
+  static: { }

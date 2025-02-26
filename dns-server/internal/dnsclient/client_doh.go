@@ -1,4 +1,4 @@
-package internal
+package dnsclient
 
 import (
 	"bytes"
@@ -11,18 +11,23 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 )
 
-var _ DNSResolver = (*dohClient)(nil)
+const dnsMessageMediaType = "application/dns-message"
+
+var _ resolver.DNSResolver = (*dohClient)(nil)
 
 type dohClient struct {
+	name   string
 	url    string
 	client http.Client
 }
 
-func NewDoHClient(url string, timeout time.Duration) DNSResolver {
+func NewDoHClient(name string, url string, timeout time.Duration) resolver.DNSResolver {
 	return &dohClient{
-		url: url,
+		name: name,
+		url:  url,
 		client: http.Client{
 			Timeout: timeout,
 		},
@@ -30,7 +35,7 @@ func NewDoHClient(url string, timeout time.Duration) DNSResolver {
 }
 
 func (s *dohClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	defer metrics.TrackDuration("doh_client.resolve")()
+	defer metrics.TrackNamedDuration("doh_client.resolve", s.name)()
 
 	reqBody, err := msg.Pack()
 	if err != nil {

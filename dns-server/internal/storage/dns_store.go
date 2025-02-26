@@ -1,4 +1,4 @@
-package internal
+package storage
 
 import (
 	"encoding/json"
@@ -10,22 +10,24 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
 type DNSStore struct {
 	mu       sync.Mutex
-	byDomain MultiMap[string, IPv4, DNSRecord]
-	byIP     MultiMap[IPv4, string, DNSRecord]
+	byDomain MultiMap[string, types.IPv4, types.DNSRecord]
+	byIP     MultiMap[types.IPv4, string, types.DNSRecord]
 }
 
 func NewDNSStore() *DNSStore {
 	return &DNSStore{
-		byDomain: MultiMap[string, IPv4, DNSRecord]{},
-		byIP:     MultiMap[IPv4, string, DNSRecord]{},
+		byDomain: MultiMap[string, types.IPv4, types.DNSRecord]{},
+		byIP:     MultiMap[types.IPv4, string, types.DNSRecord]{},
 	}
 }
 
-func (s *DNSStore) fill(records []DNSRecord) {
+func (s *DNSStore) fill(records []types.DNSRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.byDomain)
@@ -35,31 +37,31 @@ func (s *DNSStore) fill(records []DNSRecord) {
 	}
 }
 
-func (s *DNSStore) LookupIP(ip IPv4) []DNSRecord {
+func (s *DNSStore) LookupIP(ip types.IPv4) []types.DNSRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	recs := s.byIP[ip]
-	return slices.AppendSeq(make([]DNSRecord, 0, len(recs)), maps.Values(recs))
+	return slices.AppendSeq(make([]types.DNSRecord, 0, len(recs)), maps.Values(recs))
 }
 
-func (s *DNSStore) Add(rec DNSRecord) {
+func (s *DNSStore) Add(rec types.DNSRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.add(rec)
 }
 
-func (s *DNSStore) add(rec DNSRecord) {
+func (s *DNSStore) add(rec types.DNSRecord) {
 	s.byDomain.Set(rec.Domain, rec.IP, rec)
 	s.byIP.Set(rec.IP, rec.Domain, rec)
 }
 
-func (s *DNSStore) Remove(rec DNSRecord) {
+func (s *DNSStore) Remove(rec types.DNSRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.remove(rec)
 }
 
-func (s *DNSStore) remove(rec DNSRecord) {
+func (s *DNSStore) remove(rec types.DNSRecord) {
 	s.byDomain.Remove(rec.Domain, rec.IP)
 	s.byIP.Remove(rec.IP, rec.Domain)
 }
@@ -74,22 +76,22 @@ func (s *DNSStore) RemoveExpired(extraTTL time.Duration) {
 	}
 }
 
-func (s *DNSStore) Records() []DNSRecord {
+func (s *DNSStore) Records() []types.DNSRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	count := 0
 	for range s.iterate() {
 		count++
 	}
-	res := make([]DNSRecord, 0, count)
+	res := make([]types.DNSRecord, 0, count)
 	for r := range s.iterate() {
 		res = append(res, r)
 	}
 	return res
 }
 
-func (s *DNSStore) iterate() iter.Seq[DNSRecord] {
-	return func(yield func(DNSRecord) bool) {
+func (s *DNSStore) iterate() iter.Seq[types.DNSRecord] {
+	return func(yield func(types.DNSRecord) bool) {
 		for _, records := range s.byDomain {
 			for _, r := range records {
 				if !yield(r) {
@@ -106,7 +108,7 @@ func (s *DNSStore) Load(file string) error {
 		return nil
 	}
 	defer f.Close()
-	var records []DNSRecord
+	var records []types.DNSRecord
 	if err := json.NewDecoder(f).Decode(&records); err != nil {
 		return fmt.Errorf("failed to load DNS records: %w", err)
 	}

@@ -18,7 +18,7 @@ var (
 		Namespace: promNamespace,
 		Name:      "operation_duration_seconds",
 		Buckets:   durationBuckets,
-	}, []string{"op"})
+	}, []string{"op", "name"})
 
 	operationStatusCounter = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: promNamespace,
@@ -27,9 +27,13 @@ var (
 )
 
 func TrackDuration(operation string) func() {
+	return TrackNamedDuration(operation, "")
+}
+
+func TrackNamedDuration(operation, name string) func() {
 	start := time.Now()
 	return func() {
-		operationDurationHistogram.WithLabelValues(operation).Observe(time.Since(start).Seconds())
+		operationDurationHistogram.WithLabelValues(operation, name).Observe(time.Since(start).Seconds())
 	}
 }
 

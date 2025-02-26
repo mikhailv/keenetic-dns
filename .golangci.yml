@@ -213,3 +213,7 @@ issues:
   exclude-rules:
     - text: 'G115: integer overflow conversion'
       linters: [ gosec ]
+
+    - text: 'shadow: declaration of "ctx" shadows declaration'
+      linters: [ govet ]
+

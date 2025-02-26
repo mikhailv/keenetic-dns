@@ -1,4 +1,4 @@
-package internal
+package dnsclient
 
 import (
 	"context"
@@ -13,11 +13,13 @@ import (
 	"github.com/pion/mdns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 )
 
-var _ DNSResolver = (*mdnsClient)(nil)
+var _ resolver.DNSResolver = (*mdnsClient)(nil)
 
 type mdnsClient struct {
+	name    string
 	address string
 	timeout time.Duration
 	conn    struct {
@@ -26,15 +28,16 @@ type mdnsClient struct {
 	}
 }
 
-func newMDNSClient(address string, timeout time.Duration) *mdnsClient {
+func NewMDNSClient(name string, address string, timeout time.Duration) resolver.DNSResolver {
 	return &mdnsClient{
+		name:    name,
 		address: address,
 		timeout: timeout,
 	}
 }
 
 func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	defer metrics.TrackDuration("mdns_client.resolve")()
+	defer metrics.TrackNamedDuration("mdns_client.resolve", s.name)()
 	conn, err := s.connection()
 	if err != nil {
 		return nil, err
@@ -47,8 +50,8 @@ func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error
 		return nil, err
 	}
 
-	resp := msg.Copy()
-	resp.Response = true
+	resp := &dns.Msg{}
+	resp.SetRcode(msg, dns.RcodeSuccess)
 	resp.Answer = []dns.RR{&dns.A{
 		Hdr: dns.RR_Header{
 			Name:     answer.Name.String(),

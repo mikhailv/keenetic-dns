@@ -1,4 +1,4 @@
-package internal
+package server
 
 import (
 	"context"
@@ -9,15 +9,17 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 )
 
 type DNSServer struct {
 	logger   *slog.Logger
-	resolver DNSResolver
+	resolver resolver.DNSResolver
 	server   dns.Server
 }
 
-func NewDNSServer(addr string, logger *slog.Logger, resolver DNSResolver) *DNSServer {
+func NewDNSServer(addr string, logger *slog.Logger, resolver resolver.DNSResolver) *DNSServer {
 	return &DNSServer{
 		logger:   logger,
 		resolver: resolver,
@@ -52,15 +54,14 @@ func (s *DNSServer) Serve(ctx context.Context) {
 func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
 		defer metrics.TrackDuration("dns.handle")()
-		resp, err := s.resolver.Resolve(withDNSQueryRemoteAddr(ctx, w.RemoteAddr().String()), req)
+		resp, err := s.resolver.Resolve(ctxutil.WithDNSQueryRemoteAddr(ctx, w.RemoteAddr().String()), req)
 		if err != nil {
 			s.logger.Error("failed to handle request", "err", err)
-			resp = &dns.Msg{}
-			resp.SetRcode(req, dns.RcodeServerFailure)
 			metrics.TrackStatus("dns.handle", "failed")
+			_ = w.WriteMsg(resolver.RefusedResponse(req))
 		} else {
 			metrics.TrackStatus("dns.handle", "success")
+			_ = w.WriteMsg(resp)
 		}
-		_ = w.WriteMsg(resp)
 	})
 }
