@@ -1,4 +1,4 @@
-package resolver
+package dnssvc
 
 import (
 	"context"
@@ -12,19 +12,19 @@ import (
 	"github.com/miekg/dns"
 )
 
-func NewMultiProviderDNSResolver(providers []*DNSProvider) DNSResolver {
-	return multiProviderDNSResolver(providers)
+func NewMultiProviderResolver(providers []Provider) Resolver {
+	return multiProviderResolver(providers)
 }
 
-var _ DNSResolver = multiProviderDNSResolver{}
+var _ Resolver = multiProviderResolver{}
 
-type multiProviderDNSResolver []*DNSProvider
+type multiProviderResolver []Provider
 
-func (s multiProviderDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	resolvers := map[int32][]DNSResolver{}
-	for _, provider := range s {
-		if score := provider.MatchQuery(msg); score >= 0 {
-			resolvers[score] = append(resolvers[score], provider)
+func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	resolvers := map[int32][]Resolver{}
+	for _, p := range s {
+		if score := p.MatchQuery(msg); score >= 0 {
+			resolvers[score] = append(resolvers[score], p)
 		}
 	}
 
@@ -58,7 +58,7 @@ func (s multiProviderDNSResolver) Resolve(ctx context.Context, msg *dns.Msg) (*d
 	return RefusedResponse(msg), errors.Join(errs...)
 }
 
-func resolveInParallel(ctx context.Context, resolvers []DNSResolver, msg *dns.Msg) iter.Seq2[*dns.Msg, error] {
+func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) iter.Seq2[*dns.Msg, error] {
 	if len(resolvers) == 0 {
 		panic("resolveInParallel: 'resolvers' is empty")
 	}
@@ -84,7 +84,7 @@ func resolveInParallel(ctx context.Context, resolvers []DNSResolver, msg *dns.Ms
 		defer cancel()
 
 		for i := range resolvers {
-			go func(resolver DNSResolver) {
+			go func(resolver Resolver) {
 				resp, err := resolver.Resolve(ctx, msg)
 				resultQueue <- JobResult{resp, err}
 				if pending.Add(-1) == 0 {

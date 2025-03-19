@@ -1,4 +1,4 @@
-package dnsclient
+package dnssvc
 
 import (
 	"bytes"
@@ -11,12 +11,11 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 )
 
 const dnsMessageMediaType = "application/dns-message"
 
-var _ resolver.DNSResolver = (*dohClient)(nil)
+var _ Resolver = (*dohClient)(nil)
 
 type dohClient struct {
 	name   string
@@ -24,7 +23,7 @@ type dohClient struct {
 	client http.Client
 }
 
-func NewDoHClient(name string, url string, timeout time.Duration) resolver.DNSResolver {
+func NewDoHClient(name string, url string, timeout time.Duration) Resolver {
 	return &dohClient{
 		name: name,
 		url:  url,

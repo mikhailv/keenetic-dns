@@ -1,20 +1,26 @@
-package resolver
+package middleware
 
 import (
 	"context"
 	"sync"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 )
 
-func NewSingleInflightDNSResolver(resolver DNSResolver) DNSResolver {
+var _ dnssvc.Middleware = SingleInflightMiddleware
+
+func SingleInflightMiddleware(handler dnssvc.Handler) dnssvc.Handler {
+	return newSingleInflightDNSResolver(handler).Resolve
+}
+
+func newSingleInflightDNSResolver(handler dnssvc.Handler) *singleInflightResolver {
 	return &singleInflightResolver{
-		resolver: resolver,
+		handler:  handler,
 		requests: map[dns.Question]*inflightRequest{},
 	}
 }
-
-var _ DNSResolver = (*singleInflightResolver)(nil)
 
 type inflightRequest struct {
 	Done chan struct{}
@@ -23,14 +29,14 @@ type inflightRequest struct {
 }
 
 type singleInflightResolver struct {
-	resolver DNSResolver
+	handler  dnssvc.Handler
 	mu       sync.Mutex
 	requests map[dns.Question]*inflightRequest
 }
 
 func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	if !HasSingleQuestion(msg) {
-		return s.resolver.Resolve(ctx, msg)
+	if !dnssvc.HasSingleQuestion(msg) {
+		return s.handler(ctx, msg)
 	}
 
 	reqKey := msg.Question[0]
@@ -61,7 +67,7 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 	s.requests[reqKey] = req
 	s.mu.Unlock()
 
-	req.Resp, req.Err = s.resolver.Resolve(ctx, msg)
+	req.Resp, req.Err = s.handler(ctx, msg)
 	close(req.Done)
 
 	s.mu.Lock()

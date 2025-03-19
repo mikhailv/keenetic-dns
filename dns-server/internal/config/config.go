@@ -36,18 +36,19 @@ type Agent struct {
 }
 
 type DNS struct {
-	TTLOverride time.Duration `yaml:"ttl_override"`
-	Providers   []DNSProvider `yaml:"providers"`
+	TTLOverride time.Duration          `yaml:"ttl_override"`
+	Providers   map[string]DNSProvider `yaml:"providers"`
 }
 
 type DNSProvider struct {
-	Name     string        `yaml:"name"`
+	Enabled  bool          `yaml:"enabled"`
 	Priority int           `yaml:"priority"`
 	Endpoint URL           `yaml:"endpoint"`
 	Ignore   DomainList    `yaml:"ignore"`
 	Domains  DomainList    `yaml:"domains"`
 	Timeout  time.Duration `yaml:"timeout"`
 	Types    []string      `yaml:"types"`
+	DropECH  bool          `yaml:"drop_ech"`
 }
 
 type Cache struct {

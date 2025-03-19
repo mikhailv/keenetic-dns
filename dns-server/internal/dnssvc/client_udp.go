@@ -1,4 +1,4 @@
-package dnsclient
+package dnssvc
 
 import (
 	"context"
@@ -7,10 +7,9 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 )
 
-var _ resolver.DNSResolver = (*udpClient)(nil)
+var _ Resolver = (*udpClient)(nil)
 
 type udpClient struct {
 	name    string
@@ -18,7 +17,7 @@ type udpClient struct {
 	client  dns.Client
 }
 
-func NewUDPClient(name string, address string, timeout time.Duration) resolver.DNSResolver {
+func NewUDPClient(name string, address string, timeout time.Duration) Resolver {
 	return &udpClient{
 		name:    name,
 		address: address,

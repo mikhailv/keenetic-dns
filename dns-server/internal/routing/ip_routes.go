@@ -209,7 +209,7 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	}
 }
 
-func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) map[IPRoute]struct{} {
+func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Set[IPRoute] {
 	defer metrics.TrackDuration("load_routes")()
 
 	res, err := s.networkService.ListRoutes(ctx, connect.NewRequest(&agentv1.ListRoutesReq{Table: uint32(tableId)}))
@@ -218,7 +218,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) map[IPR
 		return nil
 	}
 
-	routes := make(map[IPRoute]struct{}, len(res.Msg.Routes))
+	routes := make(util.Set[IPRoute], len(res.Msg.Routes))
 	for _, it := range res.Msg.Routes {
 		addr, err := types.ParseIPv4(it.Address)
 		if err != nil {
@@ -226,7 +226,7 @@ func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) map[IPR
 			continue
 		}
 		route := IPRoute{int(it.Table), it.Iface, addr}
-		routes[route] = struct{}{}
+		routes.Add(route)
 	}
 	return routes
 }

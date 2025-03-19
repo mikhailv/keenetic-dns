@@ -1,4 +1,4 @@
-package dnsclient
+package dnssvc
 
 import (
 	"context"
@@ -13,10 +13,9 @@ import (
 	"github.com/pion/mdns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 )
 
-var _ resolver.DNSResolver = (*mdnsClient)(nil)
+var _ Resolver = (*mdnsClient)(nil)
 
 type mdnsClient struct {
 	name    string
@@ -28,7 +27,7 @@ type mdnsClient struct {
 	}
 }
 
-func NewMDNSClient(name string, address string, timeout time.Duration) resolver.DNSResolver {
+func NewMDNSClient(name string, address string, timeout time.Duration) Resolver {
 	return &mdnsClient{
 		name:    name,
 		address: address,

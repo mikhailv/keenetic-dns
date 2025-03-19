@@ -11,19 +11,20 @@ import (
 	"github.com/mikhailv/keenetic-dns/agent"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:stylecheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnsclient" //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"    //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"  //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing"   //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"    //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage"   //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:stylecheck //ignore
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/service"
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:stylecheck //ignore
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/setup"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-func main() {
+func main() { //nolint:funlen // ignore
 	ctx := setup.ListenStopSignal(context.Background())
 
 	configFile := flag.String("config", "./config.yaml", "config file path")
@@ -55,30 +56,36 @@ func main() {
 		ipRoutes.UpdateConfig(ctx, cfg.Routing.RoutingDynamic)
 	})
 
-	providers := make([]*DNSProvider, len(cfg.DNS.Providers))
-	for i, c := range cfg.DNS.Providers {
-		providers[i] = createDNSProvider(c)
-		logger.Info("DNS provider registered", slog.String("name", c.Name), slog.String("endpoint", c.Endpoint.String()))
-	}
-	provider := NewMultiProviderDNSResolver(providers)
-
 	dnsCache := NewDNSCache()
 	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
 
-	service := NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), provider, dnsStore, ipRoutes, cfg.History.DNSQuerySize)
+	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.History.DNSQuerySize)
+	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.History.DNSQuerySize)
 
-	resolver := NewSingleInflightDNSResolver(service)
-	resolver = NewCachedDNSResolver(resolver, dnsCache)
-	resolver = NewTTLOverridingDNSResolver(resolver, cfg.DNS.TTLOverride)
-	if *verbose {
-		resolver = NewVerboseDNSResolver(resolver)
+	providers := make([]Provider, 0, len(cfg.DNS.Providers))
+	for name, c := range cfg.DNS.Providers {
+		if c.Enabled {
+			providers = append(providers, createDNSProvider(name, c))
+			logger.Info("DNS provider registered", slog.String("name", name), slog.String("endpoint", c.Endpoint.String()))
+		}
 	}
-	resolver = NewErrorSafeDNSResolver(resolver)
 
-	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), resolver, ipRoutes, logStream, service.QueryStream(), service.RawQueryStream())
+	resolver := NewMultiProviderResolver(providers)
+
+	svc := service.NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), resolver, dnsStore, ipRoutes, dnsQueryStream, rawQueryStream)
+
+	handler := NewMiddlewareChainHandler([]Middleware{
+		SingleInflightMiddleware,
+		NewCacheMiddleware(dnsCache),
+		NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
+		EnableMiddleware(VerboseMiddleware, *verbose),
+		ErrorSafeResponseMiddleware,
+	}, svc.Resolve)
+
+	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), ResolverFunc(handler), ipRoutes, logStream, dnsQueryStream, rawQueryStream)
 	go httpServer.Serve(ctx)
 
-	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), resolver)
+	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), ResolverFunc(handler))
 	go udpServer.Serve(ctx)
 
 	<-ctx.Done()
@@ -141,15 +148,18 @@ func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInter
 	}()
 }
 
-func createDNSProvider(cfg config.DNSProvider) *DNSProvider {
-	var client DNSResolver
+func createDNSProvider(name string, cfg config.DNSProvider) Provider {
+	var client Resolver
 	switch cfg.Endpoint.Scheme {
 	case "http", "https":
-		client = NewDoHClient(cfg.Name, cfg.Endpoint.String(), cfg.Timeout)
+		client = NewDoHClient(name, cfg.Endpoint.String(), cfg.Timeout)
 	case "dns":
-		client = NewUDPClient(cfg.Name, cfg.Endpoint.Host, cfg.Timeout)
+		client = NewUDPClient(name, cfg.Endpoint.Host, cfg.Timeout)
 	case "mdns":
-		client = NewMDNSClient(cfg.Name, cfg.Endpoint.Host, cfg.Timeout)
+		client = NewMDNSClient(name, cfg.Endpoint.Host, cfg.Timeout)
 	}
-	return NewDNSProvider(client, cfg)
+	if cfg.DropECH {
+		client = ResolverFunc(DropECHMiddleware(client.Resolve))
+	}
+	return NewProvider(client, cfg)
 }

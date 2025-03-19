@@ -1,4 +1,4 @@
-package resolver
+package dnssvc
 
 import (
 	"fmt"
@@ -9,21 +9,26 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 )
 
-type DNSProvider struct {
-	DNSResolver
+type Provider interface {
+	Resolver
+	MatchQuery(msg *dns.Msg) int32
+}
+
+type provider struct {
+	Resolver
 	cfg   config.DNSProvider
 	types []uint16
 }
 
-func NewDNSProvider(resolver DNSResolver, cfg config.DNSProvider) *DNSProvider {
-	return &DNSProvider{
-		DNSResolver: resolver,
-		cfg:         cfg,
-		types:       parseQueryTypes(cfg.Types),
+func NewProvider(resolver Resolver, cfg config.DNSProvider) Provider {
+	return &provider{
+		Resolver: resolver,
+		cfg:      cfg,
+		types:    parseQueryTypes(cfg.Types),
 	}
 }
 
-func (s *DNSProvider) MatchQuery(msg *dns.Msg) int32 {
+func (s *provider) MatchQuery(msg *dns.Msg) int32 {
 	if !HasSingleQuestion(msg, s.types...) {
 		return -1
 	}
@@ -49,6 +54,8 @@ func parseQueryTypes(types []string) []uint16 {
 			r[i] = dns.TypeAAAA
 		case "CNAME":
 			r[i] = dns.TypeCNAME
+		case "HTTPS":
+			r[i] = dns.TypeHTTPS
 		default:
 			panic(fmt.Sprintf("unsupported query type %q", t))
 		}

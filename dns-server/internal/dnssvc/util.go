@@ -1,4 +1,4 @@
-package resolver
+package dnssvc
 
 import (
 	"slices"

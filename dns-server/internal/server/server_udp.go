@@ -8,18 +8,18 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 )
 
 type DNSServer struct {
 	logger   *slog.Logger
-	resolver resolver.DNSResolver
+	resolver dnssvc.Resolver
 	server   dns.Server
 }
 
-func NewDNSServer(addr string, logger *slog.Logger, resolver resolver.DNSResolver) *DNSServer {
+func NewDNSServer(addr string, logger *slog.Logger, resolver dnssvc.Resolver) *DNSServer {
 	return &DNSServer{
 		logger:   logger,
 		resolver: resolver,
@@ -58,7 +58,7 @@ func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {
 		if err != nil {
 			s.logger.Error("failed to handle request", "err", err)
 			metrics.TrackStatus("dns.handle", "failed")
-			_ = w.WriteMsg(resolver.RefusedResponse(req))
+			_ = w.WriteMsg(dnssvc.RefusedResponse(req))
 		} else {
 			metrics.TrackStatus("dns.handle", "success")
 			_ = w.WriteMsg(resp)

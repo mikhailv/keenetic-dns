@@ -1,4 +1,4 @@
-package dnssvc
+package service
 
 import (
 	"bytes"
@@ -7,12 +7,11 @@ import (
 	"log/slog"
 	"math"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/miekg/dns"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolver"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/storage"
@@ -21,11 +20,11 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-var _ resolver.DNSResolver = (*DNSRoutingService)(nil)
+var _ dnssvc.Resolver = (*DNSRoutingService)(nil)
 
 type DNSRoutingService struct {
 	logger         *slog.Logger
-	resolver       resolver.DNSResolver
+	resolver       dnssvc.Resolver
 	dnsStore       *storage.DNSStore
 	ipRoutes       *routing.IPRouteController
 	queryStream    *stream.Buffered[types.DNSQuery]
@@ -34,27 +33,20 @@ type DNSRoutingService struct {
 
 func NewDNSRoutingService(
 	logger *slog.Logger,
-	resolver resolver.DNSResolver,
+	resolver dnssvc.Resolver,
 	dnsStore *storage.DNSStore,
 	ipRoutes *routing.IPRouteController,
-	dnsQueryHistorySize int,
+	queryStream *stream.Buffered[types.DNSQuery],
+	rawQueryStream *stream.Buffered[types.DNSRawQuery],
 ) *DNSRoutingService {
 	return &DNSRoutingService{
 		logger:         logger,
 		resolver:       resolver,
 		dnsStore:       dnsStore,
 		ipRoutes:       ipRoutes,
-		queryStream:    stream.NewBufferedStream[types.DNSQuery](dnsQueryHistorySize),
-		rawQueryStream: stream.NewBufferedStream[types.DNSRawQuery](dnsQueryHistorySize),
+		queryStream:    queryStream,
+		rawQueryStream: rawQueryStream,
 	}
-}
-
-func (s *DNSRoutingService) QueryStream() *stream.Buffered[types.DNSQuery] {
-	return s.queryStream
-}
-
-func (s *DNSRoutingService) RawQueryStream() *stream.Buffered[types.DNSRawQuery] {
-	return s.rawQueryStream
 }
 
 func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
@@ -67,7 +59,7 @@ func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg
 	}
 	s.appendRawQuery(ctx, true, resp.String())
 
-	if resolver.HasSingleQuestion(msg, dns.TypeA) {
+	if dnssvc.HasSingleQuestion(msg, dns.TypeA) {
 		s.processTypeAResponse(ctx, resp)
 	}
 
@@ -87,13 +79,14 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 	reqName := resp.Question[0].Name
 
 	var cnames util.LazyMap[string, dns.CNAME]
+	var nameIPs util.LazyMap[string, []types.IPv4]
+
 	var ttl uint32 = math.MaxUint32
-	nameIPs := map[string][]types.IPv4{}
 
 	for _, rr := range resp.Answer {
 		switch v := rr.(type) {
 		case *dns.A:
-			nameIPs[v.Hdr.Name] = append(nameIPs[v.Hdr.Name], types.NewIPv4(v.A))
+			nameIPs.Set(v.Hdr.Name, append(nameIPs[v.Hdr.Name], types.NewIPv4(v.A)))
 			ttl = min(ttl, v.Hdr.Ttl)
 		case *dns.CNAME:
 			cnames.Set(v.Hdr.Name, *v)
@@ -105,7 +98,7 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 	var visited util.Set[string]
 
 	for name := reqName; !visited.Has(name); {
-		if iface := s.ipRoutes.LookupHost(normalizeName(name)); iface != "" {
+		if iface := s.ipRoutes.LookupHost(name); iface != "" {
 			ifaces.Add(iface)
 		}
 		if cn, ok := cnames[name]; ok {
@@ -125,7 +118,7 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 		res := types.DNSQuery{
 			Time:       time.Now(),
 			ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
-			Domain:     normalizeName(reqName),
+			Domain:     reqName,
 			TTL:        max(ttl, 1),
 			IPs:        ips,
 			Routed:     ifaces.Values(),
@@ -139,8 +132,4 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 		}
 		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)
 	}
-}
-
-func normalizeName(name string) string {
-	return strings.TrimRight(name, ".")
 }

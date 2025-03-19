@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ func (s *DNSStore) fill(records []types.DNSRecord) {
 	clear(s.byDomain)
 	clear(s.byIP)
 	for _, rec := range records {
+		rec.Domain = normalizeDomain(rec.Domain)
 		s.add(rec)
 	}
 }
@@ -148,4 +150,8 @@ func (m MultiMap[K1, K2, V]) Remove(k1 K1, k2 K2) {
 			}
 		}
 	}
+}
+
+func normalizeDomain(domain string) string {
+	return strings.Trim(domain, ".") + "."
 }
