@@ -75,13 +75,14 @@ type Routing struct {
 type RoutingRule struct {
 	Table    int    `yaml:"table"`
 	Iif      string `yaml:"iif"`
+	Oif      string `yaml:"oif"`
 	Priority int    `yaml:"priority"`
 }
 
 type RoutingDynamic struct {
-	RouteTimeout time.Duration           `yaml:"route_timeout"`
-	Hosts        map[string]DomainList   `yaml:"hosts"`
-	Static       map[string][]types.IPv4 `yaml:"static"`
+	RouteTimeout time.Duration `yaml:"route_timeout"`
+	Hosts        DomainList    `yaml:"hosts"`
+	Static       []types.IPv4  `yaml:"static"`
 }
 
 type RoutingReconcile struct {
@@ -89,13 +90,8 @@ type RoutingReconcile struct {
 	Timeout  time.Duration `yaml:"timeout"`
 }
 
-func (c *Routing) LookupHost(host string) (iface string) {
-	for iface, hosts := range c.Hosts {
-		if hosts.Match(host) > 0 {
-			return iface
-		}
-	}
-	return ""
+func (c *Routing) LookupHost(host string) bool {
+	return c.Hosts.Match(host) > 0
 }
 
 func (c *Config) init() {

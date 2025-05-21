@@ -11,26 +11,6 @@ agent:
 
 dns:
   ttl_override: 60s
-  providers:
-    cloudflare:
-      enabled: true
-      endpoint: 'https://1.1.1.1/dns-query'
-      ignore: [local]
-      timeout: 10s
-      drop_ech: true
-    k0s:
-      enabled: true
-      endpoint: 'dns://10.96.0.10:53'
-      domains: [cluster.local]
-      timeout: 500ms
-      types: [A]
-    mdns:
-      enabled: true
-      endpoint: 'mdns://224.0.0.0:5353'
-      domains: [local]
-      ignore: [cluster.local]
-      timeout: 500ms
-      types: [A]
 
 cache:
   size: 5000
@@ -45,11 +25,10 @@ storage:
 routing:
   rule:
     table: 1001
-    iif: br0
     priority: 1995
   reconcile:
     interval: 2m
     timeout: 20s
   route_timeout: 60m
-  hosts: { }
-  static: { }
+  hosts: []
+  static: []

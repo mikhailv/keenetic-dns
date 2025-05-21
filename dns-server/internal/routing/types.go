@@ -45,6 +45,7 @@ func (r IPRoutingRule) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("table", r.Table),
 		slog.String("iif", r.Iif),
+		slog.String("oif", r.Oif),
 		slog.Int("priority", r.Priority),
 	)
 }

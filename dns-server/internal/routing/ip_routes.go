@@ -24,7 +24,6 @@ import (
 
 type IPRouteController struct {
 	cfg            atomic.Pointer[config.Routing]
-	tableId        int
 	rule           IPRoutingRule
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
@@ -41,7 +40,6 @@ func NewIPRouteController(
 	networkService agent.NetworkServiceClient,
 ) *IPRouteController {
 	s := &IPRouteController{
-		tableId:        cfg.Rule.Table,
 		rule:           IPRoutingRule(cfg.Rule),
 		logger:         logger,
 		dnsStore:       dnsStore,
@@ -52,7 +50,10 @@ func NewIPRouteController(
 }
 
 func (s *IPRouteController) LookupHost(host string) (iface string) {
-	return s.cfg.Load().LookupHost(host)
+	if s.cfg.Load().LookupHost(host) {
+		return s.rule.Oif
+	}
+	return ""
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
@@ -85,10 +86,14 @@ func (s *IPRouteController) UpdateConfig(ctx context.Context, cfg config.Routing
 	s.reconcile(ctx)
 }
 
+func (s *IPRouteController) makeRoute(ip types.IPv4) IPRoute {
+	return IPRoute{s.rule.Table, s.rule.Oif, ip}
+}
+
 func (s *IPRouteController) init(cfg *config.Routing) {
 	for _, rec := range s.dnsStore.Records() {
-		if iface := cfg.LookupHost(rec.Domain); iface != "" {
-			s.routes.Add(IPRoute{cfg.Rule.Table, iface, rec.IP})
+		if cfg.LookupHost(rec.Domain) {
+			s.routes.Add(s.makeRoute(rec.IP))
 		}
 	}
 }
@@ -148,10 +153,8 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 		}
 	}
 
-	for iface, addresses := range cfg.Static {
-		for _, addr := range addresses {
-			addRoute(IPRoute{cfg.Rule.Table, iface, addr})
-		}
+	for _, addr := range cfg.Static {
+		addRoute(s.makeRoute(addr))
 	}
 
 	for route := range unknownRoutes {
@@ -159,10 +162,10 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	}
 }
 
-func (s *IPRouteController) AddRoute(ctx context.Context, iface string, ip types.IPv4) {
+func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4) {
 	s.routesMu.Lock()
 	defer s.routesMu.Unlock()
-	route := IPRoute{s.tableId, iface, ip}
+	route := s.makeRoute(ip)
 	if !s.routes.Has(route) {
 		s.addRoute(ctx, route)
 	}

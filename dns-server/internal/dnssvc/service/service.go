@@ -126,9 +126,7 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 		s.queryStream.Append(res)
 		for _, ip := range res.IPs {
 			s.dnsStore.Add(types.NewDNSRecord(res.Domain, ip, res.Time.Add(time.Duration(res.TTL)*time.Second)))
-			for _, iface := range res.Routed {
-				s.ipRoutes.AddRoute(ctx, iface, ip)
-			}
+			s.ipRoutes.AddRoute(ctx, ip)
 		}
 		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)
 	}
