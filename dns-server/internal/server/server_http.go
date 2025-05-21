@@ -83,7 +83,8 @@ func (s *HTTPServer) createHandler() http.Handler {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
-	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQuery))
+	mux.Handle("GET /dns-query", s.wrapHandler(s.handleDNSQueryGET))
+	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQueryPOST))
 	mux.Handle("GET /api/routes", http.HandlerFunc(s.handleRoutes))
 	mux.Handle("GET /api/logs", createListHandler(s.logStream, s.filterLogs))
 	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, wsLogger, s.filterLogs))
