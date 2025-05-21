@@ -9,14 +9,14 @@ import (
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/service"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:stylecheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:stylecheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/setup"

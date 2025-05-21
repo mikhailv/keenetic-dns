@@ -18,7 +18,7 @@ build-dns-server:
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.63.4 run -v
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run -v
 
 .PHONY: upload
 upload: upload-config upload-agent upload-dns-server
