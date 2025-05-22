@@ -94,12 +94,12 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 	}
 
 	var ips []types.IPv4
-	var ifaces util.Set[string]
+	var routedIface string
 	var visited util.Set[string]
 
 	for name := reqName; !visited.Has(name); {
 		if iface := s.ipRoutes.LookupHost(name); iface != "" {
-			ifaces.Add(iface)
+			routedIface = iface
 		}
 		if cn, ok := cnames[name]; ok {
 			visited.Add(name)
@@ -121,12 +121,14 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 			Domain:     reqName,
 			TTL:        max(ttl, 1),
 			IPs:        ips,
-			Routed:     ifaces.Values(),
+			Routed:     routedIface,
 		}
 		s.queryStream.Append(res)
 		for _, ip := range res.IPs {
 			s.dnsStore.Add(types.NewDNSRecord(res.Domain, ip, res.Time.Add(time.Duration(res.TTL)*time.Second)))
-			s.ipRoutes.AddRoute(ctx, ip)
+			if routedIface != "" {
+				s.ipRoutes.AddRoute(ctx, ip)
+			}
 		}
 		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)
 	}

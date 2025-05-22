@@ -141,6 +141,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	addRoute := func(route IPRoute) {
 		if _, defined := definedRoutes[route]; defined {
 			delete(unknownRoutes, route) // route is defined, delete it from set of unknown routes
+			s.routes.Add(route)
 		} else {
 			s.addRoute(ctx, route)
 		}

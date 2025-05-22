@@ -72,7 +72,7 @@ export class DNSRequestsElement extends LitElement {
               ${it.ips.map(ip => html`<div>${ip}</div>`)}
             </td>
             <td class="fw-light" style="font-size: 0.9rem">
-              ${it.routed?.map(iface => html`<div>${iface}</div>`) ?? '-'}
+              ${it.routed || '-'}
             </td>
           </tr>
         `)}
