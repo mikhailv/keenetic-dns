@@ -23,14 +23,10 @@ type Middleware func(handler Handler) Handler
 var NopMiddleware = func(handler Handler) Handler { return handler }
 
 func NewMiddlewareChainHandler(middlewares []Middleware, handler Handler) Handler {
-	var nextHandler func(i int) Handler
-	nextHandler = func(i int) Handler {
-		if i == len(middlewares) {
-			return handler
-		}
-		return middlewares[i](nextHandler(i + 1))
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
 	}
-	return nextHandler(0)
+	return handler
 }
 
 func EnableMiddleware(middleware Middleware, enable bool) Middleware {

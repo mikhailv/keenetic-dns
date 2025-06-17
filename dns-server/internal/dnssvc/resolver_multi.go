@@ -65,8 +65,7 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 
 	return func(yield func(*dns.Msg, error) bool) {
 		if len(resolvers) == 1 {
-			resp, err := resolvers[0].Resolve(ctx, msg)
-			yield(resp, err)
+			yield(resolvers[0].Resolve(ctx, msg))
 			return
 		}
 
@@ -95,10 +94,6 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 
 		for it := range resultQueue {
 			if !yield(it.msg, it.err) {
-				return
-			}
-			if isSucceededResponse(it.msg) {
-				// early cancel other resolve requests if any
 				return
 			}
 		}

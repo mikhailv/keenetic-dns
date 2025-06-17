@@ -41,40 +41,38 @@ func (s *singleInflightResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dn
 
 	reqKey := msg.Question[0]
 
-	s.mu.Lock()
-	if req := s.requests[reqKey]; req != nil {
-		s.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-req.Done:
-			if req.Err == nil {
-				resp := &dns.Msg{}
-				resp.SetRcode(msg, req.Resp.Rcode)
-				resp.Answer = req.Resp.Answer
-				resp.Ns = req.Resp.Ns
-				resp.Extra = req.Resp.Extra
-				return resp, nil
-			}
-			// if we get error, then just ignore it and try to send another request
-		}
+	for {
 		s.mu.Lock()
+		if pendingReq := s.requests[reqKey]; pendingReq != nil {
+			s.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-pendingReq.Done:
+				if pendingReq.Err == nil {
+					resp := pendingReq.Resp.Copy()
+					resp.SetReply(msg)
+					return resp, nil
+				}
+				// if we get an error, then ignore it and try to send another request
+			}
+		} else {
+			req := &inflightRequest{
+				Done: make(chan struct{}),
+			}
+			s.requests[reqKey] = req
+			s.mu.Unlock()
+
+			req.Resp, req.Err = s.handler(ctx, msg)
+			close(req.Done)
+
+			s.mu.Lock()
+			if s.requests[reqKey] == req {
+				delete(s.requests, reqKey)
+			}
+			s.mu.Unlock()
+
+			return req.Resp, req.Err
+		}
 	}
-
-	req := &inflightRequest{
-		Done: make(chan struct{}),
-	}
-	s.requests[reqKey] = req
-	s.mu.Unlock()
-
-	req.Resp, req.Err = s.handler(ctx, msg)
-	close(req.Done)
-
-	s.mu.Lock()
-	if s.requests[reqKey] == req {
-		delete(s.requests, reqKey)
-	}
-	s.mu.Unlock()
-
-	return req.Resp, req.Err
 }

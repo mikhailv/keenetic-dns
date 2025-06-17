@@ -28,7 +28,7 @@ func handleRequestCaching(ctx context.Context, req *dns.Msg, handler dnssvc.Hand
 		query := req.Question[0]
 		if resp := cache.Get(query); resp != nil {
 			metrics.TrackStatus("dns.cache", "hit")
-			resp.Id = req.Id
+			resp.SetReply(req)
 			return resp, nil
 		}
 		metrics.TrackStatus("dns.cache", "miss")

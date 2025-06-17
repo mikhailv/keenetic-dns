@@ -41,7 +41,8 @@ type DNS struct {
 }
 
 type DNSProvider struct {
-	Enabled  bool          `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// Priority allows to specify order of providers to resolve request, higher values represent higher priority
 	Priority int           `yaml:"priority"`
 	Endpoint URL           `yaml:"endpoint"`
 	Ignore   DomainList    `yaml:"ignore"`
