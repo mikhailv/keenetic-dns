@@ -153,8 +153,10 @@ func createDNSProvider(name string, cfg config.DNSProvider) Provider {
 	switch cfg.Endpoint.Scheme {
 	case "http", "https":
 		client = NewDoHClient(name, cfg.Endpoint.String(), cfg.Timeout)
-	case "dns":
-		client = NewUDPClient(name, cfg.Endpoint.Host, cfg.Timeout)
+	case "dns", "dns+udp":
+		client = NewDNSClient(name, "udp", cfg.Endpoint.Host, cfg.Timeout)
+	case "dns+tcp":
+		client = NewDNSClient(name, "tcp", cfg.Endpoint.Host, cfg.Timeout)
 	case "mdns":
 		client = NewMDNSClient(name, cfg.Endpoint.Host, cfg.Timeout)
 	}
