@@ -11,6 +11,9 @@ agent:
 
 dns:
   ttl_override: 60s
+  providers: {}
+  domain_aliases: {}
+  hosts: {}
 
 cache:
   size: 5000

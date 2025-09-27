@@ -16,28 +16,31 @@ type QueryResultCache interface {
 
 func NewCacheMiddleware(cache QueryResultCache) dnssvc.Middleware {
 	return func(handler dnssvc.Handler) dnssvc.Handler {
-		return func(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
-			return handleRequestCaching(ctx, req, handler, cache)
-		}
+		return cachedResolver{handler, cache}.Resolve
 	}
 }
 
-func handleRequestCaching(ctx context.Context, req *dns.Msg, handler dnssvc.Handler, cache QueryResultCache) (*dns.Msg, error) {
+type cachedResolver struct {
+	handler dnssvc.Handler
+	cache   QueryResultCache
+}
+
+func (s cachedResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackDuration("dns.cache.handle")()
 	if dnssvc.HasSingleQuestion(req, dns.TypeA, dns.TypeHTTPS) {
 		query := req.Question[0]
-		if resp := cache.Get(query); resp != nil {
+		if resp := s.cache.Get(query); resp != nil {
 			metrics.TrackStatus("dns.cache", "hit")
 			resp.SetReply(req)
 			return resp, nil
 		}
 		metrics.TrackStatus("dns.cache", "miss")
-		resp, err := handler(ctx, req)
+		resp, err := s.handler(ctx, req)
 		// TODO: cache succeeded and failed requests separately
 		if err == nil {
-			cache.Put(query, resp)
+			s.cache.Put(query, resp)
 		}
 		return resp, err
 	}
-	return handler(ctx, req)
+	return s.handler(ctx, req)
 }

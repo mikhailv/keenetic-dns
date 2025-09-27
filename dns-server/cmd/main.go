@@ -43,18 +43,21 @@ func main() { //nolint:funlen // ignore
 
 	setup.Pprof(ctx, *pprofAddr, logger)
 
+	routingCfg := config.NewDynamic(&cfg.Routing)
+	hostsCfg := config.NewDynamic(cfg.DNS.Hosts)
+	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
+		routingCfg.Set(&cfg.Routing)
+		hostsCfg.Set(cfg.DNS.Hosts)
+	})
+
 	dnsStore := NewDNSStore()
 	saveStore := initDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
 	go util.RunPeriodically(ctx, cfg.Storage.Local.SaveInterval, func(ctx context.Context) { saveStore() })
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 
-	ipRoutes := NewIPRouteController(cfg.Routing, log.WithPrefix(logger, "routes"), dnsStore, networkService)
+	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService)
 	ipRoutes.Start(ctx)
-
-	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
-		ipRoutes.UpdateConfig(ctx, cfg.Routing.RoutingDynamic)
-	})
 
 	dnsCache := NewDNSCache()
 	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
@@ -75,10 +78,11 @@ func main() { //nolint:funlen // ignore
 	svc := service.NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), resolver, dnsStore, ipRoutes, dnsQueryStream, rawQueryStream)
 
 	handler := NewMiddlewareChainHandler([]Middleware{
+		EnableMiddleware(VerboseMiddleware, *verbose),
 		SingleInflightMiddleware,
+		EnableMiddleware(NewStaticHostsMiddleware(hostsCfg, time.Minute), len(hostsCfg.Get()) > 0),
 		NewCacheMiddleware(dnsCache),
 		NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
-		EnableMiddleware(VerboseMiddleware, *verbose),
 		ErrorSafeResponseMiddleware,
 	}, svc.Resolve)
 

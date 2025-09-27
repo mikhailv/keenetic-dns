@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -36,8 +37,10 @@ type Agent struct {
 }
 
 type DNS struct {
-	TTLOverride time.Duration          `yaml:"ttl_override"`
-	Providers   map[string]DNSProvider `yaml:"providers"`
+	TTLOverride   time.Duration          `yaml:"ttl_override"`
+	Providers     map[string]DNSProvider `yaml:"providers"`
+	DomainAliases map[string]string      `yaml:"domain_aliases"`
+	Hosts         Hosts                  `yaml:"hosts"`
 }
 
 type DNSProvider struct {
@@ -68,9 +71,11 @@ type LocalStorage struct {
 }
 
 type Routing struct {
-	Rule           RoutingRule      `yaml:"rule"`
-	Reconcile      RoutingReconcile `yaml:"reconcile"`
-	RoutingDynamic `yaml:",inline"`
+	Rule         RoutingRule      `yaml:"rule"`
+	Reconcile    RoutingReconcile `yaml:"reconcile"`
+	RouteTimeout time.Duration    `yaml:"route_timeout"`
+	Hosts        DomainList       `yaml:"hosts"`
+	Static       []types.IPv4     `yaml:"static"`
 }
 
 type RoutingRule struct {
@@ -78,12 +83,6 @@ type RoutingRule struct {
 	Iif      string `yaml:"iif"`
 	Oif      string `yaml:"oif"`
 	Priority int    `yaml:"priority"`
-}
-
-type RoutingDynamic struct {
-	RouteTimeout time.Duration `yaml:"route_timeout"`
-	Hosts        DomainList    `yaml:"hosts"`
-	Static       []types.IPv4  `yaml:"static"`
 }
 
 type RoutingReconcile struct {
@@ -97,11 +96,27 @@ func (c *Routing) LookupHost(host string) bool {
 
 func (c *Config) init() {
 	c.setDefaults()
+	c.DNS.applyDomainAliases()
 }
 
 func (c *Config) setDefaults() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = c.Addr
+	}
+}
+
+func (c *DNS) applyDomainAliases() {
+	for to, from := range c.DomainAliases {
+		to = "." + normalizeFQDN(to)
+		from = "." + normalizeFQDN(from)
+		for domain, ip := range c.Hosts {
+			if strings.HasSuffix(domain, from) {
+				domain = strings.TrimSuffix(domain, from) + to
+				if _, ok := c.Hosts[domain]; !ok {
+					c.Hosts[domain] = ip
+				}
+			}
+		}
 	}
 }
 

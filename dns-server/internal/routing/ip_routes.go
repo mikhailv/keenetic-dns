@@ -7,10 +7,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
-
-	"connectrpc.com/connect"
 
 	"github.com/mikhailv/keenetic-dns/agent"
 	agentv1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
@@ -23,35 +20,35 @@ import (
 )
 
 type IPRouteController struct {
-	cfg            atomic.Pointer[config.Routing]
-	rule           IPRoutingRule
+	cfg            *config.Dynamic[*config.Routing]
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
 	networkService agent.NetworkServiceClient
 	routes         util.Set[IPRoute]
 	routesMu       sync.RWMutex
 	reconcileMu    sync.Mutex
+	reconcileCh    chan struct{}
 }
 
 func NewIPRouteController(
-	cfg config.Routing,
+	cfg *config.Dynamic[*config.Routing],
 	logger *slog.Logger,
 	dnsStore *storage.DNSStore,
 	networkService agent.NetworkServiceClient,
 ) *IPRouteController {
-	s := &IPRouteController{
-		rule:           IPRoutingRule(cfg.Rule),
+	return &IPRouteController{
+		cfg:            cfg,
 		logger:         logger,
 		dnsStore:       dnsStore,
 		networkService: networkService,
+		reconcileCh:    make(chan struct{}, 1),
 	}
-	s.cfg.Store(&cfg)
-	return s
 }
 
 func (s *IPRouteController) LookupHost(host string) (iface string) {
-	if s.cfg.Load().LookupHost(host) {
-		return s.rule.Oif
+	cfg := s.cfg.Get()
+	if cfg.LookupHost(host) {
+		return cfg.Rule.Oif
 	}
 	return ""
 }
@@ -59,7 +56,7 @@ func (s *IPRouteController) LookupHost(host string) (iface string) {
 func (s *IPRouteController) Routes() []IPRouteDNS {
 	s.routesMu.RLock()
 	defer s.routesMu.RUnlock()
-	cfg := s.cfg.Load()
+	cfg := s.cfg.Get()
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for _, route := range s.routes.Values() {
 		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), cfg.RouteTimeout)
@@ -72,25 +69,25 @@ func (s *IPRouteController) Routes() []IPRouteDNS {
 }
 
 func (s *IPRouteController) Start(ctx context.Context) {
-	cfg := s.cfg.Load()
-	s.init(cfg)
-	s.reconcile(ctx)
-	go util.RunPeriodically(ctx, cfg.Reconcile.Interval, s.reconcile)
+	s.cfg.Listen(func() { s.onConfigUpdated(ctx) })
+	s.init()
+	go s.startReconcileLoop(ctx)
 }
 
-func (s *IPRouteController) UpdateConfig(ctx context.Context, cfg config.RoutingDynamic) {
-	current := *s.cfg.Load()
-	current.RoutingDynamic = cfg
-	s.cfg.Store(&current)
-	s.logger.Info("routing config updated")
-	s.reconcile(ctx)
+func (s *IPRouteController) onConfigUpdated(ctx context.Context) {
+	select {
+	case s.reconcileCh <- struct{}{}:
+	case <-ctx.Done():
+	}
 }
 
 func (s *IPRouteController) makeRoute(ip types.IPv4) IPRoute {
-	return IPRoute{s.rule.Table, s.rule.Oif, ip}
+	cfg := s.cfg.Get()
+	return IPRoute{cfg.Rule.Table, cfg.Rule.Oif, ip}
 }
 
-func (s *IPRouteController) init(cfg *config.Routing) {
+func (s *IPRouteController) init() {
+	cfg := s.cfg.Get()
 	for _, rec := range s.dnsStore.Records() {
 		if cfg.LookupHost(rec.Domain) {
 			s.routes.Add(s.makeRoute(rec.IP))
@@ -98,10 +95,24 @@ func (s *IPRouteController) init(cfg *config.Routing) {
 	}
 }
 
+func (s *IPRouteController) startReconcileLoop(ctx context.Context) {
+	for {
+		cfg := s.cfg.Get()
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.reconcileCh:
+			s.reconcile(ctx)
+		case <-time.After(cfg.Reconcile.Interval):
+			s.reconcile(ctx)
+		}
+	}
+}
+
 func (s *IPRouteController) reconcile(ctx context.Context) {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
-	cfg := s.cfg.Load()
+	cfg := s.cfg.Get()
 	s.dnsStore.RemoveExpired(cfg.RouteTimeout)
 	s.doReconcile(ctx, cfg, s.reconcileRules)
 	s.doReconcile(ctx, cfg, s.reconcileRoutes)
@@ -118,12 +129,12 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *config.Rout
 	defer log.Profile(s.logger, "reconcile rules")()
 
 	rule := IPRoutingRule(cfg.Rule)
-	res, err := s.networkService.HasRule(ctx, connect.NewRequest(&agentv1.HasRuleReq{
+	res, err := s.networkService.HasRule(ctx, &agentv1.HasRuleReq{
 		Rule: mapToAgentRule(rule),
-	}))
+	})
 	if err != nil {
 		s.logger.Error("failed to check if rule exists", "err", err, "", rule)
-	} else if !res.Msg.Exists {
+	} else if !res.Exists {
 		s.addRule(ctx, rule)
 	}
 }
@@ -175,9 +186,9 @@ func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4) {
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	defer metrics.TrackDuration("add_route")()
 
-	_, err := s.networkService.AddRoute(ctx, connect.NewRequest(&agentv1.AddRouteReq{
+	_, err := s.networkService.AddRoute(ctx, &agentv1.AddRouteReq{
 		Route: mapToAgentRoute(route),
-	}))
+	})
 	if err != nil {
 		s.logger.Error("failed to add route", "err", err, "", route)
 	} else {
@@ -189,9 +200,9 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	defer metrics.TrackDuration("delete_route")()
 
-	_, err := s.networkService.DeleteRoute(ctx, connect.NewRequest(&agentv1.DeleteRouteReq{
+	_, err := s.networkService.DeleteRoute(ctx, &agentv1.DeleteRouteReq{
 		Route: mapToAgentRoute(route),
-	}))
+	})
 	if err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route)
 	} else {
@@ -203,9 +214,9 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	defer metrics.TrackDuration("add_rule")()
 
-	_, err := s.networkService.AddRule(ctx, connect.NewRequest(&agentv1.AddRuleReq{
+	_, err := s.networkService.AddRule(ctx, &agentv1.AddRuleReq{
 		Rule: mapToAgentRule(rule),
-	}))
+	})
 	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "", rule)
 	} else {
@@ -216,14 +227,14 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Set[IPRoute] {
 	defer metrics.TrackDuration("load_routes")()
 
-	res, err := s.networkService.ListRoutes(ctx, connect.NewRequest(&agentv1.ListRoutesReq{Table: uint32(tableId)}))
+	res, err := s.networkService.ListRoutes(ctx, &agentv1.ListRoutesReq{Table: uint32(tableId)})
 	if err != nil {
 		s.logger.Error("failed to load route table", "err", err, "table", tableId)
 		return nil
 	}
 
-	routes := make(util.Set[IPRoute], len(res.Msg.Routes))
-	for _, it := range res.Msg.Routes {
+	routes := make(util.Set[IPRoute], len(res.Routes))
+	for _, it := range res.Routes {
 		addr, err := types.ParseIPv4(it.Address)
 		if err != nil {
 			s.logger.Warn("unexpected route address", "addr", it.Address)

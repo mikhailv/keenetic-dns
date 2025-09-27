@@ -26,7 +26,7 @@ type networkService struct {
 	logger *slog.Logger
 }
 
-func (s *networkService) HasRule(ctx context.Context, req *connect.Request[v1.HasRuleReq]) (*connect.Response[v1.HasRuleResp], error) {
+func (s *networkService) HasRule(ctx context.Context, req *v1.HasRuleReq) (*v1.HasRuleResp, error) {
 	cmd := exec.CommandContext(ctx, "ip", "rule", "list")
 	res, err := s.runCmd(cmd)
 	if err != nil {
@@ -34,23 +34,23 @@ func (s *networkService) HasRule(ctx context.Context, req *connect.Request[v1.Ha
 		return nil, wrapError(err, res)
 	}
 
-	rule := req.Msg.Rule
+	rule := req.Rule
 	def := fmt.Sprintf("from all iif %s lookup %d", rule.Iif, rule.Table)
 
-	resp := connect.NewResponse(&v1.HasRuleResp{})
+	resp := &v1.HasRuleResp{}
 	for _, line := range parseOutputLines(res.Output) {
 		// 2000:	from all iif br0 lookup 1000
 		ss := strings.Split(line, ":")
 		if len(ss) == 2 && strings.TrimSpace(ss[1]) == def {
-			resp.Msg.Exists = true
+			resp.Exists = true
 			break
 		}
 	}
 	return resp, nil
 }
 
-func (s *networkService) AddRule(ctx context.Context, req *connect.Request[v1.AddRuleReq]) (*connect.Response[v1.AddRuleResp], error) {
-	rule := req.Msg.Rule
+func (s *networkService) AddRule(ctx context.Context, req *v1.AddRuleReq) (*v1.AddRuleResp, error) {
+	rule := req.Rule
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", fmt.Sprint(rule.Table), "priority", fmt.Sprint(rule.Priority))
 	res, err := s.runCmd(cmd)
@@ -59,15 +59,15 @@ func (s *networkService) AddRule(ctx context.Context, req *connect.Request[v1.Ad
 		return nil, wrapError(err, res)
 	}
 	s.logger.Info("rule added", "", rule)
-	return connect.NewResponse(&v1.AddRuleResp{}), nil
+	return &v1.AddRuleResp{}, nil
 }
 
-func (s *networkService) ListRoutes(ctx context.Context, req *connect.Request[v1.ListRoutesReq]) (*connect.Response[v1.ListRoutesResp], error) {
+func (s *networkService) ListRoutes(ctx context.Context, req *v1.ListRoutesReq) (*v1.ListRoutesResp, error) {
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "list", "table", fmt.Sprint(req.Msg.Table))
+	cmd := exec.CommandContext(ctx, "ip", "route", "list", "table", fmt.Sprint(req.Table))
 	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to load route table", "err", err, "table", req.Msg.Table, "output", res.ErrOutput)
+		s.logger.Error("failed to load route table", "err", err, "table", req.Table, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
 	lines := parseOutputLines(res.Output)
@@ -77,7 +77,7 @@ func (s *networkService) ListRoutes(ctx context.Context, req *connect.Request[v1
 		if len(ss) == 5 {
 			// example: `209.85.233.100 dev ovpn_br0 scope link`
 			routes = append(routes, &v1.Route{
-				Table:   req.Msg.Table,
+				Table:   req.Table,
 				Iface:   strings.Clone(ss[2]),
 				Address: ss[0],
 			})
@@ -85,11 +85,11 @@ func (s *networkService) ListRoutes(ctx context.Context, req *connect.Request[v1
 			s.logger.Warn("unexpected route output", "line", line)
 		}
 	}
-	return connect.NewResponse(&v1.ListRoutesResp{Routes: routes}), nil
+	return &v1.ListRoutesResp{Routes: routes}, nil
 }
 
-func (s *networkService) AddRoute(ctx context.Context, req *connect.Request[v1.AddRouteReq]) (*connect.Response[v1.AddRouteResp], error) {
-	route := req.Msg.Route
+func (s *networkService) AddRoute(ctx context.Context, req *v1.AddRouteReq) (*v1.AddRouteResp, error) {
+	route := req.Route
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
@@ -98,11 +98,11 @@ func (s *networkService) AddRoute(ctx context.Context, req *connect.Request[v1.A
 		return nil, wrapError(err, res)
 	}
 	s.logger.Info("route added", "", route)
-	return connect.NewResponse(&v1.AddRouteResp{}), nil
+	return &v1.AddRouteResp{}, nil
 }
 
-func (s *networkService) DeleteRoute(ctx context.Context, req *connect.Request[v1.DeleteRouteReq]) (*connect.Response[v1.DeleteRouteResp], error) {
-	route := req.Msg.Route
+func (s *networkService) DeleteRoute(ctx context.Context, req *v1.DeleteRouteReq) (*v1.DeleteRouteResp, error) {
+	route := req.Route
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
@@ -111,7 +111,7 @@ func (s *networkService) DeleteRoute(ctx context.Context, req *connect.Request[v
 		return nil, wrapError(err, res)
 	}
 	s.logger.Info("route deleted", "", route)
-	return connect.NewResponse(&v1.DeleteRouteResp{}), nil
+	return &v1.DeleteRouteResp{}, nil
 }
 
 type cmdRunResult struct {
