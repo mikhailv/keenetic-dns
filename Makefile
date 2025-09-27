@@ -3,7 +3,7 @@ SSH_PATH_KEENETIC = $(SSH_PATH)/keenetic-dns
 SSH_PORT ?= 222
 
 .PHONY: all
-all: lint build
+all: lint govulncheck build
 
 .PHONY: build
 build: build-agent build-dns-server
@@ -18,7 +18,11 @@ build-dns-server:
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6 run -v
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0 run -v
+
+.PHONY: govulncheck
+govulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 .PHONY: upload
 upload: upload-config upload-agent upload-dns-server
