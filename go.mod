@@ -4,9 +4,10 @@ go 1.25.1
 
 require (
 	connectrpc.com/connect v1.19.1-0.20250926151956-76d27951b0af
+	github.com/brutella/dnssd v1.2.14
 	github.com/coder/websocket v1.8.14
 	github.com/miekg/dns v1.1.68
-	github.com/pion/mdns v0.0.12
+	github.com/pion/mdns/v2 v2.0.7
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
 	github.com/stretchr/testify v1.11.1
@@ -27,6 +28,8 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	github.com/vishvananda/netlink v1.2.1-beta.2 // indirect
+	github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect

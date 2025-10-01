@@ -3,9 +3,9 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -31,7 +31,7 @@ func NewHTTPServer(addr string, logger *slog.Logger, networkService agentv1conne
 	}
 }
 
-func (s *HTTPServer) Serve(ctx context.Context) {
+func (s *HTTPServer) Serve(ctx context.Context) error {
 	s.server.Handler = s.createHandler()
 
 	context.AfterFunc(ctx, func() {
@@ -45,9 +45,10 @@ func (s *HTTPServer) Serve(ctx context.Context) {
 
 	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		s.logger.Error("failed to start server", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start server: %w", err)
 	}
+
+	return nil
 }
 
 func (s *HTTPServer) createHandler() http.Handler {

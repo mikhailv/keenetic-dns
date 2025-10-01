@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/miekg/dns"
@@ -32,7 +32,7 @@ func NewDNSServer(addr string, logger *slog.Logger, resolver dnssvc.Resolver) *D
 	}
 }
 
-func (s *DNSServer) Serve(ctx context.Context) {
+func (s *DNSServer) Serve(ctx context.Context) error {
 	s.server.Handler = s.createHandler(ctx)
 
 	context.AfterFunc(ctx, func() {
@@ -46,9 +46,10 @@ func (s *DNSServer) Serve(ctx context.Context) {
 
 	s.logger.Info("server starting...", "addr", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil {
-		s.logger.Error("failed to start server", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start server: %w", err)
 	}
+
+	return nil
 }
 
 func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {

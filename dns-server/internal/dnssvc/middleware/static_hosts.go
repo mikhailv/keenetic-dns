@@ -27,7 +27,7 @@ type staticHostsMiddleware struct {
 func (s staticHostsMiddleware) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 	if dnssvc.HasSingleQuestion(req, dns.TypeA) {
 		domain := req.Question[0].Name
-		if addr, ok := s.hosts.Get()[domain]; ok {
+		if host, ok := s.hosts.Get()[domain]; ok {
 			resp := &dns.Msg{}
 			resp.SetRcode(req, dns.RcodeSuccess)
 			resp.Answer = []dns.RR{&dns.A{
@@ -37,7 +37,7 @@ func (s staticHostsMiddleware) Resolve(ctx context.Context, req *dns.Msg) (*dns.
 					Class:  dns.ClassINET,
 					Ttl:    uint32(s.ttl.Seconds()),
 				},
-				A: addr,
+				A: host.IP,
 			}}
 			return resp, nil
 		}

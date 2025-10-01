@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"os"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal"
 	"github.com/mikhailv/keenetic-dns/internal/log"
@@ -28,7 +30,18 @@ func main() {
 	networkService := internal.NewNetworkService(log.WithPrefix(logger, "network_svc"))
 
 	httpServer := internal.NewHTTPServer(httpServerAddr, log.WithPrefix(logger, "http"), networkService)
-	go httpServer.Serve(ctx)
+	go serve(ctx, httpServer)
 
 	<-ctx.Done()
+}
+
+func serve(ctx context.Context, server interface{ Serve(context.Context) error }) {
+	exitIfError(server.Serve(ctx))
+}
+
+func exitIfError(err error) {
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

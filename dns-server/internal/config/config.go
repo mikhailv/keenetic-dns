@@ -3,7 +3,9 @@ package config
 import (
 	_ "embed"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ type Config struct {
 	History History `yaml:"history"`
 	Agent   Agent   `yaml:"agent"`
 	DNS     DNS     `yaml:"dns"`
+	MDNS    MDNS    `yaml:"mdns"`
 	Storage Storage `yaml:"storage"`
 	Routing Routing `yaml:"routing"`
 }
@@ -37,10 +40,24 @@ type Agent struct {
 }
 
 type DNS struct {
-	TTLOverride   time.Duration          `yaml:"ttl_override"`
-	Providers     map[string]DNSProvider `yaml:"providers"`
-	DomainAliases map[string]string      `yaml:"domain_aliases"`
-	Hosts         Hosts                  `yaml:"hosts"`
+	TTLOverride time.Duration          `yaml:"ttl_override"`
+	Providers   map[string]DNSProvider `yaml:"providers"`
+	Domains     []string               `yaml:"domains"`
+	Hosts       Hosts                  `yaml:"hosts"`
+}
+
+type MDNS struct {
+	Enabled  bool          `yaml:"enabled"`
+	Services []MDNSService `yaml:"services"`
+}
+
+type MDNSService struct {
+	Name    string            `yaml:"name"`
+	Host    string            `yaml:"host"`
+	IP      []net.IP          `yaml:"ip"`
+	Port    int               `yaml:"port"`
+	Service string            `yaml:"service"`
+	TXT     map[string]string `json:"txt"`
 }
 
 type DNSProvider struct {
@@ -96,27 +113,12 @@ func (c *Routing) LookupHost(host string) bool {
 
 func (c *Config) init() {
 	c.setDefaults()
-	c.DNS.applyDomainAliases()
+	c.DNS.combineHostsAndDomains()
 }
 
 func (c *Config) setDefaults() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = c.Addr
-	}
-}
-
-func (c *DNS) applyDomainAliases() {
-	for to, from := range c.DomainAliases {
-		to = "." + normalizeFQDN(to)
-		from = "." + normalizeFQDN(from)
-		for domain, ip := range c.Hosts {
-			if strings.HasSuffix(domain, from) {
-				domain = strings.TrimSuffix(domain, from) + to
-				if _, ok := c.Hosts[domain]; !ok {
-					c.Hosts[domain] = ip
-				}
-			}
-		}
 	}
 }
 
@@ -147,4 +149,91 @@ func defaultConfig() *Config {
 		panic(fmt.Errorf("failed to load default config: %w", err))
 	}
 	return &cfg
+}
+
+func (c *DNS) combineHostsAndDomains() {
+	hosts := map[string]Host{}
+	for _, domain := range c.Domains {
+		for name, host := range c.Hosts {
+			if host.Domain == "" {
+				host.Domain = normalizeFQDN(domain)
+			}
+			if host.HostName == "" {
+				host.HostName = normalizeFQDN(name)
+			}
+			fqdn := host.String()
+			if _, ok := hosts[fqdn]; ok {
+				panic(fmt.Errorf("duplicate host name: %s", fqdn))
+			}
+			hosts[fqdn] = host
+		}
+	}
+	c.Hosts = hosts
+}
+
+//nolint:cyclop // ignore complexity
+func (c *MDNSService) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var s struct {
+		Name    string            `yaml:"name"`
+		Host    string            `yaml:"host"`
+		IP      List[net.IP]      `yaml:"ip"`
+		Port    string            `yaml:"port"`
+		Service string            `yaml:"service"`
+		TXT     map[string]string `json:"txt"`
+	}
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+
+	*c = MDNSService{
+		Name:    s.Name,
+		Host:    s.Host,
+		IP:      s.IP,
+		Service: s.Service,
+		TXT:     s.TXT,
+	}
+
+	if s.Port != "" {
+		ss := strings.Split(s.Port, ":")
+		if len(ss) > 2 {
+			panic(fmt.Errorf("unexpected port format: %s", s.Port))
+		}
+
+		portName := ss[0]
+		var portNum string
+		if len(ss) == 2 {
+			portNum = ss[1]
+		} else if _, err := strconv.Atoi(portName); err == nil {
+			portNum = portName
+			portName = ""
+		}
+
+		switch portName {
+		case "http":
+			portNum = or(portNum, "80")
+			c.Service = or(c.Service, "_http._tcp")
+		case "ssh":
+			portNum = or(portNum, "22")
+			c.Service = or(c.Service, "_ssh._tcp")
+		case "":
+		default:
+			return fmt.Errorf("unexpected port name: %s", portName)
+		}
+
+		port, err := strconv.Atoi(portNum)
+		if err != nil {
+			return fmt.Errorf("unexpected port number: %s", portNum)
+		}
+		c.Port = port
+	}
+	return nil
+}
+
+func or(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

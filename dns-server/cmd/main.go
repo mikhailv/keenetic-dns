@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"time"
 
@@ -35,8 +36,7 @@ func main() { //nolint:funlen // ignore
 
 	cfg, err := config.LoadConfig(*configFile)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to load config: %v", err)
-		os.Exit(1)
+		exitIfError(fmt.Errorf("failed to load config: %w", err))
 	}
 
 	logger, logStream := setupLogger(*debug, cfg.History.LogSize)
@@ -45,9 +45,12 @@ func main() { //nolint:funlen // ignore
 
 	routingCfg := config.NewDynamic(&cfg.Routing)
 	hostsCfg := config.NewDynamic(cfg.DNS.Hosts)
+	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
+
 	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
 		hostsCfg.Set(cfg.DNS.Hosts)
+		mdnsServicesCfg.Set(cfg.MDNS.Services)
 	})
 
 	dnsStore := NewDNSStore()
@@ -87,14 +90,32 @@ func main() { //nolint:funlen // ignore
 	}, svc.Resolve)
 
 	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), ResolverFunc(handler), ipRoutes, logStream, dnsQueryStream, rawQueryStream)
-	go httpServer.Serve(ctx)
+	go serve(ctx, httpServer)
 
 	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), ResolverFunc(handler))
-	go udpServer.Serve(ctx)
+	go serve(ctx, udpServer)
+
+	if cfg.MDNS.Enabled {
+		iface, err := getDefaultInterface()
+		exitIfError(err)
+		mdnsServer := NewMDNSServer(log.WithPrefix(logger, "mdns"), iface.Name, mdnsServicesCfg)
+		go serve(ctx, mdnsServer)
+	}
 
 	<-ctx.Done()
 
 	saveStore()
+}
+
+func serve(ctx context.Context, server interface{ Serve(context.Context) error }) {
+	exitIfError(server.Serve(ctx))
+}
+
+func exitIfError(err error) {
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
 
 func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func()) {
@@ -168,4 +189,35 @@ func createDNSProvider(name string, cfg config.DNSProvider) Provider {
 		client = ResolverFunc(DropECHMiddleware(client.Resolve))
 	}
 	return NewProvider(client, cfg)
+}
+
+//nolint:cyclop // ignore complexity
+func getDefaultInterface() (*net.Interface, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagRunning == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addresses, _ := iface.Addrs()
+		for _, addr := range addresses {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			if ip != nil && !ip.IsLoopback() && ip.To4() != nil {
+				return &iface, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable network interface found")
 }

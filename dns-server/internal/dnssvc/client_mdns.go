@@ -10,7 +10,7 @@ import (
 	"golang.org/x/net/ipv4"
 
 	"github.com/miekg/dns"
-	"github.com/pion/mdns"
+	"github.com/pion/mdns/v2"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
@@ -43,7 +43,7 @@ func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	answer, src, err := conn.Query(ctx, strings.TrimRight(msg.Question[0].Name, "."))
+	answer, src, err := conn.QueryAddr(ctx, strings.TrimRight(msg.Question[0].Name, "."))
 	cancel()
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error
 			Ttl:      answer.TTL,
 			Rdlength: answer.Length,
 		},
-		A: src.(*net.IPAddr).IP, //nolint:errcheck // no need to check type
+		A: src.AsSlice(),
 	}}
 	return resp, nil
 }
@@ -85,7 +85,7 @@ func (s *mdnsClient) connection() (*mdns.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := mdns.Server(ipv4.NewPacketConn(pconn), &mdns.Config{})
+	conn, err := mdns.Server(ipv4.NewPacketConn(pconn), nil, &mdns.Config{})
 	if err != nil {
 		return nil, err
 	}

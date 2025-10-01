@@ -6,6 +6,22 @@ import (
 	"strings"
 )
 
+type List[T any] []T
+
+func (v *List[T]) UnmarshalYAML(unmarshal func(any) error) error {
+	var s T
+	if err := unmarshal(&s); err == nil {
+		*v = []T{s}
+	} else {
+		var ss []T
+		if err = unmarshal(&ss); err != nil {
+			return err
+		}
+		*v = ss
+	}
+	return nil
+}
+
 type DomainList []string
 
 func (s *DomainList) UnmarshalYAML(unmarshal func(any) error) error {
@@ -34,21 +50,28 @@ func (s DomainList) Match(domain string) int {
 	return -1
 }
 
-type Hosts map[string]net.IP
+type Hosts map[string]Host
 
-func (s *Hosts) UnmarshalYAML(unmarshal func(any) error) error {
-	var data map[string]net.IP
-	if err := unmarshal(&data); err != nil {
-		return err
-	}
-	*s = make(Hosts, len(data))
-	hosts := *s
-	for domain, ip := range data {
-		domain = normalizeFQDN(domain)
-		if _, ok := hosts[domain]; ok {
-			panic("dns.hosts: duplicate domain " + domain)
+type Host struct {
+	Domain   string `yaml:"domain"`
+	HostName string `yaml:"hostname"`
+	IP       net.IP `yaml:"ip"`
+}
+
+func (s *Host) String() string {
+	return s.HostName + s.Domain
+}
+
+func (s *Host) UnmarshalYAML(unmarshal func(any) error) error {
+	var ip net.IP
+	if err := unmarshal(&ip); err == nil {
+		*s = Host{IP: ip}
+	} else {
+		var h Host
+		if err = unmarshal(&h); err != nil {
+			return err
 		}
-		hosts[domain] = ip
+		*s = h
 	}
 	return nil
 }
