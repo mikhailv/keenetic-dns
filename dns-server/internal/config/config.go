@@ -63,13 +63,14 @@ type MDNSService struct {
 type DNSProvider struct {
 	Enabled bool `yaml:"enabled"`
 	// Priority allows to specify order of providers to resolve request, higher values represent higher priority
-	Priority int           `yaml:"priority"`
-	Endpoint URL           `yaml:"endpoint"`
-	Ignore   DomainList    `yaml:"ignore"`
-	Domains  DomainList    `yaml:"domains"`
-	Timeout  time.Duration `yaml:"timeout"`
-	Types    []string      `yaml:"types"`
-	DropECH  bool          `yaml:"drop_ech"`
+	Priority int               `yaml:"priority"`
+	Endpoint URL               `yaml:"endpoint"`
+	Ignore   DomainList        `yaml:"ignore"`
+	Domains  DomainList        `yaml:"domains"`
+	Rewrite  map[string]string `yaml:"rewrite"`
+	Timeout  time.Duration     `yaml:"timeout"`
+	Types    []string          `yaml:"types"`
+	DropECH  bool              `yaml:"drop_ech"`
 }
 
 type Cache struct {
@@ -113,7 +114,7 @@ func (c *Routing) LookupHost(host string) bool {
 
 func (c *Config) init() {
 	c.setDefaults()
-	c.DNS.combineHostsAndDomains()
+	c.DNS.init()
 }
 
 func (c *Config) setDefaults() {
@@ -151,6 +152,14 @@ func defaultConfig() *Config {
 	return &cfg
 }
 
+func (c *DNS) init() {
+	c.combineHostsAndDomains()
+	for name, provider := range c.Providers {
+		provider.normalize()
+		c.Providers[name] = provider
+	}
+}
+
 func (c *DNS) combineHostsAndDomains() {
 	hosts := map[string]Host{}
 	for _, domain := range c.Domains {
@@ -169,6 +178,13 @@ func (c *DNS) combineHostsAndDomains() {
 		}
 	}
 	c.Hosts = hosts
+}
+
+func (c *DNSProvider) normalize() {
+	for from, to := range c.Rewrite {
+		delete(c.Rewrite, from)
+		c.Rewrite["."+normalizeFQDN(from)] = "." + normalizeFQDN(to)
+	}
 }
 
 //nolint:cyclop // ignore complexity

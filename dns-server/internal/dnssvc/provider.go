@@ -1,8 +1,10 @@
 package dnssvc
 
 import (
+	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/miekg/dns"
 
@@ -15,16 +17,16 @@ type Provider interface {
 }
 
 type provider struct {
-	Resolver
-	cfg   config.DNSProvider
-	types []uint16
+	cfg      config.DNSProvider
+	types    []uint16
+	resolver Resolver
 }
 
 func NewProvider(resolver Resolver, cfg config.DNSProvider) Provider {
 	return &provider{
-		Resolver: resolver,
 		cfg:      cfg,
 		types:    parseQueryTypes(cfg.Types),
+		resolver: resolver,
 	}
 }
 
@@ -42,6 +44,33 @@ func (s *provider) MatchQuery(msg *dns.Msg) int32 {
 		return -1
 	}
 	return int32(score)<<8 | int32(priority)
+}
+
+func (s *provider) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	if len(s.cfg.Rewrite) > 0 {
+		domain := msg.Question[0].Name
+		for fromSuffix, toSuffix := range s.cfg.Rewrite {
+			if before, ok := strings.CutSuffix(domain, fromSuffix); ok {
+				return s.rewriteResolve(ctx, msg.Copy(), domain, before+toSuffix)
+			}
+		}
+	}
+	return s.resolver.Resolve(ctx, msg)
+}
+
+func (s *provider) rewriteResolve(ctx context.Context, msg *dns.Msg, fromDomain, toDomain string) (*dns.Msg, error) {
+	msg.Question[0].Name = toDomain
+	resp, err := s.resolver.Resolve(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	resp.Question[0].Name = fromDomain
+	for _, rr := range resp.Answer {
+		if rr.Header().Name == toDomain {
+			rr.Header().Name = fromDomain
+		}
+	}
+	return resp, nil
 }
 
 func parseQueryTypes(types []string) []uint16 {
