@@ -4,13 +4,13 @@ DIR := $(shell pwd)
 all: buf protoc-gen-go protoc-gen-connect-go
 
 buf:
-	$(call go-get-tool,'$(DIR)/buf','github.com/bufbuild/buf/cmd/buf@v1.57.2')
+	$(call go-get-tool,'$(DIR)/buf','github.com/bufbuild/buf/cmd/buf@v1.60.0')
 
 protoc-gen-go:
-	$(call go-get-tool,'$(DIR)/protoc-gen-go','google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.9')
+	$(call go-get-tool,'$(DIR)/protoc-gen-go','google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.10')
 
 protoc-gen-connect-go:
-	$(call go-get-tool,'$(DIR)/protoc-gen-connect-go','connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.0')
+	$(call go-get-tool,'$(DIR)/protoc-gen-connect-go','connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1')
 
 .PHONY: clean
 clean:
