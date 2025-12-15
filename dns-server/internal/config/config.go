@@ -108,8 +108,17 @@ type RoutingReconcile struct {
 	Timeout  time.Duration `yaml:"timeout"`
 }
 
-func (c *Routing) LookupHost(host string) bool {
-	return c.Hosts.Match(host) > 0
+func (c *Routing) LookupHost(host string) (pattern string) {
+	return c.Hosts.Match(host)
+}
+
+func (c *Routing) LookupIP(ip types.IPv4) (pattern string) {
+	for _, addr := range c.Static {
+		if types.PrefixMatch(addr, ip) {
+			return addr.String()
+		}
+	}
+	return ""
 }
 
 func (c *Config) init() {

@@ -78,56 +78,73 @@ func (s *DNSRoutingService) appendRawQuery(ctx context.Context, response bool, t
 func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.Msg) {
 	reqName := resp.Question[0].Name
 
-	var cnames util.LazyMap[string, dns.CNAME]
-	var nameIPs util.LazyMap[string, []types.IPv4]
+	var cnameByName util.LazyMap[string, dns.CNAME]
+	var ipsByName util.LazyMap[string, []types.IPv4]
 
 	var ttl uint32 = math.MaxUint32
 
 	for _, rr := range resp.Answer {
 		switch v := rr.(type) {
 		case *dns.A:
-			nameIPs.Set(v.Hdr.Name, append(nameIPs[v.Hdr.Name], types.NewIPv4(v.A)))
+			ipsByName.Set(v.Hdr.Name, append(ipsByName[v.Hdr.Name], types.NewIPv4(v.A)))
 			ttl = min(ttl, v.Hdr.Ttl)
 		case *dns.CNAME:
-			cnames.Set(v.Hdr.Name, *v)
+			cnameByName.Set(v.Hdr.Name, *v)
 		}
 	}
 
-	var ips []types.IPv4
-	var routedIface string
+	var ips []types.RoutedIP
 	var visited util.Set[string]
 
+	var routedByName bool
+	var routingIface string
+	var routingPattern string
+
 	for name := reqName; !visited.Has(name); {
-		if iface := s.ipRoutes.LookupHost(name); iface != "" {
-			routedIface = iface
+		if !routedByName {
+			routedByName, routingPattern, routingIface = s.ipRoutes.LookupHost(name)
 		}
-		if cn, ok := cnames[name]; ok {
+		if cn, ok := cnameByName[name]; ok {
 			visited.Add(name)
 			name = cn.Target
 			ttl = min(ttl, cn.Hdr.Ttl)
 		} else {
-			ips = nameIPs[name]
+			nameIPs := ipsByName[name]
+			ips = make([]types.RoutedIP, len(nameIPs))
+			for i, ip := range nameIPs {
+				ips[i] = types.RoutedIP{IP: ip, RouteIface: routingIface, RouteReason: routingPattern}
+			}
 			break
 		}
 	}
 
 	if len(ips) > 0 {
-		slices.SortFunc(ips, func(a, b types.IPv4) int {
-			return bytes.Compare(a[:], b[:])
+		for i, it := range ips {
+			if !it.IsRouted() {
+				if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok {
+					it.RouteIface = iface
+					it.RouteReason = pattern
+					ips[i] = it
+				}
+			}
+		}
+
+		slices.SortFunc(ips, func(a, b types.RoutedIP) int {
+			return bytes.Compare(a.IP[:], b.IP[:])
 		})
+
 		res := types.DNSQuery{
 			Time:       time.Now(),
 			ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
 			Domain:     reqName,
 			TTL:        max(ttl, 1),
 			IPs:        ips,
-			Routed:     routedIface,
 		}
 		s.queryStream.Append(res)
-		for _, ip := range res.IPs {
-			s.dnsStore.Add(types.NewDNSRecord(res.Domain, ip, res.Time.Add(time.Duration(res.TTL)*time.Second)))
-			if routedIface != "" {
-				s.ipRoutes.AddRoute(ctx, ip)
+		for _, it := range res.IPs {
+			s.dnsStore.Add(types.NewDNSRecord(res.Domain, it.IP, res.Time.Add(time.Duration(res.TTL)*time.Second)))
+			if it.IsRouted() {
+				s.ipRoutes.AddRoute(ctx, it.IP)
 			}
 		}
 		s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)

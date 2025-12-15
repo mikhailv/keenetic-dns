@@ -51,12 +51,30 @@ type DNSQuery struct {
 	ClientAddr string        `json:"client_addr"`
 	Domain     string        `json:"domain"`
 	TTL        uint32        `json:"ttl"`
-	IPs        []IPv4        `json:"ips"`
-	Routed     string        `json:"routed,omitempty"`
+	IPs        []RoutedIP    `json:"ips"`
 }
 
 func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
+}
+
+func (s *DNSQuery) HasRoutedIPs() bool {
+	for _, ip := range s.IPs {
+		if ip.IsRouted() {
+			return true
+		}
+	}
+	return false
+}
+
+type RoutedIP struct {
+	IP          IPv4   `json:"ip"`
+	RouteIface  string `json:"route_iface,omitempty"`
+	RouteReason string `json:"route_reason,omitempty"`
+}
+
+func (s *RoutedIP) IsRouted() bool {
+	return s.RouteIface != ""
 }
 
 var _ stream.CursorAware = (*DNSRawQuery)(nil)

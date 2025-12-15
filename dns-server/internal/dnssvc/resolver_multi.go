@@ -23,8 +23,8 @@ type multiProviderResolver []Provider
 func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	resolvers := map[int32][]Resolver{}
 	for _, p := range s {
-		if score := p.MatchQuery(msg); score >= 0 {
-			resolvers[score] = append(resolvers[score], p)
+		if res := p.MatchQuery(msg); res.Score >= 0 {
+			resolvers[res.Score] = append(resolvers[res.Score], p)
 		}
 	}
 

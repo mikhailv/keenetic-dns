@@ -69,10 +69,10 @@ export class DNSRequestsElement extends LitElement {
             <td>${it.domain}</td>
             <td>${it.ttl}</td>
             <td class="fw-light" style="font-size: 0.9rem">
-              ${it.ips.map(ip => html`<div>${ip}</div>`)}
+              ${it.ips.map(v => html`<div>${v.ip}</div>`)}
             </td>
             <td class="fw-light" style="font-size: 0.9rem">
-              ${it.routed || '-'}
+              ${it.ips.map(v => html`<div>${v.route_iface ? `${v.route_iface} (${v.route_reason})` : '-'}</div>`)}
             </td>
           </tr>
         `)}

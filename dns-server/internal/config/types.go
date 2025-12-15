@@ -36,18 +36,18 @@ func (s *DomainList) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-func (s DomainList) Match(domain string) int {
+func (s DomainList) Match(domain string) (pattern string) {
 	if len(s) == 0 {
-		return 0
+		return ""
 	}
 	// TODO: O(N) host lookup, maybe optimize?
 	domain = normalizeFQDN(domain)
 	for _, suffix := range s {
 		if isDomainSuffix(domain, suffix) {
-			return len(suffix)
+			return suffix
 		}
 	}
-	return -1
+	return ""
 }
 
 type Hosts map[string]Host

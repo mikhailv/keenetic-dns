@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"strconv"
@@ -44,12 +45,26 @@ func ParseIPv4(s string) (IPv4, error) {
 	return newIPv4(ip, prefix), nil
 }
 
+func MustParseIPv4(s string) IPv4 {
+	ip, err := ParseIPv4(s)
+	if err != nil {
+		panic(err)
+	}
+	return ip
+}
+
 func (ip IPv4) HasPrefix() bool {
 	return ip[4] < 32
 }
 
 func (ip IPv4) Prefix() int {
 	return int(ip[4])
+}
+
+func (ip IPv4) Mask() [4]byte {
+	var m [4]byte
+	binary.BigEndian.PutUint32(m[:], ^((uint32(1) << (32 - uint32(ip.Prefix()))) - 1))
+	return m
 }
 
 func (ip IPv4) String() string {
@@ -67,4 +82,17 @@ func (ip *IPv4) UnmarshalText(b []byte) error {
 	var err error
 	*ip, err = ParseIPv4(string(b))
 	return err
+}
+
+func PrefixMatch(prefixIP, ip IPv4) bool {
+	if !prefixIP.HasPrefix() || ip.HasPrefix() {
+		return false
+	}
+	m := prefixIP.Mask()
+	for i := range 4 {
+		if prefixIP[i]&m[i] != ip[i]&m[i] {
+			return false
+		}
+	}
+	return true
 }

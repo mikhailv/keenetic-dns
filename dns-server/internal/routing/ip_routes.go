@@ -45,12 +45,20 @@ func NewIPRouteController(
 	}
 }
 
-func (s *IPRouteController) LookupHost(host string) (iface string) {
+func (s *IPRouteController) LookupHost(host string) (ok bool, pattern, iface string) {
 	cfg := s.cfg.Get()
-	if cfg.LookupHost(host) {
-		return cfg.Rule.Oif
+	if pattern = cfg.LookupHost(host); pattern != "" {
+		return true, pattern, cfg.Rule.Oif
 	}
-	return ""
+	return false, "", ""
+}
+
+func (s *IPRouteController) LookupIP(ip types.IPv4) (ok bool, pattern, iface string) {
+	cfg := s.cfg.Get()
+	if pattern = cfg.LookupIP(ip); pattern != "" {
+		return true, pattern, cfg.Rule.Oif
+	}
+	return false, "", ""
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
@@ -89,7 +97,7 @@ func (s *IPRouteController) makeRoute(ip types.IPv4) IPRoute {
 func (s *IPRouteController) init() {
 	cfg := s.cfg.Get()
 	for _, rec := range s.dnsStore.Records() {
-		if cfg.LookupHost(rec.Domain) {
+		if cfg.LookupHost(rec.Domain) != "" {
 			s.routes.Add(s.makeRoute(rec.IP))
 		}
 	}

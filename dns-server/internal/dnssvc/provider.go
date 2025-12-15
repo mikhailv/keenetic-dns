@@ -11,9 +11,14 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 )
 
+type QueryMatchResult struct {
+	Score   int32
+	Pattern string
+}
+
 type Provider interface {
 	Resolver
-	MatchQuery(msg *dns.Msg) int32
+	MatchQuery(msg *dns.Msg) QueryMatchResult
 }
 
 type provider struct {
@@ -30,20 +35,27 @@ func NewProvider(resolver Resolver, cfg config.DNSProvider) Provider {
 	}
 }
 
-func (s *provider) MatchQuery(msg *dns.Msg) int32 {
+func (s *provider) MatchQuery(msg *dns.Msg) QueryMatchResult {
 	if !HasSingleQuestion(msg, s.types...) {
-		return -1
+		return QueryMatchResult{Score: -1}
 	}
 	domain := msg.Question[0].Name
-	if s.cfg.Ignore.Match(domain) > 0 {
-		return -1
+	ignorePattern := s.cfg.Ignore.Match(domain)
+	if ignorePattern != "" {
+		return QueryMatchResult{Score: -1, Pattern: ignorePattern}
 	}
 	priority := byte(max(0, min(255, s.cfg.Priority)))
-	score := s.cfg.Domains.Match(domain)
-	if score < 0 {
-		return -1
+	if len(s.cfg.Domains) == 0 {
+		return QueryMatchResult{Score: int32(priority)}
 	}
-	return int32(score)<<8 | int32(priority)
+	pattern := s.cfg.Domains.Match(domain)
+	if pattern == "" {
+		return QueryMatchResult{Score: -1}
+	}
+	return QueryMatchResult{
+		Score:   int32(len(pattern))<<8 | int32(priority),
+		Pattern: pattern,
+	}
 }
 
 func (s *provider) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {

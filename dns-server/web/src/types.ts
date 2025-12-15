@@ -16,8 +16,13 @@ export interface DNSQuery {
   client_addr: string;
   domain: string;
   ttl: number;
-  ips: string[];
-  routed?: string;
+  ips: RoutedIP[];
+}
+
+export interface RoutedIP {
+  ip: string;
+  route_iface?: string;
+  route_reason?: string;
 }
 
 export interface LogEntry {
