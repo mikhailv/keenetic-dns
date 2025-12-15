@@ -85,8 +85,11 @@ func (ip *IPv4) UnmarshalText(b []byte) error {
 }
 
 func PrefixMatch(prefixIP, ip IPv4) bool {
-	if !prefixIP.HasPrefix() || ip.HasPrefix() {
+	if ip.HasPrefix() {
 		return false
+	}
+	if !prefixIP.HasPrefix() {
+		return prefixIP == ip
 	}
 	m := prefixIP.Mask()
 	for i := range 4 {
