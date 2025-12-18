@@ -1,5 +1,6 @@
 #!/bin/sh
 
 SERVICE_NAME=agent
+ENV=GOMEMLIMIT=512MiB
 
 . /opt/keenetic-dns/service_init.sh

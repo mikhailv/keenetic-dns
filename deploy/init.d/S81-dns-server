@@ -2,5 +2,6 @@
 
 SERVICE_NAME=dns-server
 ARGS=--debug
+ENV=GOMEMLIMIT=1024MiB
 
 . /opt/keenetic-dns/service_init.sh
