@@ -46,8 +46,8 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 
 		res := struct {
 			stream.QueryResult[T]
-			PrevPageURL string `json:"prevPageURL"`
-			NextPageURL string `json:"nextPageURL"`
+			PrevPageURL string `json:"prev_page_url"`
+			NextPageURL string `json:"next_page_url"`
 		}{}
 
 		//             after     before
@@ -75,6 +75,7 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 	})
 }
 
+//nolint:cyclop // ignore complexity
 func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
@@ -91,7 +92,16 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 		logger.Debug("accept websocket connection", "client", req.RemoteAddr)
 		ctx := conn.CloseRead(req.Context())
 
-		cursor := st.QueryBackward(math.MaxUint64, 1, nil).FirstCursor // get last cursor from stream
+		preloadCount := 1
+		if query.Has("preload_count") {
+			preloadCount, _ = strconv.Atoi(query.Get("preload_count"))
+			preloadCount = max(1, preloadCount)
+		}
+
+		cursor, _ := stream.ParseCursor(query.Get("cursor"))
+		if cursor == 0 {
+			cursor = st.QueryBackward(math.MaxUint64, preloadCount+1, nil).LastCursor
+		}
 
 		updateCh := make(chan struct{})
 		debouncedUpdateCh := debounceUpdateChannel(ctx, time.Second/2, time.Second*2, updateCh)
@@ -105,20 +115,27 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 		})
 		defer stopListen()
 
+		processNextDataChunk := func() {
+			res := st.Query(cursor, 1000, filter)
+			if len(res.Items) > 0 {
+				if err := wsjson.Write(ctx, conn, res.Items); err != nil {
+					logger.Error("failed to send data", "err", err, "cursor", cursor)
+				} else {
+					cursor = res.LastCursor
+				}
+			}
+		}
+
+		// send initial data chunk without delay
+		processNextDataChunk()
+
 		for {
 			select {
 			case <-ctx.Done():
 				logger.Debug("websocket connection closed", "err", ctx.Err())
 				return
 			case <-debouncedUpdateCh:
-				res := st.Query(cursor, 1000, filter)
-				if len(res.Items) > 0 {
-					if err := wsjson.Write(ctx, conn, res.Items); err != nil {
-						logger.Error("failed to send data", "err", err, "cursor", cursor)
-					} else {
-						cursor = res.LastCursor
-					}
-				}
+				processNextDataChunk()
 			}
 		}
 	})

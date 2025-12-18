@@ -14,17 +14,17 @@ export interface StreamSink<T> {
   cancel(): void;
 }
 
-export function listenStream<T>(stream: Stream<T>, listener: (res: Result<T> | 'cancelled') => void): void {
+export function listenStream<T>(stream: Stream<T>, listener: (res: Result<T> | 'cancelled') => Promise<void>): void {
   setTimeout(async() => {
     for (;;) {
       try {
-        listener({ value: await stream.next() });
+        await listener({ value: await stream.next() });
       } catch (e) {
         if (e === ErrCancelledStream) {
-          listener(ErrCancelledStream);
+          await listener(ErrCancelledStream);
           break;
         }
-        listener({ error: e as (Error | string) });
+        await listener({ error: e as (Error | string) });
       }
     }
   })
@@ -68,7 +68,7 @@ export function websocketStream<T>(provider: () => WebSocket, mapper?: (data: st
 export function mapStream<T, R>(stream: Stream<T>, mapper: (value: Result<T>, sink: (value: R) => void) => void): Stream<R> {
   const provider = newPushStreamDataProvider<R>();
   const result = newStream<R>(provider);
-  listenStream(stream, res => {
+  listenStream(stream, async res => {
     if (res === 'cancelled') {
       result.cancel();
     } else {

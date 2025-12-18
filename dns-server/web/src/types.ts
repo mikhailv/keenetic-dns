@@ -1,7 +1,7 @@
 export interface IPRoute {
   addr: string;
   iface: string;
-  dnsRecords?: DNSRecord[];
+  dns_records?: DNSRecord[];
 }
 
 export interface DNSRecord {

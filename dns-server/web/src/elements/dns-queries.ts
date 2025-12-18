@@ -7,7 +7,7 @@ import { Service } from '../service';
 import { DNSQuery } from '../types';
 import { listenStream, Stream } from '../stream';
 
-const maxItems = 500;
+const maxItems = 200;
 
 @customElement('x-dns-queries')
 export class DNSRequestsElement extends LitElement {
@@ -25,13 +25,14 @@ export class DNSRequestsElement extends LitElement {
     return this;
   }
 
-  override connectedCallback() {
+  override async connectedCallback() {
     super.connectedCallback();
     this._items = [];
-    this._stream = this._service?.streamDomainResolve();
-    listenStream(this._stream!, res => {
+    this._stream = this._service!.streamDNSQueries(maxItems);
+    listenStream(this._stream!, async res => {
       if (res !== 'cancelled' && res.value) {
-        this._items = this._items.concat(res.value).slice(Math.max(0, this._items.length + res.value.length - maxItems));
+        this._items.unshift(...[...res.value].reverse());
+        this._items = this._items.slice(0, maxItems);
       }
     });
   }
@@ -63,7 +64,7 @@ export class DNSRequestsElement extends LitElement {
         </thead>
         <tbody class="table-group-divider">
         ${repeat(this._items, it => it.cursor, it => html`
-          <tr>
+          <tr class="animate-new-row">
             <td title=${it.time.toLocaleString()}>${formatTime(it.time)}</td>
             <td>${it.client_addr.split(':')[0]}</td>
             <td>${it.domain}</td>
@@ -79,17 +80,6 @@ export class DNSRequestsElement extends LitElement {
         </tbody>
       </table>
     `;
-  }
-
-  protected override performUpdate() {
-    const scrolledToBottom = scrollY + window.innerHeight >= document.documentElement.scrollHeight;
-    super.performUpdate();
-    if (scrolledToBottom) {
-      scrollTo({
-        top: document.documentElement.scrollHeight,
-        behavior: 'smooth',
-      });
-    }
   }
 }
 

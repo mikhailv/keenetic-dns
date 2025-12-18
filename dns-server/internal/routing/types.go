@@ -23,7 +23,7 @@ func (r IPRoute) LogValue() slog.Value {
 
 type IPRouteDNS struct {
 	IPRoute
-	DNSRecord []types.DNSRecord `json:"dnsRecords,omitempty"`
+	DNSRecord []types.DNSRecord `json:"dns_records,omitempty"`
 }
 
 func (r IPRouteDNS) LogValue() slog.Value {

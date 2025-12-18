@@ -23,9 +23,9 @@ type Buffered[T any] struct {
 
 type QueryResult[T any] struct {
 	Items       []T    `json:"items"`
-	FirstCursor Cursor `json:"firstCursor"`
-	LastCursor  Cursor `json:"lastCursor"`
-	HasMore     bool   `json:"hasMore"`
+	FirstCursor Cursor `json:"first_cursor"`
+	LastCursor  Cursor `json:"last_cursor"`
+	HasMore     bool   `json:"has_more"`
 }
 
 func (s *QueryResult[T]) Reverse() {
@@ -81,18 +81,28 @@ func (s *Buffered[T]) lookupPos(cursor Cursor) (i int, found bool) {
 
 //nolint:cyclop // readable enough
 func (s *Buffered[T]) query(forward bool, cursor Cursor, count int, predicate func(val T) bool) QueryResult[T] {
-	backward := !forward
-
-	pos, found := s.lookupPos(cursor)
-	if backward {
-		pos--
-	} else if found && forward {
-		pos++
-	}
-
 	res := QueryResult[T]{
 		FirstCursor: cursor,
 		LastCursor:  cursor,
+	}
+
+	if s.buf.Size() == 0 {
+		return res
+	}
+
+	pos, found := s.lookupPos(cursor)
+	if found {
+		if forward {
+			pos++
+		} else {
+			pos--
+		}
+	} else {
+		if forward {
+			pos = 0
+		} else {
+			pos = s.buf.Size() - 1
+		}
 	}
 
 	if pos < 0 || pos >= s.buf.Size() {

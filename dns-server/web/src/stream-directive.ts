@@ -50,7 +50,7 @@ class StreamDirective<T, A extends ReadonlyArray<unknown>> extends AsyncDirectiv
 
   private _listenStream() {
     if (this._stream) {
-      listenStream(this._stream, res => {
+      listenStream(this._stream, async res => {
         if (res !== 'cancelled') {
           this._result = res;
           this.setValue(this._renderResult());
