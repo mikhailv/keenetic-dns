@@ -68,14 +68,22 @@ func (ip IPv4) Mask() [4]byte {
 }
 
 func (ip IPv4) String() string {
-	if ip[4] == 32 {
-		return net.IP(ip[:4]).String()
+	var buf [20]byte
+	return string(ip.AppendText(buf[:0]))
+}
+
+func (ip IPv4) AppendText(b []byte) []byte {
+	b, _ = net.IP(ip[:4]).AppendText(b)
+	if ip[4] < 32 {
+		b = append(b, '/')
+		b = strconv.AppendInt(b, int64(ip[4]), 10)
 	}
-	return net.IP(ip[:4]).String() + "/" + strconv.Itoa(int(ip[4]))
+	return b
 }
 
 func (ip IPv4) MarshalText() ([]byte, error) {
-	return []byte(ip.String()), nil
+	var buf [20]byte
+	return ip.AppendText(buf[:0]), nil
 }
 
 func (ip *IPv4) UnmarshalText(b []byte) error {
@@ -93,6 +101,7 @@ func PrefixMatch(prefixIP, ip IPv4) bool {
 	}
 	m := prefixIP.Mask()
 	for i := range 4 {
+		//nolint:gosec // false positive `G602: slice index out of range`
 		if prefixIP[i]&m[i] != ip[i]&m[i] {
 			return false
 		}

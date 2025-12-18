@@ -4,11 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"iter"
-	"maps"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,25 +13,24 @@ import (
 )
 
 type DNSStore struct {
-	mu       sync.Mutex
-	byDomain MultiMap[string, types.IPv4, types.DNSRecord]
-	byIP     MultiMap[types.IPv4, string, types.DNSRecord]
+	mu   sync.Mutex
+	all  map[types.DNSRecordKey]types.DNSRecord
+	byIP map[types.IPv4][]string
 }
 
 func NewDNSStore() *DNSStore {
 	return &DNSStore{
-		byDomain: MultiMap[string, types.IPv4, types.DNSRecord]{},
-		byIP:     MultiMap[types.IPv4, string, types.DNSRecord]{},
+		all:  map[types.DNSRecordKey]types.DNSRecord{},
+		byIP: map[types.IPv4][]string{},
 	}
 }
 
 func (s *DNSStore) fill(records []types.DNSRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	clear(s.byDomain)
+	clear(s.all)
 	clear(s.byIP)
 	for _, rec := range records {
-		rec.Domain = normalizeDomain(rec.Domain)
 		s.add(rec)
 	}
 }
@@ -42,8 +38,12 @@ func (s *DNSStore) fill(records []types.DNSRecord) {
 func (s *DNSStore) LookupIP(ip types.IPv4) []types.DNSRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	recs := s.byIP[ip]
-	return slices.AppendSeq(make([]types.DNSRecord, 0, len(recs)), maps.Values(recs))
+	domains := s.byIP[ip]
+	res := make([]types.DNSRecord, len(domains))
+	for i, domain := range domains {
+		res[i] = s.all[types.DNSRecordKey{Domain: domain, IP: ip}]
+	}
+	return res
 }
 
 func (s *DNSStore) Add(rec types.DNSRecord) {
@@ -53,8 +53,12 @@ func (s *DNSStore) Add(rec types.DNSRecord) {
 }
 
 func (s *DNSStore) add(rec types.DNSRecord) {
-	s.byDomain.Set(rec.Domain, rec.IP, rec)
-	s.byIP.Set(rec.IP, rec.Domain, rec)
+	s.all[rec.DNSRecordKey] = rec
+	domains := s.byIP[rec.IP]
+	domains = append(domains, rec.Domain)
+	slices.Sort(domains)
+	domains = slices.Compact(domains)
+	s.byIP[rec.IP] = domains
 }
 
 func (s *DNSStore) Remove(rec types.DNSRecord) {
@@ -64,14 +68,16 @@ func (s *DNSStore) Remove(rec types.DNSRecord) {
 }
 
 func (s *DNSStore) remove(rec types.DNSRecord) {
-	s.byDomain.Remove(rec.Domain, rec.IP)
-	s.byIP.Remove(rec.IP, rec.Domain)
+	delete(s.all, rec.DNSRecordKey)
+	if domains, ok := s.byIP[rec.IP]; ok {
+		s.byIP[rec.IP] = slices.DeleteFunc(domains, func(s string) bool { return s == rec.Domain })
+	}
 }
 
 func (s *DNSStore) RemoveExpired(extraTTL time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for r := range s.iterate() {
+	for _, r := range s.all {
 		if r.Expired(extraTTL) {
 			s.remove(r)
 		}
@@ -81,27 +87,11 @@ func (s *DNSStore) RemoveExpired(extraTTL time.Duration) {
 func (s *DNSStore) Records() []types.DNSRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	count := 0
-	for range s.iterate() {
-		count++
-	}
-	res := make([]types.DNSRecord, 0, count)
-	for r := range s.iterate() {
+	res := make([]types.DNSRecord, 0, len(s.all))
+	for _, r := range s.all {
 		res = append(res, r)
 	}
 	return res
-}
-
-func (s *DNSStore) iterate() iter.Seq[types.DNSRecord] {
-	return func(yield func(types.DNSRecord) bool) {
-		for _, records := range s.byDomain {
-			for _, r := range records {
-				if !yield(r) {
-					return
-				}
-			}
-		}
-	}
 }
 
 func (s *DNSStore) Load(file string) error {
@@ -128,30 +118,4 @@ func (s *DNSStore) Save(file string) error {
 		return fmt.Errorf("failed to save records to dump file: %w", err)
 	}
 	return nil
-}
-
-type MultiMap[K1, K2 comparable, V any] map[K1]map[K2]V
-
-func (m MultiMap[K1, K2, V]) Set(k1 K1, k2 K2, value V) {
-	if m2, ok := m[k1]; ok {
-		m2[k2] = value
-	} else {
-		m[k1] = map[K2]V{k2: value}
-	}
-}
-
-func (m MultiMap[K1, K2, V]) Remove(k1 K1, k2 K2) {
-	if m2, ok := m[k1]; ok {
-		if _, ok := m2[k2]; ok {
-			if len(m2) == 1 {
-				delete(m, k1)
-			} else {
-				delete(m2, k2)
-			}
-		}
-	}
-}
-
-func normalizeDomain(domain string) string {
-	return strings.Trim(domain, ".") + "."
 }
