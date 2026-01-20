@@ -18,7 +18,7 @@ build-dns-server:
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.7.2 run -v
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run -v
 
 .PHONY: govulncheck
 govulncheck:
