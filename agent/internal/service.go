@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/mikhailv/keenetic-dns/agent/internal/keenetic"
 	v1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
 	"github.com/mikhailv/keenetic-dns/agent/rpc/v1/agentv1connect"
 )
@@ -114,6 +115,22 @@ func (s *networkService) DeleteRoute(ctx context.Context, req *v1.DeleteRouteReq
 	return &v1.DeleteRouteResp{}, nil
 }
 
+func (s *networkService) ListHosts(ctx context.Context, _ *v1.ListHostsReq) (*v1.ListHostsResp, error) {
+	cmd := exec.CommandContext(ctx, "ndmc", "-c", "show ip hotspot")
+	res, err := s.runCmd(cmd)
+	if err != nil {
+		s.logger.Error("failed to get ip hotspots", "err", err, "output", res.ErrOutput)
+		return nil, wrapError(err, res)
+	}
+	objs := keenetic.ParseOutput(res.Output)
+	var resp v1.ListHostsResp
+	resp.Hosts = make([]*v1.HostInfo, len(objs))
+	for i, obj := range objs {
+		resp.Hosts[i] = parseHostInfo(obj.GetObject("host"))
+	}
+	return &resp, nil
+}
+
 type cmdRunResult struct {
 	Output    string
 	ErrOutput string
@@ -162,4 +179,67 @@ func wrapError(err error, r cmdRunResult) error {
 		connErr.AddDetail(detail)
 	}
 	return connErr
+}
+
+func parseOptionalObj[T any](obj keenetic.Object, parseFn func(obj keenetic.Object) *T) *T {
+	if len(obj) == 0 {
+		return nil
+	}
+	return parseFn(obj)
+}
+
+func parseHostInfo(obj keenetic.Object) *v1.HostInfo {
+	return &v1.HostInfo{
+		Mac:             obj.GetString("mac"),
+		Via:             obj.GetString("via"),
+		Ip:              obj.GetString("ip"),
+		Hostname:        obj.GetString("hostname"),
+		Name:            obj.GetString("name"),
+		Registered:      obj.GetBool("registered"),
+		Access:          obj.GetString("access"),
+		Priority:        obj.GetInt("priority"),
+		Active:          obj.GetBool("active"),
+		RxBytes:         obj.GetInt("rxbytes"),
+		TxBytes:         obj.GetInt("txbytes"),
+		Link:            obj.GetString("link"),
+		Uptime:          obj.GetInt("uptime"),
+		FirstSeen:       obj.GetInt("first-seen"),
+		LastSeen:        obj.GetInt("last-seen"),
+		AutoNegotiation: obj.GetBool("auto-negotiation"),
+		Speed:           obj.GetInt("speed"),
+		Duplex:          obj.GetBool("duplex"),
+		Port:            obj.GetInt("port"),
+		SystemMode:      obj.GetString("system-mode"),
+		HttpPort:        obj.GetInt("http-port"),
+		HttpHost:        obj.GetString("http-host"),
+		Region:          obj.GetString("region"),
+		Description:     obj.GetString("description"),
+		Firmware:        obj.GetString("firmware"),
+		Interface: parseOptionalObj(obj.GetObject("interface"), func(obj keenetic.Object) *v1.HostInterface {
+			return &v1.HostInterface{
+				Id:          obj.GetString("id"),
+				Name:        obj.GetString("name"),
+				Description: obj.GetString("description"),
+			}
+		}),
+		Dhcp: parseOptionalObj(obj.GetObject("dhcp"), func(obj keenetic.Object) *v1.HostDHCP {
+			return &v1.HostDHCP{
+				Static: obj.GetBool("static"),
+			}
+		}),
+		Mws: parseOptionalObj(obj.GetObject("mws"), func(obj keenetic.Object) *v1.HostMWS {
+			return &v1.HostMWS{
+				Cid:           obj.GetString("cid"),
+				Ap:            obj.GetString("ap"),
+				Psm:           obj.GetBool("psm"),
+				Mld:           obj.GetBool("mld"),
+				Authenticated: obj.GetBool("authenticated"),
+				TxRate:        obj.GetInt("txrate"),
+				Uptime:        obj.GetInt("uptime"),
+				Rssi:          obj.GetInt("rssi"),
+				Mcs:           obj.GetInt("mcs"),
+				Security:      obj.GetString("security"),
+			}
+		}),
+	}
 }

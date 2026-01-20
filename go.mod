@@ -6,6 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/brutella/dnssd v1.2.14
 	github.com/coder/websocket v1.8.14
+	github.com/klauspost/compress v1.18.0
 	github.com/miekg/dns v1.1.69
 	github.com/pion/mdns/v2 v2.1.0
 	github.com/prometheus/client_golang v1.23.2

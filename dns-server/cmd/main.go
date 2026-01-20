@@ -54,7 +54,7 @@ func main() { //nolint:funlen // ignore
 	})
 
 	dnsStore := NewDNSStore()
-	saveStore := initDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
+	saveStore := newDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
 	go util.RunPeriodically(ctx, cfg.Storage.Local.SaveInterval, func(ctx context.Context) { saveStore() })
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
@@ -89,7 +89,16 @@ func main() { //nolint:funlen // ignore
 		ErrorSafeResponseMiddleware,
 	}, svc.Resolve)
 
-	httpServer := NewHTTPServer(cfg.HTTPAddr, log.WithPrefix(logger, "http"), ResolverFunc(handler), ipRoutes, logStream, dnsQueryStream, rawQueryStream)
+	httpServer := NewHTTPServer(
+		cfg.HTTPAddr,
+		log.WithPrefix(logger, "http"),
+		ResolverFunc(handler),
+		ipRoutes,
+		networkService,
+		logStream,
+		dnsQueryStream,
+		rawQueryStream,
+	)
 	go serve(ctx, httpServer)
 
 	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), ResolverFunc(handler))
@@ -118,7 +127,7 @@ func exitIfError(err error) {
 	}
 }
 
-func initDNSStore(file string, logger *slog.Logger, store *DNSStore) (save func()) {
+func newDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save func()) {
 	logger = logger.With("file", file)
 	if err := store.Load(file); err != nil {
 		logger.Error("failed to load", "err", err)

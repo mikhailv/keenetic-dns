@@ -19,8 +19,8 @@ import (
 
 type requestFilterFactory[T any] func(r *http.Request, q url.Values) FilterFunc[T]
 
-func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilterFactory[T]) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilterFactory[T]) errorHandler {
+	return func(w http.ResponseWriter, req *http.Request) (int, error) {
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
 
@@ -72,7 +72,8 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(res)
-	})
+		return http.StatusOK, nil
+	}
 }
 
 //nolint:cyclop // ignore complexity

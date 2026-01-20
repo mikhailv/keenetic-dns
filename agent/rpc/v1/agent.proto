@@ -10,6 +10,7 @@ service NetworkService {
   rpc ListRoutes(ListRoutesReq) returns (ListRoutesResp) {}
   rpc AddRoute(AddRouteReq) returns (AddRouteResp) {}
   rpc DeleteRoute(DeleteRouteReq) returns (DeleteRouteResp) {}
+  rpc ListHosts(ListHostsReq) returns (ListHostsResp) {}
 }
 
 message Route {
@@ -57,3 +58,67 @@ message DeleteRouteReq {
   Route route = 1;
 }
 message DeleteRouteResp {}
+
+message HostInfo {
+  string mac = 1;
+  string via = 2;
+  string ip = 3;
+  string hostname = 4;
+  string name = 5;
+  bool registered = 6;
+  string access = 7;
+  int64 priority = 8;
+  bool active = 9;
+  int64 rx_bytes = 10;
+  int64 tx_bytes = 11;
+  string link = 12;
+  int64 uptime = 13;
+  int64 first_seen = 14;
+  int64 last_seen = 15;
+  // wired props
+  bool auto_negotiation = 16;
+  int64 speed = 17;
+  bool duplex = 18;
+  int64 port = 19;
+  // router
+  string system_mode = 20;
+  int64 http_port = 21;
+  string http_host = 22;
+  string region = 23;
+  string description = 24;
+  string firmware = 25;
+
+  HostInterface interface = 30;
+  HostDHCP dhcp = 31;
+  HostMWS mws = 32;
+}
+
+message HostInterface {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message HostDHCP {
+  bool static = 1;
+}
+
+// Mesh Wi-Fi System
+message HostMWS {
+  string cid = 1;
+  string ap = 2;
+  bool psm = 3; // Power Saving Mode
+  bool mld = 4; // Multicast Listener Discovery
+  bool authenticated = 5;
+  int64 tx_rate = 6;
+  int64 uptime = 7;
+  int64 rssi = 8; // Received Signal Strength Indicator
+  int64 mcs = 9; // Modulation and Coding Scheme
+  string security = 10; // Received Signal Strength Indicator
+}
+
+message ListHostsReq {
+}
+message ListHostsResp {
+  repeated HostInfo hosts = 1;
+}
