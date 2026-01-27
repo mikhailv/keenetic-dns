@@ -84,7 +84,7 @@ func main() { //nolint:funlen // ignore
 	handler := NewMiddlewareChainHandler([]Middleware{
 		EnableMiddleware(VerboseMiddleware, *verbose),
 		SingleInflightMiddleware,
-		EnableMiddleware(NewStaticHostsMiddleware(hostsCfg, time.Minute), len(hostsCfg.Get()) > 0),
+		NewStaticHostsMiddleware(hostsCfg, time.Minute),
 		NewCacheMiddleware(dnsCache),
 		NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
 		ErrorSafeResponseMiddleware,

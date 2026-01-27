@@ -1,14 +1,13 @@
 package util
 
-import "sync"
+import (
+	"iter"
+	"sync"
+)
 
 type SyncSet[T comparable] struct {
 	mu      sync.RWMutex
 	entries map[T]struct{}
-}
-
-func NewSyncSet[T comparable]() *SyncSet[T] {
-	return &SyncSet[T]{entries: map[T]struct{}{}}
 }
 
 func (s *SyncSet[T]) Add(v T) bool {
@@ -17,7 +16,11 @@ func (s *SyncSet[T]) Add(v T) bool {
 	if _, ok := s.entries[v]; ok {
 		return false
 	}
-	s.entries[v] = struct{}{}
+	if s.entries == nil {
+		s.entries = map[T]struct{}{v: {}}
+	} else {
+		s.entries[v] = struct{}{}
+	}
 	return true
 }
 
@@ -54,6 +57,18 @@ func (s *SyncSet[T]) Values() []T {
 		values = append(values, v)
 	}
 	return values
+}
+
+func (s *SyncSet[T]) Iterator() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for v := range s.entries {
+			if !yield(v) {
+				break
+			}
+		}
+	}
 }
 
 type Set[T comparable] map[T]struct{}

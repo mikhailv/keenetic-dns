@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -13,7 +15,7 @@ import (
 )
 
 type DNSStore struct {
-	mu   sync.Mutex
+	mu   sync.RWMutex
 	all  map[types.DNSRecordKey]types.DNSRecord
 	byIP map[types.IPv4][]string
 }
@@ -23,6 +25,12 @@ func NewDNSStore() *DNSStore {
 		all:  map[types.DNSRecordKey]types.DNSRecord{},
 		byIP: map[types.IPv4][]string{},
 	}
+}
+
+func (s *DNSStore) Size() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.all)
 }
 
 func (s *DNSStore) fill(records []types.DNSRecord) {
@@ -36,8 +44,8 @@ func (s *DNSStore) fill(records []types.DNSRecord) {
 }
 
 func (s *DNSStore) LookupIP(ip types.IPv4) []types.DNSRecord {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	domains := s.byIP[ip]
 	res := make([]types.DNSRecord, len(domains))
 	for i, domain := range domains {
@@ -84,14 +92,24 @@ func (s *DNSStore) RemoveExpired(extraTTL time.Duration) {
 	}
 }
 
-func (s *DNSStore) Records() []types.DNSRecord {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *DNSStore) records() []types.DNSRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	res := make([]types.DNSRecord, 0, len(s.all))
-	for _, r := range s.all {
-		res = append(res, r)
-	}
+	res = slices.AppendSeq(res, maps.Values(s.all))
 	return res
+}
+
+func (s *DNSStore) RecordIterator() iter.Seq[types.DNSRecord] {
+	return func(yield func(types.DNSRecord) bool) {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		for _, r := range s.all {
+			if !yield(r) {
+				return
+			}
+		}
+	}
 }
 
 func (s *DNSStore) Load(file string) error {
@@ -100,6 +118,7 @@ func (s *DNSStore) Load(file string) error {
 		return nil
 	}
 	defer f.Close()
+
 	var records []types.DNSRecord
 	if err := json.NewDecoder(f).Decode(&records); err != nil {
 		return fmt.Errorf("failed to load DNS records: %w", err)
@@ -114,7 +133,9 @@ func (s *DNSStore) Save(file string) error {
 		return fmt.Errorf("failed to create dump file: %w", err)
 	}
 	defer f.Close()
-	if err := json.NewEncoder(f).Encode(s.Records()); err != nil {
+
+	records := s.records()
+	if err := json.NewEncoder(f).Encode(records); err != nil {
 		return fmt.Errorf("failed to save records to dump file: %w", err)
 	}
 	return nil

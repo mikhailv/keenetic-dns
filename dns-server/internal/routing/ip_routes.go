@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
-	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -24,8 +23,7 @@ type IPRouteController struct {
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
 	networkService agent.NetworkServiceClient
-	routes         util.Set[IPRoute]
-	routesMu       sync.RWMutex
+	routes         util.SyncSet[IPRoute]
 	reconcileMu    sync.Mutex
 	reconcileCh    chan struct{}
 }
@@ -62,8 +60,6 @@ func (s *IPRouteController) LookupIP(ip types.IPv4) (ok bool, pattern, iface str
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
-	s.routesMu.RLock()
-	defer s.routesMu.RUnlock()
 	cfg := s.cfg.Get()
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for _, route := range s.routes.Values() {
@@ -78,7 +74,6 @@ func (s *IPRouteController) Routes() []IPRouteDNS {
 
 func (s *IPRouteController) Start(ctx context.Context) {
 	s.cfg.Listen(func() { s.onConfigUpdated(ctx) })
-	s.reconcile(ctx)
 	go s.startReconcileLoop(ctx)
 }
 
@@ -94,6 +89,7 @@ func (s *IPRouteController) makeRoute(cfg *config.Routing, ip types.IPv4) IPRout
 }
 
 func (s *IPRouteController) startReconcileLoop(ctx context.Context) {
+	s.reconcile(ctx)
 	for {
 		cfg := s.cfg.Get()
 		select {
@@ -137,66 +133,70 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *config.Rout
 	}
 }
 
+//nolint:cyclop // ignore cyclomatic complexity
 func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Routing) {
 	defer metrics.TrackDuration("reconcile_routes")()
 	defer log.Profile(s.logger, "reconcile routes")()
 
-	s.routesMu.Lock()
-	defer s.routesMu.Unlock()
-
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
-	unknownRoutes := maps.Clone(definedRoutes)
 
-	addRoute := func(route IPRoute) {
-		if _, defined := definedRoutes[route]; defined {
-			delete(unknownRoutes, route) // route is defined, delete it from set of unknown routes
-			s.routes.Add(route)
-		} else {
-			s.addRoute(ctx, route)
-		}
+	actual := make(util.Set[IPRoute], s.routes.Size())
+	obsolete := make(util.Set[IPRoute], 10)
+
+	for _, addr := range cfg.Static {
+		actual.Add(s.makeRoute(cfg, addr))
 	}
 
-	for _, route := range s.routes.Values() {
-		// lookup known DNS records by IP address
-		records := s.dnsStore.LookupIP(route.Addr)
-		// exclude already expired DNS records
-		records = removeExpiredRecords(records, cfg.RouteTimeout)
-		// exclude DNS records which should not be routed
-		records = slices.DeleteFunc(records, func(rec types.DNSRecord) bool {
-			return cfg.LookupHost(rec.Domain) == ""
-		})
-		if len(records) > 0 {
-			addRoute(route)
-		}
-	}
-
-	for _, rec := range s.dnsStore.Records() {
-		if rec.Expired(cfg.RouteTimeout) {
-			continue
-		}
+	for rec := range s.dnsStore.RecordIterator() {
 		route := s.makeRoute(cfg, rec.IP)
-		if s.routes.Has(route) {
+		if actual.Has(route) {
 			continue
 		}
 		if cfg.LookupHost(rec.Domain) != "" {
-			addRoute(route)
+			actual.Add(route)
+			obsolete.Remove(route)
+		} else {
+			obsolete.Add(route)
 		}
 	}
 
-	for _, addr := range cfg.Static {
-		addRoute(s.makeRoute(cfg, addr))
+	for route := range definedRoutes {
+		if !actual.Has(route) {
+			obsolete.Add(route)
+		}
 	}
 
-	for route := range unknownRoutes {
-		s.deleteRoute(ctx, route)
+	for route := range s.routes.Iterator() {
+		if !actual.Has(route) {
+			obsolete.Add(route)
+		}
 	}
+
+	added := 0
+	deleted := 0
+
+	for route := range actual {
+		s.routes.Add(route)
+		if !definedRoutes.Has(route) {
+			s.addRoute(ctx, route)
+			added++
+		}
+	}
+
+	for route := range obsolete {
+		s.routes.Remove(route)
+		if definedRoutes.Has(route) {
+			s.deleteRoute(ctx, route)
+			deleted++
+		}
+	}
+
+	s.logger.Info("routes updated", slog.Int("added", added), slog.Int("deleted", deleted), slog.Int("total", s.routes.Size()))
 }
 
 func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4) {
-	s.routesMu.Lock()
-	defer s.routesMu.Unlock()
 	route := s.makeRoute(s.cfg.Get(), ip)
-	if !s.routes.Has(route) {
+	if s.routes.Add(route) {
 		s.addRoute(ctx, route)
 	}
 }
@@ -212,8 +212,6 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	} else {
 		s.logger.Info("route added", "", route)
 	}
-	// add in any way, it will be re-added on next reconcile iteration
-	s.routes.Add(route)
 }
 
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
@@ -226,7 +224,6 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 		s.logger.Error("failed to delete route", "err", err, "", route)
 	} else {
 		s.logger.Info("route deleted", "", route)
-		s.routes.Remove(route)
 	}
 }
 
