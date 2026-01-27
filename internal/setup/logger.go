@@ -3,8 +3,6 @@ package setup
 import (
 	"log/slog"
 	"os"
-
-	"github.com/mikhailv/keenetic-dns/internal/log"
 )
 
 func Logger(debug bool, wrapHandler func(slog.Handler) slog.Handler) *slog.Logger {
@@ -12,9 +10,7 @@ func Logger(debug bool, wrapHandler func(slog.Handler) slog.Handler) *slog.Logge
 	if debug {
 		logLevel = slog.LevelDebug
 	}
-	var handler slog.Handler
-	handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
-	handler = log.NewPrefixHandler(handler)
+	var handler slog.Handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
 	if wrapHandler != nil {
 		handler = wrapHandler(handler)
 	}

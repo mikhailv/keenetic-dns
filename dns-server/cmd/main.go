@@ -39,7 +39,8 @@ func main() { //nolint:funlen // ignore
 		exitIfError(fmt.Errorf("failed to load config: %w", err))
 	}
 
-	logger, logStream := setupLogger(*debug, cfg.History.LogSize)
+	logger, logStream, logFlush := setupLogger(*debug, cfg.History.LogSize)
+	defer logFlush()
 
 	setup.Pprof(ctx, *pprofAddr, logger)
 
@@ -140,13 +141,15 @@ func newDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save f
 	}
 }
 
-func setupLogger(debug bool, historySize int) (*slog.Logger, *stream.Buffered[log.Entry]) {
-	var recorder log.Recorder
-	logger := setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		recorder = log.NewRecorder(handler, historySize)
-		return recorder
+func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {
+	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
+		buffered := log.NewBufferedHandler(handler, 300, 10*time.Second)
+		flush = buffered.Flush
+		recorder := log.NewRecorder(buffered, historySize)
+		stream = recorder.Stream()
+		return log.NewPrefixHandler(recorder)
 	})
-	return logger, recorder.Stream()
+	return logger, stream, flush
 }
 
 func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg config.Config)) {

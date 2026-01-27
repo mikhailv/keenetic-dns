@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
+	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal"
 	"github.com/mikhailv/keenetic-dns/internal/log"
@@ -23,7 +25,8 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger := setup.Logger(debug, nil)
+	logger, logFlush := setupLogger(debug)
+	defer logFlush()
 
 	setup.Pprof(ctx, pprofAddr, logger)
 
@@ -44,4 +47,13 @@ func exitIfError(err error) {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func setupLogger(debug bool) (logger *slog.Logger, flush func()) {
+	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
+		buffered := log.NewBufferedHandler(handler, 300, 10*time.Second)
+		flush = buffered.Flush
+		return log.NewPrefixHandler(buffered)
+	})
+	return logger, flush
 }
