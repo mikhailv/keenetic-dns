@@ -10,8 +10,6 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 )
 
-var _ dnssvc.Middleware = VerboseMiddleware
-
 func NewStaticHostsMiddleware(hosts *config.Dynamic[config.Hosts], ttl time.Duration) dnssvc.Middleware {
 	return func(handler dnssvc.Handler) dnssvc.Handler {
 		return staticHostsMiddleware{handler, hosts, ttl}.Resolve

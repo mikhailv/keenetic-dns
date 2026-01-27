@@ -197,7 +197,7 @@ func (c *DNSProvider) normalize() {
 }
 
 //nolint:cyclop // ignore complexity
-func (c *MDNSService) UnmarshalYAML(unmarshal func(interface{}) error) error {
+func (c *MDNSService) UnmarshalYAML(unmarshal func(any) error) error {
 	var s struct {
 		Name    string            `yaml:"name"`
 		Host    string            `yaml:"host"`
