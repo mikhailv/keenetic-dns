@@ -100,7 +100,7 @@ message HostInterface {
 }
 
 message HostDHCP {
-  bool static = 1;
+  int64 expires = 1;
 }
 
 // Mesh Wi-Fi System
@@ -117,8 +117,7 @@ message HostMWS {
   string security = 10; // Received Signal Strength Indicator
 }
 
-message ListHostsReq {
-}
+message ListHostsReq {}
 message ListHostsResp {
   repeated HostInfo hosts = 1;
 }

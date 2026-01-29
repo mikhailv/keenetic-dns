@@ -112,7 +112,13 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 			nameIPs := ipsByName[name]
 			ips = make([]types.ResolvedIP, len(nameIPs))
 			for i, ip := range nameIPs {
-				ips[i] = types.ResolvedIP{IP: ip, RouteIface: routingIface, RouteReason: routingPattern}
+				staticAddress, _, _ := s.ipRoutes.LookupIP(ip)
+				ips[i] = types.ResolvedIP{
+					IP:          ip,
+					RouteAdded:  routedByName && !staticAddress,
+					RouteIface:  routingIface,
+					RouteReason: routingPattern,
+				}
 			}
 			break
 		}
@@ -125,7 +131,7 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 
 func (s *DNSRoutingService) processResolvedIPs(ctx context.Context, domain string, ttl uint32, ips []types.ResolvedIP) {
 	for i, it := range ips {
-		if !it.IsRouted() {
+		if it.RouteIface == "" {
 			if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok {
 				it.RouteIface = iface
 				it.RouteReason = pattern
@@ -145,12 +151,15 @@ func (s *DNSRoutingService) processResolvedIPs(ctx context.Context, domain strin
 		TTL:        max(ttl, 1),
 		IPs:        ips,
 	}
-	s.queryStream.Append(res)
-	for _, it := range res.IPs {
+	for i := range res.IPs {
+		it := &res.IPs[i]
 		s.dnsStore.Add(types.NewDNSRecord(res.Domain, it.IP, res.Time.Add(time.Duration(res.TTL)*time.Second)))
-		if it.IsRouted() {
-			s.ipRoutes.AddRoute(ctx, it.IP)
+		if it.RouteAdded {
+			it.RouteAdded = s.ipRoutes.AddRoute(ctx, it.IP, "routed: "+it.RouteReason)
 		}
 	}
+
+	s.queryStream.Append(res)
+
 	s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)
 }

@@ -109,10 +109,18 @@ export class RoutesElement extends LitElement {
 
 function expired(time: Date) {
   const seconds = Math.floor((time.valueOf() - Date.now()) / 1000);
+  const duration = durationString(Math.abs(seconds));
   if (seconds >= 0) {
+    return duration;
+  }
+  return html`<span class="fw-light text-secondary">expired ${duration} ago</span>`;
+}
+
+function durationString(seconds: number) {
+  if (seconds < 60) {
     return `${seconds} sec`;
   }
-  return html`<span class="fw-light text-secondary">expired ${-seconds} sec ago</span>`;
+  return `${Math.floor(seconds/60)} min`;
 }
 
 function filterRoutes(routes: IPRoute[], filter: string): IPRoute[] {

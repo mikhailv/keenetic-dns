@@ -21,6 +21,7 @@ export interface DNSQuery {
 
 export interface RoutedIP {
   ip: string;
+  route_added?: boolean;
   route_iface?: string;
   route_reason?: string;
 }

@@ -94,7 +94,7 @@ func (s *networkService) AddRoute(ctx context.Context, req *v1.AddRouteReq) (*v1
 	//nolint:gosec // all fine
 	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
-	if err != nil {
+	if err != nil && !strings.Contains(res.ErrOutput, "ip: RTNETLINK answers: File exists") {
 		s.logger.Error("failed to add route", "err", err, "", route, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
@@ -116,10 +116,10 @@ func (s *networkService) DeleteRoute(ctx context.Context, req *v1.DeleteRouteReq
 }
 
 func (s *networkService) ListHosts(ctx context.Context, _ *v1.ListHostsReq) (*v1.ListHostsResp, error) {
-	cmd := exec.CommandContext(ctx, "ndmc", "-c", "show ip hotspot")
+	cmd := exec.CommandContext(ctx, "ndmc", "-c", "show device-list")
 	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to get ip hotspots", "err", err, "output", res.ErrOutput)
+		s.logger.Error("failed to get device list", "err", err, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
 	objs := keenetic.ParseOutput(res.Output)
@@ -224,7 +224,7 @@ func parseHostInfo(obj keenetic.Object) *v1.HostInfo {
 		}),
 		Dhcp: parseOptionalObj(obj.GetObject("dhcp"), func(obj keenetic.Object) *v1.HostDHCP {
 			return &v1.HostDHCP{
-				Static: obj.GetBool("static"),
+				Expires: obj.GetInt("expires"),
 			}
 		}),
 		Mws: parseOptionalObj(obj.GetObject("mws"), func(obj keenetic.Object) *v1.HostMWS {

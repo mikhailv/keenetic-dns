@@ -60,7 +60,7 @@ func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 
 func (s *DNSQuery) HasRoutedIPs() bool {
 	for _, ip := range s.IPs {
-		if ip.IsRouted() {
+		if ip.RouteIface != "" {
 			return true
 		}
 	}
@@ -69,12 +69,9 @@ func (s *DNSQuery) HasRoutedIPs() bool {
 
 type ResolvedIP struct {
 	IP          IPv4   `json:"ip"`
+	RouteAdded  bool   `json:"route_added,omitempty"`
 	RouteIface  string `json:"route_iface,omitempty"`
 	RouteReason string `json:"route_reason,omitempty"`
-}
-
-func (s *ResolvedIP) IsRouted() bool {
-	return s.RouteIface != ""
 }
 
 var _ stream.CursorAware = (*DNSRawQuery)(nil)

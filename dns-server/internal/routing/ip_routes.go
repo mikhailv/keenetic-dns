@@ -140,68 +140,72 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
 
-	actual := make(util.Set[IPRoute], s.routes.Size())
-	obsolete := make(util.Set[IPRoute], 10)
+	actual := make(map[IPRoute]string, s.routes.Size())
+	obsolete := make(map[IPRoute]string, 10)
 
 	for _, addr := range cfg.Static {
-		actual.Add(s.makeRoute(cfg, addr))
+		actual[s.makeRoute(cfg, addr)] = "static"
 	}
 
 	for rec := range s.dnsStore.RecordIterator() {
 		route := s.makeRoute(cfg, rec.IP)
-		if actual.Has(route) {
+		if actual[route] != "" {
 			continue
 		}
-		if cfg.LookupHost(rec.Domain) != "" {
-			actual.Add(route)
-			obsolete.Remove(route)
+		if pattern := cfg.LookupHost(rec.Domain); pattern != "" {
+			actual[route] = "match: " + pattern
+			delete(obsolete, route)
 		} else {
-			obsolete.Add(route)
+			obsolete[route] = "no match"
 		}
 	}
 
 	for route := range definedRoutes {
-		if !actual.Has(route) {
-			obsolete.Add(route)
+		if actual[route] == "" {
+			obsolete[route] = "expired"
 		}
 	}
 
 	for route := range s.routes.Iterator() {
-		if !actual.Has(route) {
-			obsolete.Add(route)
+		if actual[route] == "" && obsolete[route] == "" {
+			obsolete[route] = "obsolete"
 		}
 	}
 
 	added := 0
 	deleted := 0
 
-	for route := range actual {
-		s.routes.Add(route)
-		if !definedRoutes.Has(route) {
-			s.addRoute(ctx, route)
+	for route, reason := range actual {
+		if definedRoutes.Has(route) {
+			s.routes.Add(route)
+		} else if s.addRoute(ctx, route, reason) {
+			s.routes.Add(route)
 			added++
 		}
 	}
 
-	for route := range obsolete {
-		s.routes.Remove(route)
-		if definedRoutes.Has(route) {
-			s.deleteRoute(ctx, route)
+	for route, reason := range obsolete {
+		if !definedRoutes.Has(route) {
+			s.routes.Remove(route)
+		} else if s.deleteRoute(ctx, route, reason) {
+			s.routes.Remove(route)
 			deleted++
 		}
 	}
 
-	s.logger.Info("routes updated", slog.Int("added", added), slog.Int("deleted", deleted), slog.Int("total", s.routes.Size()))
+	s.logger.Info("routes updated", "added", added, "deleted", deleted, "total", s.routes.Size())
 }
 
-func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4) {
+func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4, reason string) bool {
 	route := s.makeRoute(s.cfg.Get(), ip)
-	if s.routes.Add(route) {
-		s.addRoute(ctx, route)
+	if !s.routes.Has(route) && s.addRoute(ctx, route, reason) {
+		s.routes.Add(route)
+		return true
 	}
+	return false
 }
 
-func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
+func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, reason string) bool {
 	defer metrics.TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, &agentv1.AddRouteReq{
@@ -209,12 +213,13 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute) {
 	})
 	if err != nil {
 		s.logger.Error("failed to add route", "err", err, "", route)
-	} else {
-		s.logger.Info("route added", "", route)
+		return false
 	}
+	s.logger.Info("route added", "", route, "reason", reason)
+	return true
 }
 
-func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
+func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute, reason string) bool {
 	defer metrics.TrackDuration("delete_route")()
 
 	_, err := s.networkService.DeleteRoute(ctx, &agentv1.DeleteRouteReq{
@@ -222,12 +227,13 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute) {
 	})
 	if err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route)
-	} else {
-		s.logger.Info("route deleted", "", route)
+		return false
 	}
+	s.logger.Info("route deleted", "", route, "reason", reason)
+	return true
 }
 
-func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
+func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) bool {
 	defer metrics.TrackDuration("add_rule")()
 
 	_, err := s.networkService.AddRule(ctx, &agentv1.AddRuleReq{
@@ -235,9 +241,10 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) {
 	})
 	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "", rule)
-	} else {
-		s.logger.Info("rule added", "", rule)
+		return false
 	}
+	s.logger.Info("rule added", "", rule)
+	return true
 }
 
 func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Set[IPRoute] {

@@ -73,7 +73,7 @@ func main() { //nolint:funlen // ignore
 	for name, c := range cfg.DNS.Providers {
 		if c.Enabled {
 			providers = append(providers, createDNSProvider(name, c))
-			logger.Info("DNS provider registered", slog.String("name", name), slog.String("endpoint", c.Endpoint.String()))
+			logger.Info("DNS provider registered", "name", name, "endpoint", c.Endpoint.String())
 		}
 	}
 

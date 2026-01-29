@@ -92,7 +92,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /dns-query", s.wrapHandler(s.handleDNSQueryGET))
 	mux.Handle("POST /dns-query", s.wrapHandler(s.handleDNSQueryPOST))
 	mux.Handle("GET /api/routes", s.wrapHandler(s.handleListRoutes))
-	mux.Handle("GET /api/clients", s.wrapHandler(s.handleListClients))
+	mux.Handle("GET /api/hosts", s.wrapHandler(s.handleListHosts))
 	mux.Handle("GET /api/logs", s.wrapHandler(createListHandler(s.logStream, s.filterLogs)))
 	mux.Handle("GET /api/logs/ws", createStreamHandler(s.logStream, wsLogger, s.filterLogs))
 	mux.Handle("GET /api/dns-queries", s.wrapHandler(createListHandler(s.queryStream, s.filterQueries)))
