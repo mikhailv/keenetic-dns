@@ -1,6 +1,6 @@
 SSH_PATH ?= root@192.168.2.1:/opt
 SSH_PATH_KEENETIC = $(SSH_PATH)/keenetic-dns
-SSH_PORT ?= 222
+SSH_PORT ?= 22
 
 .PHONY: all
 all: lint govulncheck build
@@ -10,11 +10,11 @@ build: build-agent build-dns-server
 
 .PHONY: build-agent
 build-agent:
-	$(MAKE) -C agent
+	GOARCH=arm64 $(MAKE) -C agent
 
 .PHONY: build-dns-server
 build-dns-server:
-	$(MAKE) -C dns-server
+	GOARCH=arm64 $(MAKE) -C dns-server
 
 .PHONY: lint
 lint:

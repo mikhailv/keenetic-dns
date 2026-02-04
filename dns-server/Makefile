@@ -1,6 +1,6 @@
 GOOS ?= linux
-GOARCH ?= mipsle
-GOMIPS ?= softfloat
+GOARCH ?=
+GOMIPS ?=
 
 .PHONY: all
 all: build
@@ -15,4 +15,4 @@ build-web:
 .PHONY: build-bin
 build-bin:
 	# flags to reduce binary size (affect on pprof results): -trimpath -ldflags="-s -w"
-	env GOOS=$(GOOS) GOARCH=$(GOARCH) GOMIPS=$(GOMIPS) go build -o dns-server ./cmd
+	env GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o dns-server ./cmd
