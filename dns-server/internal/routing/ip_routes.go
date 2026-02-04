@@ -60,10 +60,9 @@ func (s *IPRouteController) LookupIP(ip types.IPv4) (ok bool, pattern, iface str
 }
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
-	cfg := s.cfg.Get()
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for _, route := range s.routes.Values() {
-		records := removeExpiredRecords(s.dnsStore.LookupIP(route.Addr), cfg.RouteTimeout)
+		records := s.dnsStore.LookupIP(route.Addr)
 		slices.SortFunc(records, func(a, b types.DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
@@ -107,7 +106,6 @@ func (s *IPRouteController) reconcile(ctx context.Context) {
 	s.reconcileMu.Lock()
 	defer s.reconcileMu.Unlock()
 	cfg := s.cfg.Get()
-	s.dnsStore.RemoveExpired(cfg.RouteTimeout)
 	s.doReconcile(ctx, cfg, s.reconcileRules)
 	s.doReconcile(ctx, cfg, s.reconcileRoutes)
 }
@@ -283,10 +281,4 @@ func mapToAgentRoute(route IPRoute) *agentv1.Route {
 		Iface:   route.Iface,
 		Address: route.Addr.String(),
 	}
-}
-
-func removeExpiredRecords(records []types.DNSRecord, extraTTL time.Duration) []types.DNSRecord {
-	return slices.DeleteFunc(records, func(rec types.DNSRecord) bool {
-		return rec.Expired(extraTTL)
-	})
 }

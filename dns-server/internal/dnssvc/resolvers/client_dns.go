@@ -1,4 +1,4 @@
-package dnssvc
+package resolvers
 
 import (
 	"context"
@@ -6,10 +6,11 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
-var _ Resolver = (*dnsClient)(nil)
+var _ dnssvc.Resolver = (*dnsClient)(nil)
 
 type dnsClient struct {
 	name    string
@@ -17,7 +18,7 @@ type dnsClient struct {
 	client  dns.Client
 }
 
-func NewDNSClient(name string, net string, address string, timeout time.Duration) Resolver {
+func NewDNSClient(name string, net string, address string, timeout time.Duration) dnssvc.Resolver {
 	return &dnsClient{
 		name:    name,
 		address: address,
@@ -32,4 +33,8 @@ func (s *dnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error)
 	defer metrics.TrackNamedDuration(s.client.Net+"_client.resolve", s.name)()
 	resp, _, err := s.client.ExchangeContext(ctx, msg, s.address)
 	return resp, err
+}
+
+func (s *dnsClient) Close() error {
+	return nil
 }

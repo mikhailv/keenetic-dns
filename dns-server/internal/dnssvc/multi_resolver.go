@@ -58,6 +58,14 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 	return RefusedResponse(msg), errors.Join(errs...)
 }
 
+func (s multiProviderResolver) Close() error {
+	errs := make([]error, len(s))
+	for i, p := range s {
+		errs[i] = p.Close()
+	}
+	return errors.Join(errs...)
+}
+
 func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) iter.Seq2[*dns.Msg, error] {
 	if len(resolvers) == 0 {
 		panic("resolveInParallel: 'resolvers' is empty")

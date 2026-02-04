@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -14,10 +15,10 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/service"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:staticcheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:staticcheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing"           //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"            //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage"           //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/setup"
@@ -45,17 +46,23 @@ func main() { //nolint:funlen // ignore
 	setup.Pprof(ctx, *pprofAddr, logger)
 
 	routingCfg := config.NewDynamic(&cfg.Routing)
-	hostsCfg := config.NewDynamic(cfg.DNS.Hosts)
 	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
+
+	settableResolver := NewSettableResolver(createResolver(cfg.DNS.Providers, logger))
+	defer closeCloser(settableResolver, "resolver", logger)
 
 	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
-		hostsCfg.Set(cfg.DNS.Hosts)
 		mdnsServicesCfg.Set(cfg.MDNS.Services)
+		if err := settableResolver.SetResolver(createResolver(cfg.DNS.Providers, logger)); err != nil {
+			logger.Error("failed to close resolver", "err", err)
+		}
 	})
 
-	dnsStore := NewDNSStore()
-	saveStore := newDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
+	logger.Info("config loaded", "route_timeout", cfg.Routing.RouteTimeout)
+
+	dnsStore := NewDNSStore(cfg.Routing.RouteTimeout)
+	saveStore := createDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
 	go util.RunPeriodically(ctx, cfg.Storage.Local.SaveInterval, func(ctx context.Context) { saveStore() })
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
@@ -63,37 +70,34 @@ func main() { //nolint:funlen // ignore
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService)
 	ipRoutes.Start(ctx)
 
-	dnsCache := NewDNSCache()
-	go util.RunPeriodically(ctx, time.Minute, func(ctx context.Context) { dnsCache.RemoveExpired() })
+	dnsCache := NewMemoryDNSCache()
+	defer closeCloser(dnsCache, "dns cache", logger)
 
 	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.History.DNSQuerySize)
 	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.History.DNSQuerySize)
 
-	providers := make([]Provider, 0, len(cfg.DNS.Providers))
-	for name, c := range cfg.DNS.Providers {
-		if c.Enabled {
-			providers = append(providers, createDNSProvider(name, c))
-			logger.Info("DNS provider registered", "name", name, "endpoint", c.Endpoint.String())
-		}
-	}
+	dnsLogger := log.WithPrefix(logger, "dns")
+	dnsQueryStream.Listen(func(cursor stream.Cursor, query types.DNSQuery) {
+		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_addr", query.ClientAddr)
+	})
 
-	resolver := NewMultiProviderResolver(providers)
-
-	svc := service.NewDNSRoutingService(log.WithPrefix(logger, "dns_svc"), resolver, dnsStore, ipRoutes, dnsQueryStream, rawQueryStream)
-
-	handler := NewMiddlewareChainHandler([]Middleware{
-		EnableMiddleware(VerboseMiddleware, *verbose),
-		SingleInflightMiddleware,
-		NewStaticHostsMiddleware(hostsCfg, time.Minute),
-		NewCacheMiddleware(dnsCache),
-		NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
-		ErrorSafeResponseMiddleware,
-	}, svc.Resolve)
+	resolver := NewMiddlewareChainResolver(
+		[]Middleware{
+			EnableMiddleware(VerboseMiddleware, *verbose),
+			NewRawQueryMiddleware(rawQueryStream),
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
+			SingleInflightMiddleware,
+			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream),
+			NewCacheMiddleware(dnsCache),
+			ErrorSafeResponseMiddleware,
+		},
+		settableResolver,
+	)
 
 	httpServer := NewHTTPServer(
 		cfg.HTTPAddr,
 		log.WithPrefix(logger, "http"),
-		ResolverFunc(handler),
+		resolver,
 		ipRoutes,
 		networkService,
 		logStream,
@@ -102,7 +106,7 @@ func main() { //nolint:funlen // ignore
 	)
 	go serve(ctx, httpServer)
 
-	udpServer := NewDNSServer(cfg.Addr, log.WithPrefix(logger, "dns"), ResolverFunc(handler))
+	udpServer := NewDNSServer(cfg.Addr, dnsLogger, resolver)
 	go serve(ctx, udpServer)
 
 	if cfg.MDNS.Enabled {
@@ -111,6 +115,8 @@ func main() { //nolint:funlen // ignore
 		mdnsServer := NewMDNSServer(log.WithPrefix(logger, "mdns"), iface.Name, mdnsServicesCfg)
 		go serve(ctx, mdnsServer)
 	}
+
+	logFlush()
 
 	<-ctx.Done()
 
@@ -128,17 +134,42 @@ func exitIfError(err error) {
 	}
 }
 
-func newDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save func()) {
+func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
+	if err := closer.Close(); err != nil {
+		logger.Error("failed to close "+name, "err", err)
+	}
+}
+
+func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save func()) {
 	logger = logger.With("file", file)
 	if err := store.Load(file); err != nil {
 		logger.Error("failed to load", "err", err)
 	}
 	return func() {
+		if removed := store.RemoveExpired(); len(removed) > 0 {
+			if logger.Enabled(context.Background(), slog.LevelDebug) {
+				for _, r := range removed {
+					logger.Debug("dns record expired", "domain", r.Domain, "ip", r.IP, "resolved", r.Resolved)
+				}
+			}
+			logger.Info("removed expired records", "removed", len(removed))
+		}
 		logger.Info("saving ...")
 		if err := store.Save(file); err != nil {
 			logger.Error("failed to save", "err", err)
 		}
 	}
+}
+
+func createResolver(providersConfig map[string]config.DNSProvider, logger *slog.Logger) Resolver {
+	providers := make([]Provider, 0, len(providersConfig))
+	for name, c := range providersConfig {
+		if c.Enabled {
+			providers = append(providers, createDNSProvider(name, c))
+			logger.Info("DNS provider registered", "name", name, "endpoint", c.Endpoint.String())
+		}
+	}
+	return NewMultiProviderResolver(providers)
 }
 
 func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {
@@ -186,21 +217,29 @@ func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInter
 }
 
 func createDNSProvider(name string, cfg config.DNSProvider) Provider {
-	var client Resolver
-	switch cfg.Endpoint.Scheme {
-	case "http", "https":
-		client = NewDoHClient(name, cfg.Endpoint.String(), cfg.Timeout)
-	case "dns", "dns+udp":
-		client = NewDNSClient(name, "udp", cfg.Endpoint.Host, cfg.Timeout)
-	case "dns+tcp":
-		client = NewDNSClient(name, "tcp", cfg.Endpoint.Host, cfg.Timeout)
-	case "mdns":
-		client = NewMDNSClient(name, cfg.Endpoint.Host, cfg.Timeout)
+	if (cfg.Endpoint == nil) == (len(cfg.Hosts) == 0) {
+		panic(fmt.Sprintf("Exactly one of 'endpoints' or 'hosts' property for DNS provider %q must be provided", name))
+	}
+
+	var resolver Resolver
+	if len(cfg.Hosts) > 0 {
+		resolver = NewStaticHostResolver(cfg.Hosts, time.Minute)
+	} else {
+		switch cfg.Endpoint.Scheme {
+		case "http", "https":
+			resolver = NewDoHClient(name, cfg.Endpoint.String(), cfg.Timeout)
+		case "dns", "dns+udp":
+			resolver = NewDNSClient(name, "udp", cfg.Endpoint.Host, cfg.Timeout)
+		case "dns+tcp":
+			resolver = NewDNSClient(name, "tcp", cfg.Endpoint.Host, cfg.Timeout)
+		case "mdns":
+			resolver = NewMDNSClient(name, cfg.Endpoint.Host, cfg.Timeout)
+		}
 	}
 	if cfg.DropECH {
-		client = ResolverFunc(DropECHMiddleware(client.Resolve))
+		resolver = NewMiddlewareChainResolver([]Middleware{DropECHMiddleware}, resolver)
 	}
-	return NewProvider(client, cfg)
+	return NewProvider(resolver, cfg)
 }
 
 //nolint:cyclop // ignore complexity

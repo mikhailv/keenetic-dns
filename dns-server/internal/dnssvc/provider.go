@@ -22,16 +22,16 @@ type Provider interface {
 }
 
 type provider struct {
-	cfg      config.DNSProvider
-	types    []uint16
-	resolver Resolver
+	Resolver
+	cfg   config.DNSProvider
+	types []uint16
 }
 
 func NewProvider(resolver Resolver, cfg config.DNSProvider) Provider {
 	return &provider{
+		Resolver: resolver,
 		cfg:      cfg,
 		types:    parseQueryTypes(cfg.Types),
-		resolver: resolver,
 	}
 }
 
@@ -67,12 +67,12 @@ func (s *provider) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) 
 			}
 		}
 	}
-	return s.resolver.Resolve(ctx, msg)
+	return s.Resolver.Resolve(ctx, msg)
 }
 
 func (s *provider) rewriteResolve(ctx context.Context, msg *dns.Msg, fromDomain, toDomain string) (*dns.Msg, error) {
 	msg.Question[0].Name = toDomain
-	resp, err := s.resolver.Resolve(ctx, msg)
+	resp, err := s.Resolver.Resolve(ctx, msg)
 	if err != nil {
 		return nil, err
 	}

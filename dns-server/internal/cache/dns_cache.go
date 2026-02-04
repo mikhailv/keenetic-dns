@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"context"
 	"math"
 	"sync"
 	"time"
@@ -8,16 +9,44 @@ import (
 	"github.com/miekg/dns"
 )
 
-type DNSCache struct {
-	mu      sync.RWMutex
-	entries map[dns.Question]dnsCacheEntry
+type DNSCache interface {
+	Get(ctx context.Context, query dns.Question) *dns.Msg
+	Put(ctx context.Context, query dns.Question, result *dns.Msg)
+	Close() error
 }
 
-func NewDNSCache() *DNSCache {
-	return &DNSCache{entries: map[dns.Question]dnsCacheEntry{}}
+func NewMemoryDNSCache() DNSCache {
+	s := &memDNSCache{
+		closeCh: make(chan struct{}),
+		entries: map[dns.Question]dnsCacheEntry{},
+	}
+	go s.startCleaner(time.Minute)
+	return s
 }
 
-func (s *DNSCache) Get(query dns.Question) *dns.Msg {
+var _ DNSCache = &memDNSCache{}
+
+type memDNSCache struct {
+	mu        sync.RWMutex
+	entries   map[dns.Question]dnsCacheEntry
+	closeCh   chan struct{}
+	closeOnce sync.Once
+}
+
+func (s *memDNSCache) startCleaner(interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.closeCh:
+			return
+		case <-t.C:
+			s.removeExpired()
+		}
+	}
+}
+
+func (s *memDNSCache) Get(ctx context.Context, query dns.Question) *dns.Msg {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if entry, ok := s.entries[query]; ok && !entry.Expired() {
@@ -26,7 +55,7 @@ func (s *DNSCache) Get(query dns.Question) *dns.Msg {
 	return nil
 }
 
-func (s *DNSCache) Put(query dns.Question, result *dns.Msg) {
+func (s *memDNSCache) Put(ctx context.Context, query dns.Question, result *dns.Msg) {
 	if len(result.Answer) == 0 {
 		return
 	}
@@ -43,7 +72,14 @@ func (s *DNSCache) Put(query dns.Question, result *dns.Msg) {
 	}
 }
 
-func (s *DNSCache) RemoveExpired() {
+func (s *memDNSCache) Close() error {
+	s.closeOnce.Do(func() {
+		close(s.closeCh)
+	})
+	return nil
+}
+
+func (s *memDNSCache) removeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range s.entries {

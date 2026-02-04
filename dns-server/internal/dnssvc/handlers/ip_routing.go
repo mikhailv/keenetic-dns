@@ -1,10 +1,8 @@
-package service
+package handlers
 
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"log/slog"
 	"math"
 	"slices"
 	"time"
@@ -20,62 +18,33 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-var _ dnssvc.Resolver = (*DNSRoutingService)(nil)
-
-type DNSRoutingService struct {
-	logger         *slog.Logger
-	resolver       dnssvc.Resolver
-	dnsStore       *storage.DNSStore
-	ipRoutes       *routing.IPRouteController
-	queryStream    *stream.Buffered[types.DNSQuery]
-	rawQueryStream *stream.Buffered[types.DNSRawQuery]
-}
-
-func NewDNSRoutingService(
-	logger *slog.Logger,
-	resolver dnssvc.Resolver,
+func NewIPRoutingHandler(
+	handler dnssvc.Handler,
 	dnsStore *storage.DNSStore,
 	ipRoutes *routing.IPRouteController,
-	queryStream *stream.Buffered[types.DNSQuery],
-	rawQueryStream *stream.Buffered[types.DNSRawQuery],
-) *DNSRoutingService {
-	return &DNSRoutingService{
-		logger:         logger,
-		resolver:       resolver,
-		dnsStore:       dnsStore,
-		ipRoutes:       ipRoutes,
-		queryStream:    queryStream,
-		rawQueryStream: rawQueryStream,
-	}
+	stream stream.Stream[types.DNSQuery],
+) dnssvc.Handler {
+	return ipRoutingHandler{handler, dnsStore, ipRoutes, stream}
 }
 
-func (s *DNSRoutingService) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	s.appendRawQuery(ctx, false, msg.String())
+var _ dnssvc.Handler = ipRoutingHandler{}
 
-	resp, err := s.resolver.Resolve(ctx, msg)
-	if err != nil {
-		s.appendRawQuery(ctx, true, fmt.Sprintf("ERROR: query (id: %d) failed: %v", msg.Id, err))
-		return nil, err
-	}
-	s.appendRawQuery(ctx, true, resp.String())
+type ipRoutingHandler struct {
+	handler  dnssvc.Handler
+	dnsStore *storage.DNSStore
+	ipRoutes *routing.IPRouteController
+	stream   stream.Stream[types.DNSQuery]
+}
 
-	if dnssvc.HasSingleQuestion(msg, dns.TypeA) {
+func (s ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	resp, err := s.handler.Handle(ctx, msg)
+	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
 		s.processTypeAResponse(ctx, resp)
 	}
-
-	return resp, nil
+	return resp, err
 }
 
-func (s *DNSRoutingService) appendRawQuery(ctx context.Context, response bool, text string) {
-	s.rawQueryStream.Append(types.DNSRawQuery{
-		Time:       time.Now(),
-		ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
-		Response:   response,
-		Text:       text,
-	})
-}
-
-func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.Msg) {
+func (s ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg) {
 	reqName := resp.Question[0].Name
 
 	var cnameByName util.LazyMap[string, dns.CNAME]
@@ -129,7 +98,7 @@ func (s *DNSRoutingService) processTypeAResponse(ctx context.Context, resp *dns.
 	}
 }
 
-func (s *DNSRoutingService) processResolvedIPs(ctx context.Context, domain string, ttl uint32, ips []types.ResolvedIP) {
+func (s ipRoutingHandler) processResolvedIPs(ctx context.Context, domain string, ttl uint32, ips []types.ResolvedIP) {
 	for i, it := range ips {
 		if it.RouteIface == "" {
 			if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok {
@@ -153,13 +122,11 @@ func (s *DNSRoutingService) processResolvedIPs(ctx context.Context, domain strin
 	}
 	for i := range res.IPs {
 		it := &res.IPs[i]
-		s.dnsStore.Add(types.NewDNSRecord(res.Domain, it.IP, res.Time.Add(time.Duration(res.TTL)*time.Second)))
+		s.dnsStore.Add(types.NewDNSRecord(res.Domain, it.IP, res.Time, int(res.TTL)))
 		if it.RouteAdded {
 			it.RouteAdded = s.ipRoutes.AddRoute(ctx, it.IP, "routed: "+it.RouteReason)
 		}
 	}
 
-	s.queryStream.Append(res)
-
-	s.logger.Debug("domain resolved", "domain", res.Domain, "ips", len(res.IPs), "client_addr", res.ClientAddr)
+	s.stream.Append(res)
 }

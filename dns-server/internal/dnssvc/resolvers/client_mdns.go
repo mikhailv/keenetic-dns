@@ -1,4 +1,4 @@
-package dnssvc
+package resolvers
 
 import (
 	"context"
@@ -12,10 +12,11 @@ import (
 	"github.com/miekg/dns"
 	"github.com/pion/mdns/v2"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
-var _ Resolver = (*mdnsClient)(nil)
+var _ dnssvc.Resolver = (*mdnsClient)(nil)
 
 type mdnsClient struct {
 	name    string
@@ -27,7 +28,7 @@ type mdnsClient struct {
 	}
 }
 
-func NewMDNSClient(name string, address string, timeout time.Duration) Resolver {
+func NewMDNSClient(name string, address string, timeout time.Duration) dnssvc.Resolver {
 	return &mdnsClient{
 		name:    name,
 		address: address,
@@ -91,4 +92,13 @@ func (s *mdnsClient) connection() (*mdns.Conn, error) {
 	}
 	s.conn.Conn = conn
 	return conn, nil
+}
+
+func (s *mdnsClient) Close() error {
+	s.conn.Lock()
+	defer s.conn.Unlock()
+	if s.conn.Conn != nil {
+		return s.conn.Close()
+	}
+	return nil
 }

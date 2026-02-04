@@ -42,8 +42,6 @@ type Agent struct {
 type DNS struct {
 	TTLOverride time.Duration          `yaml:"ttl_override"`
 	Providers   map[string]DNSProvider `yaml:"providers"`
-	Domains     []string               `yaml:"domains"`
-	Hosts       Hosts                  `yaml:"hosts"`
 }
 
 type MDNS struct {
@@ -64,13 +62,15 @@ type DNSProvider struct {
 	Enabled bool `yaml:"enabled"`
 	// Priority allows to specify order of providers to resolve request, higher values represent higher priority
 	Priority int               `yaml:"priority"`
-	Endpoint URL               `yaml:"endpoint"`
 	Ignore   DomainList        `yaml:"ignore"`
 	Domains  DomainList        `yaml:"domains"`
 	Rewrite  map[string]string `yaml:"rewrite"`
 	Timeout  time.Duration     `yaml:"timeout"`
 	Types    []string          `yaml:"types"`
 	DropECH  bool              `yaml:"drop_ech"`
+	// one of following must be set
+	Endpoint *URL  `yaml:"endpoint"`
+	Hosts    Hosts `yaml:"hosts"`
 }
 
 type Cache struct {
@@ -162,38 +162,19 @@ func defaultConfig() *Config {
 }
 
 func (c *DNS) init() {
-	c.combineHostsAndDomains()
 	for name, provider := range c.Providers {
 		provider.normalize()
 		c.Providers[name] = provider
 	}
 }
 
-func (c *DNS) combineHostsAndDomains() {
-	hosts := map[string]Host{}
-	for _, domain := range c.Domains {
-		for name, host := range c.Hosts {
-			if host.Domain == "" {
-				host.Domain = normalizeFQDN(domain)
-			}
-			if host.HostName == "" {
-				host.HostName = normalizeFQDN(name)
-			}
-			fqdn := host.String()
-			if _, ok := hosts[fqdn]; ok {
-				panic(fmt.Errorf("duplicate host name: %s", fqdn))
-			}
-			hosts[fqdn] = host
-		}
-	}
-	c.Hosts = hosts
-}
-
 func (c *DNSProvider) normalize() {
-	for from, to := range c.Rewrite {
-		delete(c.Rewrite, from)
-		c.Rewrite["."+normalizeFQDN(from)] = "." + normalizeFQDN(to)
-	}
+	c.Rewrite = normalizeMap(c.Rewrite, func(from string, to string) (string, string) {
+		return "." + normalizeFQDN(from), "." + normalizeFQDN(to)
+	})
+	c.Hosts = normalizeMap(c.Hosts, func(host string, ip net.IP) (string, net.IP) {
+		return normalizeFQDN(host), ip
+	})
 }
 
 //nolint:cyclop // ignore complexity
@@ -261,4 +242,13 @@ func or(s ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeMap[K comparable, V any, M ~map[K]V](m M, normalize func(key K, value V) (K, V)) M {
+	r := make(map[K]V, len(m))
+	for k, v := range m {
+		k, v = normalize(k, v)
+		r[k] = v
+	}
+	return r
 }

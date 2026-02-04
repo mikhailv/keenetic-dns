@@ -1,4 +1,4 @@
-package dnssvc
+package resolvers
 
 import (
 	"bytes"
@@ -10,12 +10,13 @@ import (
 
 	"github.com/miekg/dns"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
 const dnsMessageMediaType = "application/dns-message"
 
-var _ Resolver = (*dohClient)(nil)
+var _ dnssvc.Resolver = (*dohClient)(nil)
 
 type dohClient struct {
 	name   string
@@ -23,7 +24,7 @@ type dohClient struct {
 	client http.Client
 }
 
-func NewDoHClient(name string, url string, timeout time.Duration) Resolver {
+func NewDoHClient(name string, url string, timeout time.Duration) dnssvc.Resolver {
 	return &dohClient{
 		name: name,
 		url:  url,
@@ -69,4 +70,9 @@ func (s *dohClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error)
 		return nil, fmt.Errorf("doh_client: failed to unpack response message: %w", err)
 	}
 	return &res, nil
+}
+
+func (s *dohClient) Close() error {
+	s.client.CloseIdleConnections()
+	return nil
 }

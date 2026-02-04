@@ -12,8 +12,8 @@ import (
 var _ dnssvc.Middleware = DropECHMiddleware
 
 func DropECHMiddleware(handler dnssvc.Handler) dnssvc.Handler {
-	return func(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
-		resp, err := handler(ctx, req)
+	return dnssvc.HandlerFunc(func(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
+		resp, err := handler.Handle(ctx, req)
 		if err == nil {
 			for _, rr := range resp.Answer {
 				if https, ok := rr.(*dns.HTTPS); ok {
@@ -26,5 +26,5 @@ func DropECHMiddleware(handler dnssvc.Handler) dnssvc.Handler {
 			}
 		}
 		return resp, err
-	}
+	})
 }

@@ -14,17 +14,19 @@ type DNSRecordKey struct {
 
 type DNSRecord struct {
 	DNSRecordKey
-	Expires time.Time `json:"expires"`
+	Resolved time.Time `json:"resolved"`
+	Expires  time.Time `json:"expires"`
 }
 
-func NewDNSRecord(domain string, ip IPv4, expires time.Time) DNSRecord {
-	return DNSRecord{DNSRecordKey{ip, domain}, expires}
+func NewDNSRecord(domain string, ip IPv4, resolveTime time.Time, ttlSeconds int) DNSRecord {
+	return DNSRecord{
+		DNSRecordKey: DNSRecordKey{ip, domain},
+		Resolved:     resolveTime,
+		Expires:      resolveTime.Add(time.Duration(ttlSeconds) * time.Second),
+	}
 }
 
 func (r DNSRecord) Expired(extraTTL time.Duration) bool {
-	if r.Expires.IsZero() {
-		return false
-	}
 	return time.Now().After(r.Expires.Add(extraTTL))
 }
 
@@ -39,6 +41,7 @@ func (r DNSRecord) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("domain", r.Domain),
 		slog.String("ip", r.IP.String()),
+		slog.Time("resolved", r.Resolved),
 		slog.Duration("ttl", r.TTL()),
 	)
 }

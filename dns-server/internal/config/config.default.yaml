@@ -32,6 +32,6 @@ routing:
   reconcile:
     interval: 2m
     timeout: 20s
-  route_timeout: 10m
+  route_timeout: 30m
   hosts: []
   static: []

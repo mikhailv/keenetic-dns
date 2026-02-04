@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+type Hosts map[string]net.IP
+
 type List[T any] []T
 
 func (v *List[T]) UnmarshalYAML(unmarshal func(any) error) error {
@@ -50,35 +52,12 @@ func (s DomainList) Match(domain string) (pattern string) {
 	return ""
 }
 
-type Hosts map[string]Host
-
-type Host struct {
-	Domain   string `yaml:"domain"`
-	HostName string `yaml:"hostname"`
-	IP       net.IP `yaml:"ip"`
-}
-
-func (s *Host) String() string {
-	return s.HostName + s.Domain
-}
-
-func (s *Host) UnmarshalYAML(unmarshal func(any) error) error {
-	var ip net.IP
-	if err := unmarshal(&ip); err == nil {
-		*s = Host{IP: ip}
-	} else {
-		var h Host
-		if err = unmarshal(&h); err != nil {
-			return err
-		}
-		*s = h
-	}
-	return nil
-}
-
 type URL url.URL
 
 func (u *URL) String() string {
+	if u == nil {
+		return "<nil>"
+	}
 	return (*url.URL)(u).String()
 }
 
