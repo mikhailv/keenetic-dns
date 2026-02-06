@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -39,8 +40,9 @@ func (s *Dynamic[T]) Listen(fn func()) {
 
 func (s *Dynamic[T]) notify() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, fn := range s.listeners {
+	listeners := slices.Clone(s.listeners)
+	s.mu.Unlock()
+	for _, fn := range listeners {
 		fn()
 	}
 }
