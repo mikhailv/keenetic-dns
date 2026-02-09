@@ -4,13 +4,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/klauspost/compress/gzip"
+
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
+	"github.com/mikhailv/keenetic-dns/internal/tsv"
 )
 
 type DNSStore struct {
@@ -111,33 +116,106 @@ func (s *DNSStore) RecordIterator() iter.Seq[types.DNSRecord] {
 	}
 }
 
-func (s *DNSStore) Load(file string) error {
+func (s *DNSStore) Load(file string) (count int, loadErr error) {
 	f, err := os.Open(file)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return 0, nil
 	}
-	defer f.Close()
+	if err != nil {
+		return 0, err
+	}
+	defer closeCloser(f, &loadErr)
 
-	var records []types.DNSRecord
-	if err := json.NewDecoder(f).Decode(&records); err != nil {
-		return fmt.Errorf("failed to load DNS records: %w", err)
+	var r io.ReadCloser = f
+	if strings.HasSuffix(file, ".gz") {
+		r, err = gzip.NewReader(f)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer closeCloser(r, &loadErr)
 	}
-	s.fill(records)
-	return nil
+
+	if strings.HasSuffix(file, ".json") || strings.HasSuffix(file, ".json.gz") {
+		return s.loadJSON(r)
+	}
+	if strings.HasSuffix(file, ".tsv") || strings.HasSuffix(file, ".tsv.gz") {
+		return s.loadTSV(r)
+	}
+	return 0, fmt.Errorf("unsupported file format: %s", file)
 }
 
-func (s *DNSStore) Save(file string) error {
+func (s *DNSStore) loadJSON(r io.Reader) (int, error) {
+	var records []types.DNSRecord
+	if err := json.NewDecoder(r).Decode(&records); err != nil {
+		return 0, fmt.Errorf("failed to read JSON data: %w", err)
+	}
+	s.fill(records)
+	return len(records), nil
+}
+
+func (s *DNSStore) loadTSV(r io.Reader) (int, error) {
+	tsvReader := tsv.NewReader[types.DNSRecord](r)
+	loaded := 0
+	for rec, err := range tsvReader.Iterator() {
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return loaded, fmt.Errorf("failed to read TSV data: %w", err)
+		}
+		loaded++
+		s.Add(rec)
+	}
+	return loaded, nil
+}
+
+func (s *DNSStore) Save(file string) (records int, saveErr error) {
 	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed to create dump file: %w", err)
+		return 0, fmt.Errorf("failed to create dump file: %w", err)
 	}
-	defer f.Close()
+	defer closeCloser(f, &saveErr)
 
+	var w io.WriteCloser = f
+	if strings.HasSuffix(file, ".gz") {
+		w = gzip.NewWriter(w)
+		defer closeCloser(w, &saveErr)
+	}
+
+	if strings.HasSuffix(file, ".json") || strings.HasSuffix(file, ".json.gz") {
+		return s.saveJSON(w)
+	}
+	if strings.HasSuffix(file, ".tsv") || strings.HasSuffix(file, ".tsv.gz") {
+		return s.saveTSV(w)
+	}
+	return 0, fmt.Errorf("unsupported file format: %s", file)
+}
+
+func (s *DNSStore) saveJSON(w io.Writer) (int, error) {
 	records := make([]types.DNSRecord, 0, 100)
 	records = slices.AppendSeq(records, s.RecordIterator())
-
-	if err := json.NewEncoder(f).Encode(records); err != nil {
-		return fmt.Errorf("failed to save records to dump file: %w", err)
+	if err := json.NewEncoder(w).Encode(records); err != nil {
+		return 0, fmt.Errorf("failed to save records to dump file: %w", err)
 	}
-	return nil
+	return len(records), nil
+}
+
+func (s *DNSStore) saveTSV(w io.Writer) (count int, err error) {
+	tsvWriter := tsv.NewWriter[types.DNSRecord](w)
+	defer closeCloser(tsvWriter, &err)
+	saved := 0
+	for rec := range s.RecordIterator() {
+		if err := tsvWriter.Write(rec); err != nil {
+			return saved, fmt.Errorf("failed to save record to tsv file: %w", err)
+		}
+		saved++
+	}
+	return saved, nil
+}
+
+func closeCloser(c io.Closer, err *error) {
+	cErr := c.Close()
+	if *err == nil {
+		*err = cErr
+	}
 }

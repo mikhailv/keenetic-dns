@@ -8,14 +8,14 @@ import (
 )
 
 type DNSRecordKey struct {
-	IP     IPv4   `json:"ip"`
-	Domain string `json:"domain"`
+	IP     IPv4   `json:"ip" tsv:"ip"`
+	Domain string `json:"domain" tsv:"domain"`
 }
 
 type DNSRecord struct {
 	DNSRecordKey
-	Resolved time.Time `json:"resolved"`
-	Expires  time.Time `json:"expires"`
+	Resolved time.Time `json:"resolved" tsv:"resolved"`
+	Expires  time.Time `json:"expires" tsv:"expires"`
 }
 
 func NewDNSRecord(domain string, ip IPv4, resolveTime time.Time, ttlSeconds int) DNSRecord {

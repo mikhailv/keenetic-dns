@@ -22,7 +22,7 @@ cache:
 
 storage:
   local:
-    file: domains.json
+    file: domains.tsv.gz
     save_interval: 10m
 
 routing:

@@ -142,9 +142,13 @@ func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
 
 func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save func()) {
 	logger = logger.With("file", file)
-	if err := store.Load(file); err != nil {
-		logger.Error("failed to load", "err", err)
+	logger.Info("loading ...")
+	if count, err := store.Load(file); err != nil {
+		logger.Error("load failed", "err", err)
+	} else {
+		logger.Info("load succeeded", "records", count)
 	}
+
 	return func() {
 		if removed := store.RemoveExpired(); len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
@@ -155,8 +159,10 @@ func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (sav
 			logger.Info("removed expired records", "removed", len(removed))
 		}
 		logger.Info("saving ...")
-		if err := store.Save(file); err != nil {
-			logger.Error("failed to save", "err", err)
+		if count, err := store.Save(file); err != nil {
+			logger.Error("save failed", "err", err)
+		} else {
+			logger.Info("save succeeded", "records", count)
 		}
 	}
 }
