@@ -65,7 +65,11 @@ func NewHTTPServer(
 }
 
 func (s *HTTPServer) Serve(ctx context.Context) error {
-	s.server.Handler = s.createHandler()
+	var err error
+	s.server.Handler, err = s.createHandler()
+	if err != nil {
+		return err
+	}
 
 	context.AfterFunc(ctx, func() {
 		s.logger.Info("shutting down server...")
@@ -84,7 +88,7 @@ func (s *HTTPServer) Serve(ctx context.Context) error {
 	return nil
 }
 
-func (s *HTTPServer) createHandler() http.Handler {
+func (s *HTTPServer) createHandler() (http.Handler, error) {
 	wsLogger := log.WithPrefix(s.logger, "ws")
 
 	mux := http.NewServeMux()
@@ -105,12 +109,12 @@ func (s *HTTPServer) createHandler() http.Handler {
 	var handler http.Handler = mux
 	handler = cors.Default().Handler(handler)
 	if wrapper, err := gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)); err != nil {
-		panic(err)
+		return nil, err
 	} else {
 		handler = wrapper(handler)
 	}
 
-	return handler
+	return handler, nil
 }
 
 type errorHandler func(w http.ResponseWriter, req *http.Request) (statusCode int, err error)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
@@ -28,20 +27,12 @@ type BufferedHandler struct {
 	*bufferedHandlerState
 }
 
-func NewBufferedHandler(handler slog.Handler, bufferSize int, flushInterval time.Duration) *BufferedHandler {
-	s := &BufferedHandler{
+func NewBufferedHandler(handler slog.Handler, bufferSize int) *BufferedHandler {
+	return &BufferedHandler{
 		handler: handler,
 		bufferedHandlerState: &bufferedHandlerState{
 			buf: *util.NewRingBuf[logRecord](bufferSize),
 		},
-	}
-	go s.startFlusher(flushInterval)
-	return s
-}
-
-func (s *BufferedHandler) startFlusher(interval time.Duration) {
-	for range time.Tick(interval) {
-		s.Flush()
 	}
 }
 

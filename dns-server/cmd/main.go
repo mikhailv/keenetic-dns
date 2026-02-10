@@ -37,10 +37,11 @@ func main() { //nolint:funlen // ignore
 
 	cfg, err := config.LoadConfig(*configFile)
 	if err != nil {
-		exitIfError(fmt.Errorf("failed to load config: %w", err))
+		exitWithError(fmt.Errorf("failed to load config: %w", err))
 	}
 
 	logger, logStream, logFlush := setupLogger(*debug, cfg.History.LogSize)
+	go util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush)
 	defer logFlush()
 
 	setup.Pprof(ctx, *pprofAddr, logger)
@@ -48,13 +49,20 @@ func main() { //nolint:funlen // ignore
 	routingCfg := config.NewDynamic(&cfg.Routing)
 	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
 
-	settableResolver := NewSettableResolver(createResolver(cfg.DNS.Providers, logger))
+	resolver, err := createResolver(cfg.DNS.Providers, logger)
+	if err != nil {
+		exitWithError(fmt.Errorf("failed to create resolver: %w", err))
+	}
+
+	settableResolver := NewSettableResolver(resolver)
 	defer closeCloser(settableResolver, "resolver", logger)
 
-	listenConfigUpdate(logger, *configFile, 5*time.Second, func(cfg config.Config) {
+	listenConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
 		mdnsServicesCfg.Set(cfg.MDNS.Services)
-		if err := settableResolver.SetResolver(createResolver(cfg.DNS.Providers, logger)); err != nil {
+		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
+			logger.Error("failed to create resolver after config update", "err", err)
+		} else if err := settableResolver.SetResolver(newResolver); err != nil {
 			logger.Error("failed to close resolver", "err", err)
 		}
 	})
@@ -63,7 +71,7 @@ func main() { //nolint:funlen // ignore
 
 	dnsStore := NewDNSStore(cfg.Routing.RouteTimeout)
 	saveStore := createDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
-	go util.RunPeriodically(ctx, cfg.Storage.Local.SaveInterval, func(ctx context.Context) { saveStore() })
+	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, saveStore)
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 
@@ -81,15 +89,15 @@ func main() { //nolint:funlen // ignore
 		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_addr", query.ClientAddr)
 	})
 
-	resolver := NewMiddlewareChainResolver(
+	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			EnableMiddleware(VerboseMiddleware, *verbose),
-			NewRawQueryMiddleware(rawQueryStream),
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),
-			SingleInflightMiddleware,
-			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream),
-			NewCacheMiddleware(dnsCache),
-			ErrorSafeResponseMiddleware,
+			EnableMiddleware(VerboseMiddleware, *verbose),              // pre+post
+			NewRawQueryMiddleware(rawQueryStream),                      // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),              // post
+			SingleInflightMiddleware,                                   // pre
+			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream), // post
+			NewCacheMiddleware(dnsCache),                               // pre
+			ErrorSafeResponseMiddleware,                                // post
 		},
 		settableResolver,
 	)
@@ -127,10 +135,14 @@ func serve(ctx context.Context, server interface{ Serve(context.Context) error }
 	exitIfError(server.Serve(ctx))
 }
 
+func exitWithError(err error) {
+	_, _ = fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
+}
+
 func exitIfError(err error) {
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exitWithError(err)
 	}
 }
 
@@ -167,20 +179,24 @@ func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (sav
 	}
 }
 
-func createResolver(providersConfig map[string]config.DNSProvider, logger *slog.Logger) Resolver {
+func createResolver(providersConfig map[string]config.DNSProvider, logger *slog.Logger) (Resolver, error) {
 	providers := make([]Provider, 0, len(providersConfig))
 	for name, c := range providersConfig {
 		if c.Enabled {
-			providers = append(providers, createDNSProvider(name, c))
+			p, err := createDNSProvider(name, c)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create DNS provider %q: %w", name, err)
+			}
+			providers = append(providers, p)
 			logger.Info("DNS provider registered", "name", name, "endpoint", c.Endpoint.String())
 		}
 	}
-	return NewMultiProviderResolver(providers)
+	return NewMultiProviderResolver(providers), nil
 }
 
 func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {
 	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		buffered := log.NewBufferedHandler(handler, 300, 10*time.Second)
+		buffered := log.NewBufferedHandler(handler, 300)
 		flush = buffered.Flush
 		recorder := log.NewRecorder(buffered, historySize)
 		stream = recorder.Stream()
@@ -189,7 +205,7 @@ func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stre
 	return logger, stream, flush
 }
 
-func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg config.Config)) {
+func listenConfigUpdate(ctx context.Context, logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg config.Config)) {
 	getModTime := func() (time.Time, bool) {
 		f, err := os.Stat(configFile)
 		if err != nil {
@@ -209,22 +225,21 @@ func listenConfigUpdate(logger *slog.Logger, configFile string, updateCheckInter
 		}
 	}
 
-	modTime, _ := getModTime()
-
 	go func() {
-		for range time.Tick(updateCheckInterval) {
+		modTime, _ := getModTime()
+		util.RunPeriodically(ctx.Done(), updateCheckInterval, func() {
 			if t, ok := getModTime(); ok && t.After(modTime) {
 				if reloadConfig() {
 					modTime = t
 				}
 			}
-		}
+		})
 	}()
 }
 
-func createDNSProvider(name string, cfg config.DNSProvider) Provider {
+func createDNSProvider(name string, cfg config.DNSProvider) (Provider, error) {
 	if (cfg.Endpoint == nil) == (len(cfg.Hosts) == 0) {
-		panic(fmt.Sprintf("Exactly one of 'endpoints' or 'hosts' property for DNS provider %q must be provided", name))
+		return nil, fmt.Errorf("exactly one of 'endpoint' or 'hosts' property for DNS provider %q must be provided", name)
 	}
 
 	var resolver Resolver
@@ -248,7 +263,6 @@ func createDNSProvider(name string, cfg config.DNSProvider) Provider {
 	return NewProvider(resolver, cfg)
 }
 
-//nolint:cyclop // ignore complexity
 func getDefaultInterface() (*net.Interface, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {

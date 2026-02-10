@@ -2,30 +2,40 @@ package types
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 )
 
+var (
+	errInvalidIPv4Address = errors.New("invalid IPv4 address")
+	errInvalidIPv4Prefix  = errors.New("prefix must be between 0 and 32")
+)
+
 type IPv4 [5]byte
 
-func newIPv4(ip net.IP, prefix int) IPv4 {
+func newIPv4(ip net.IP, prefix int) (IPv4, error) {
 	ip = ip.To4()
 	if len(ip) != 4 {
-		panic("invalid IPv4 address")
+		return IPv4{}, errInvalidIPv4Address
 	}
 	if prefix < 0 || prefix > 32 {
-		panic("prefix must be between 0 and 32")
+		return IPv4{}, errInvalidIPv4Prefix
 	}
 	var r IPv4
 	copy(r[:], ip)
 	r[4] = byte(prefix)
-	return r
+	return r, nil
 }
 
 func NewIPv4(ip net.IP) IPv4 {
-	return newIPv4(ip.To4(), 32)
+	r, err := newIPv4(ip.To4(), 32)
+	if err != nil {
+		panic(err)
+	}
+	return r
 }
 
 func ParseIPv4(s string) (IPv4, error) {
@@ -42,7 +52,7 @@ func ParseIPv4(s string) (IPv4, error) {
 			prefix = n
 		}
 	}
-	return newIPv4(ip, prefix), nil
+	return newIPv4(ip, prefix)
 }
 
 func MustParseIPv4(s string) IPv4 {

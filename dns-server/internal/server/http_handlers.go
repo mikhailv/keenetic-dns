@@ -76,7 +76,6 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 	}
 }
 
-//nolint:cyclop // ignore complexity
 func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()

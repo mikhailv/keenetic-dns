@@ -133,7 +133,10 @@ func (c *Config) setDefaults() {
 }
 
 func DefaultConfig() *Config {
-	cfg := defaultConfig()
+	cfg, err := defaultConfig()
+	if err != nil {
+		panic(err)
+	}
 	cfg.init()
 	return cfg
 }
@@ -145,7 +148,10 @@ func LoadConfig(file string) (*Config, error) {
 	}
 	defer f.Close()
 
-	cfg := defaultConfig()
+	cfg, err := defaultConfig()
+	if err != nil {
+		return nil, err
+	}
 	if err = yaml.NewDecoder(f).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
@@ -153,12 +159,12 @@ func LoadConfig(file string) (*Config, error) {
 	return cfg, nil
 }
 
-func defaultConfig() *Config {
-	var cfg Config
-	if err := yaml.Unmarshal(defaultConfigYAML, &cfg); err != nil {
-		panic(fmt.Errorf("failed to load default config: %w", err))
+func defaultConfig() (*Config, error) {
+	cfg := &Config{}
+	if err := yaml.Unmarshal(defaultConfigYAML, cfg); err != nil {
+		return nil, fmt.Errorf("failed to load default config: %w", err)
 	}
-	return &cfg
+	return cfg, nil
 }
 
 func (c *DNS) init() {
@@ -177,7 +183,6 @@ func (c *DNSProvider) normalize() {
 	})
 }
 
-//nolint:cyclop // ignore complexity
 func (c *MDNSService) UnmarshalYAML(unmarshal func(any) error) error {
 	var s struct {
 		Name    string            `yaml:"name"`
@@ -202,7 +207,7 @@ func (c *MDNSService) UnmarshalYAML(unmarshal func(any) error) error {
 	if s.Port != "" {
 		ss := strings.Split(s.Port, ":")
 		if len(ss) > 2 {
-			panic(fmt.Errorf("unexpected port format: %s", s.Port))
+			return fmt.Errorf("unexpected port format: %s", s.Port)
 		}
 
 		portName := ss[0]

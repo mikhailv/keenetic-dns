@@ -1,7 +1,9 @@
 version: "2"
+
 run:
   concurrency: 8
   modules-download-mode: readonly
+
 linters:
   default: none
   enable:
@@ -50,7 +52,7 @@ linters:
     - whitespace
   settings:
     cyclop:
-      max-complexity: 10
+      max-complexity: 20
       package-average: 0
     dupl:
       threshold: 150
@@ -98,14 +100,19 @@ linters:
         text: 'shadow: declaration of "ctx" shadows declaration'
       - linters:
           - cyclop
+          - dupl
+          - unused
+          - prealloc
         path: (.+)_test\.go
     paths:
       - third_party$
       - builtin$
       - examples$
+
 issues:
   max-issues-per-linter: 30
   max-same-issues: 20
+
 formatters:
   enable:
     - gci

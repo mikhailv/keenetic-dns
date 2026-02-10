@@ -2,6 +2,7 @@ package keenetic
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -34,7 +35,7 @@ func (s Object) String() string {
 	e := json.NewEncoder(&sb)
 	e.SetIndent("", "  ")
 	if err := e.Encode(s); err != nil {
-		panic(err)
+		return fmt.Sprintf("Object.String() error: %v", err)
 	}
 	return sb.String()
 }

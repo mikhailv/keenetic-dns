@@ -122,7 +122,11 @@ func (s *networkService) ListHosts(ctx context.Context, _ *v1.ListHostsReq) (*v1
 		s.logger.Error("failed to get device list", "err", err, "output", res.ErrOutput)
 		return nil, wrapError(err, res)
 	}
-	objs := keenetic.ParseOutput(res.Output)
+	objs, err := keenetic.ParseOutput(res.Output)
+	if err != nil {
+		s.logger.Error("failed to parse ndmc command output", "err", err)
+		return nil, err
+	}
 	var resp v1.ListHostsResp
 	resp.Hosts = make([]*v1.HostInfo, len(objs))
 	for i, obj := range objs {

@@ -131,7 +131,6 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *config.Rout
 	}
 }
 
-//nolint:cyclop // ignore cyclomatic complexity
 func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Routing) {
 	defer metrics.TrackDuration("reconcile_routes")()
 	defer log.Profile(s.logger, "reconcile routes")()

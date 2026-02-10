@@ -68,7 +68,7 @@ func (s multiProviderResolver) Close() error {
 
 func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) iter.Seq2[*dns.Msg, error] {
 	if len(resolvers) == 0 {
-		panic("resolveInParallel: 'resolvers' is empty")
+		return noResolversProvided
 	}
 
 	return func(yield func(*dns.Msg, error) bool) {
@@ -106,4 +106,10 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 			}
 		}
 	}
+}
+
+var errNoResolversProvided = errors.New("no resolvers provided")
+
+func noResolversProvided(yield func(*dns.Msg, error) bool) {
+	yield(nil, errNoResolversProvided)
 }

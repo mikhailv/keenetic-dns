@@ -11,6 +11,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/agent/internal"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/setup"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 func main() {
@@ -26,6 +27,7 @@ func main() {
 	flag.Parse()
 
 	logger, logFlush := setupLogger(debug)
+	go util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush)
 	defer logFlush()
 
 	setup.Pprof(ctx, pprofAddr, logger)
@@ -51,7 +53,7 @@ func exitIfError(err error) {
 
 func setupLogger(debug bool) (logger *slog.Logger, flush func()) {
 	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		buffered := log.NewBufferedHandler(handler, 300, 10*time.Second)
+		buffered := log.NewBufferedHandler(handler, 300)
 		flush = buffered.Flush
 		return log.NewPrefixHandler(buffered)
 	})

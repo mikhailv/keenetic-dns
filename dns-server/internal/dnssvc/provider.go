@@ -27,12 +27,12 @@ type provider struct {
 	types []uint16
 }
 
-func NewProvider(resolver Resolver, cfg config.DNSProvider) Provider {
-	return &provider{
-		Resolver: resolver,
-		cfg:      cfg,
-		types:    parseQueryTypes(cfg.Types),
+func NewProvider(resolver Resolver, cfg config.DNSProvider) (Provider, error) {
+	types, err := parseQueryTypes(cfg.Types)
+	if err != nil {
+		return nil, err
 	}
+	return &provider{resolver, cfg, types}, nil
 }
 
 func (s *provider) MatchQuery(msg *dns.Msg) QueryMatchResult {
@@ -85,7 +85,7 @@ func (s *provider) rewriteResolve(ctx context.Context, msg *dns.Msg, fromDomain,
 	return resp, nil
 }
 
-func parseQueryTypes(types []string) []uint16 {
+func parseQueryTypes(types []string) ([]uint16, error) {
 	r := make([]uint16, len(types))
 	for i, t := range types {
 		switch t {
@@ -98,9 +98,9 @@ func parseQueryTypes(types []string) []uint16 {
 		case "HTTPS":
 			r[i] = dns.TypeHTTPS
 		default:
-			panic(fmt.Sprintf("unsupported query type %q", t))
+			return nil, fmt.Errorf("unsupported query type %q", t)
 		}
 	}
 	slices.Sort(r)
-	return slices.Compact(r)
+	return slices.Compact(r), nil
 }

@@ -10,13 +10,14 @@ func TestParseOutput(t *testing.T) {
 	t.Run("skip escape sequences", func(t *testing.T) {
 		// act
 		//nolint:staticcheck // ignore it
-		res := ParseOutput(`[K
+		res, err := ParseOutput(`[K
              host: 
                   mac: c8:4d:44:31:b2:91
                   via: c8:4d:44:31:b2:91
                    ip: 192.168.2.99
 
 [K`)
+		assert.NoError(t, err)
 
 		// assert
 		assert.Equal(t, []Object{
@@ -30,13 +31,14 @@ func TestParseOutput(t *testing.T) {
 
 	t.Run("parse multiline string", func(t *testing.T) {
 		// act
-		res := ParseOutput(`
+		res, err := ParseOutput(`
              host: 
                region: EA
           description: Keenetic Speedster (NDMS 4.03.C.6.0-5): KN-
                        3010
              firmware: 4.03.C.6.0-5
 `)
+		assert.NoError(t, err)
 
 		// assert
 		assert.Equal(t, []Object{

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func ParseOutput(output string) []Object {
+func ParseOutput(output string) ([]Object, error) {
 	var result []Object
 
 	type stackItem struct {
@@ -16,17 +16,21 @@ func ParseOutput(output string) []Object {
 
 	var stack []stackItem
 
-	for cur, next := range iterateParsedLinePairs(iterateParsedLines(iterateLines(output))) {
+	for pair, err := range iterateParsedLinePairs(iterateParsedLines(iterateLines(output))) {
+		if err != nil {
+			return nil, err
+		}
+		cur, next := pair[0], pair[1]
 		for len(stack) > 0 && stack[len(stack)-1].indent > cur.indent {
 			stack = stack[:len(stack)-1]
 		}
 
 		if len(stack) == 0 {
 			if cur.value != "" {
-				panic(fmt.Errorf("[ndm] unexpected object line: %q", cur.raw))
+				return nil, fmt.Errorf("[ndm] unexpected object line: %q", cur.raw)
 			}
 			if next.indent <= cur.indent {
-				panic(fmt.Errorf("[ndm] unexpected indent of lines: %q and %q", cur.raw, next.raw))
+				return nil, fmt.Errorf("[ndm] unexpected indent of lines: %q and %q", cur.raw, next.raw)
 			}
 			obj := Object{}
 			stack = append(stack, stackItem{indent: next.indent, obj: obj})
@@ -38,7 +42,7 @@ func ParseOutput(output string) []Object {
 		if parent.indent == cur.indent {
 			if next.indent > cur.indent { // new object
 				if cur.value != "" {
-					panic(fmt.Errorf("[ndm] unexpected start of new object: %q and %q", cur.raw, next.raw))
+					return nil, fmt.Errorf("[ndm] unexpected start of new object: %q and %q", cur.raw, next.raw)
 				}
 				obj := Object{}
 				stack = append(stack, stackItem{indent: next.indent, obj: obj})
@@ -50,7 +54,7 @@ func ParseOutput(output string) []Object {
 		}
 	}
 
-	return result
+	return result, nil
 }
 
 func iterateLines(s string) iter.Seq[string] {
@@ -101,8 +105,8 @@ func iterateParsedLines(lines iter.Seq[string]) iter.Seq[parsedLine] {
 	}
 }
 
-func iterateParsedLinePairs(lines iter.Seq[parsedLine]) iter.Seq2[parsedLine, parsedLine] {
-	return func(yield func(parsedLine, parsedLine) bool) {
+func iterateParsedLinePairs(lines iter.Seq[parsedLine]) iter.Seq2[[2]parsedLine, error] {
+	return func(yield func([2]parsedLine, error) bool) {
 		next, stop := iter.Pull(lines)
 		defer stop()
 
@@ -114,18 +118,19 @@ func iterateParsedLinePairs(lines iter.Seq[parsedLine]) iter.Seq2[parsedLine, pa
 		for {
 			line2, ok := next()
 			if !ok {
-				yield(line1, line1) // yield last line
+				yield([2]parsedLine{line1, line1}, nil) // yield last line
 				return
 			}
 			if line2.key == "" && line2.value == "" {
 				if len(line2.raw) <= line1.indent || strings.TrimSpace(line2.raw[:line1.indent]) != "" {
-					panic(fmt.Errorf("[ndm] unexpected line: %q", line2.raw))
+					yield([2]parsedLine{line1, line2}, fmt.Errorf("[ndm] unexpected next line: %q", line2.raw))
+					return
 				}
 				line1.value += strings.TrimRight(line2.raw[line1.indent:], " ")
 				continue
 			}
 
-			if !yield(line1, line2) {
+			if !yield([2]parsedLine{line1, line2}, nil) {
 				return
 			}
 			line1 = line2

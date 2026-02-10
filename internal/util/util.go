@@ -1,19 +1,18 @@
 package util
 
 import (
-	"context"
 	"time"
 )
 
-func RunPeriodically(ctx context.Context, interval time.Duration, fn func(context.Context)) {
+func RunPeriodically(stopCh <-chan struct{}, interval time.Duration, fn func()) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stopCh:
 			return
 		case <-t.C:
-			fn(ctx)
+			fn()
 		}
 	}
 }
