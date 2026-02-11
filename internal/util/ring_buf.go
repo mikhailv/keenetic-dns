@@ -28,6 +28,10 @@ func (s *RingBuf[T]) Add(item T) {
 }
 
 func (s *RingBuf[T]) Get(i int) T {
+	if i < 0 || i >= s.size {
+		var zero T
+		return zero
+	}
 	return s.buf[(s.start+i)%cap(s.buf)]
 }
 
@@ -44,7 +48,7 @@ func (s *RingBuf[T]) Slice(from, count int) []T {
 		return nil
 	}
 	capacity := cap(s.buf)
-	count = min(count, s.size)
+	count = min(count, s.size-from)
 	res := make([]T, count)
 	from += s.start
 	for i := 0; i < count; i++ {
