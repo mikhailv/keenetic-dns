@@ -34,16 +34,14 @@ func (s prefixHandler) Handle(ctx context.Context, record slog.Record) error {
 }
 
 func (s prefixHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	if len(attrs) == 1 {
-		if attrs[0].Key == prefixKey {
-			prefix := attrs[0].Value.String()
-			if s.prefix != "" {
-				prefix = s.prefix + "." + prefix
-			}
-			return prefixHandler{s.handler, prefix}
+	if len(attrs) == 1 && attrs[0].Key == prefixKey {
+		prefix := attrs[0].Value.String()
+		if s.prefix != "" {
+			prefix = s.prefix + "." + prefix
 		}
+		return prefixHandler{s.handler, prefix}
 	}
-	return s
+	return prefixHandler{s.handler.WithAttrs(attrs), s.prefix}
 }
 
 func (s prefixHandler) WithGroup(name string) slog.Handler {
