@@ -136,14 +136,42 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	defer log.Profile(s.logger, "reconcile routes")()
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
+	actual, obsolete := s.partitionRoutes(cfg, definedRoutes)
 
-	actual := make(map[IPRoute]string, s.routes.Size())
-	obsolete := make(map[IPRoute]string, 10)
+	added := 0
+	for route, reason := range actual {
+		if definedRoutes.Has(route) {
+			s.routes.Add(route)
+		} else if s.addRoute(ctx, route, reason) {
+			s.routes.Add(route)
+			added++
+		}
+	}
 
+	deleted := 0
+	for route, reason := range obsolete {
+		if !definedRoutes.Has(route) {
+			s.routes.Remove(route)
+		} else if s.deleteRoute(ctx, route, reason) {
+			s.routes.Remove(route)
+			deleted++
+		}
+	}
+
+	s.logger.Info("routes updated", "added", added, "deleted", deleted, "total", s.routes.Size())
+}
+
+// partitionRoutes splits routes into two sets: actual (should exist) and obsolete (should be removed).
+func (s *IPRouteController) partitionRoutes(cfg *config.Routing, definedRoutes util.Set[IPRoute]) (actual, obsolete map[IPRoute]string) {
+	actual = make(map[IPRoute]string, s.routes.Size())
+	obsolete = make(map[IPRoute]string, 10)
+
+	// Static routes always belong to actual.
 	for _, addr := range cfg.Static {
 		actual[s.makeRoute(cfg, addr)] = "static"
 	}
 
+	// Partition routes from DNS records.
 	for rec := range s.dnsStore.RecordIterator() {
 		route := s.makeRoute(cfg, rec.IP)
 		if actual[route] != "" {
@@ -157,40 +185,21 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 		}
 	}
 
+	// Routes defined on router but not in actual are expired.
 	for route := range definedRoutes {
 		if actual[route] == "" {
 			obsolete[route] = "expired"
 		}
 	}
 
+	// Routes in local cache but not in either set are obsolete.
 	for route := range s.routes.Iterator() {
 		if actual[route] == "" && obsolete[route] == "" {
 			obsolete[route] = "obsolete"
 		}
 	}
 
-	added := 0
-	deleted := 0
-
-	for route, reason := range actual {
-		if definedRoutes.Has(route) {
-			s.routes.Add(route)
-		} else if s.addRoute(ctx, route, reason) {
-			s.routes.Add(route)
-			added++
-		}
-	}
-
-	for route, reason := range obsolete {
-		if !definedRoutes.Has(route) {
-			s.routes.Remove(route)
-		} else if s.deleteRoute(ctx, route, reason) {
-			s.routes.Remove(route)
-			deleted++
-		}
-	}
-
-	s.logger.Info("routes updated", "added", added, "deleted", deleted, "total", s.routes.Size())
+	return actual, obsolete
 }
 
 func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4, reason string) bool {
