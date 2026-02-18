@@ -17,7 +17,7 @@ type Buffered[T any] struct {
 	mu           sync.RWMutex
 	buf          *util.RingBuf[streamEntry[T]]
 	index        int32
-	listeners    map[uint16]func(cursor Cursor, val T)
+	listeners    map[uint16]Listener[T]
 	nextListener uint16
 }
 
@@ -41,13 +41,12 @@ type streamEntry[T any] struct {
 func NewBufferedStream[T any](bufferSize int) *Buffered[T] {
 	return &Buffered[T]{
 		buf:       util.NewRingBuf[streamEntry[T]](bufferSize),
-		listeners: map[uint16]func(cursor Cursor, val T){},
+		listeners: map[uint16]Listener[T]{},
 	}
 }
 
 func (s *Buffered[T]) Append(value T) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cursor := Cursor((uint64(time.Now().UnixMilli()) << 32) | uint64(s.index))
 	s.index++
 	if c, ok := any(value).(CursorAware); ok {
@@ -56,7 +55,9 @@ func (s *Buffered[T]) Append(value T) {
 		c.SetCursor(cursor)
 	}
 	s.buf.Add(streamEntry[T]{cursor, value})
-	for _, listener := range s.listeners {
+	listeners := s.listenersCopy()
+	s.mu.Unlock()
+	for _, listener := range listeners {
 		listener(cursor, value)
 	}
 }
@@ -71,6 +72,14 @@ func (s *Buffered[T]) QueryBackward(cursor Cursor, count int, predicate func(val
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.query(false, cursor, count, predicate)
+}
+
+func (s *Buffered[T]) listenersCopy() []Listener[T] {
+	res := make([]Listener[T], 0, len(s.listeners))
+	for _, fn := range s.listeners {
+		res = append(res, fn)
+	}
+	return res
 }
 
 func (s *Buffered[T]) lookupPos(cursor Cursor) (i int, found bool) {
@@ -135,7 +144,7 @@ func (s *Buffered[T]) query(forward bool, cursor Cursor, count int, predicate fu
 	return res
 }
 
-func (s *Buffered[T]) Listen(listener func(cursor Cursor, val T)) (stop func()) {
+func (s *Buffered[T]) Listen(listener Listener[T]) (stop func()) {
 	s.mu.Lock()
 	listenerKey := s.nextListener
 	s.nextListener++

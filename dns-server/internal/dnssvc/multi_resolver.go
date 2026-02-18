@@ -90,14 +90,14 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		for i := range resolvers {
-			go func(resolver Resolver) {
+		for _, resolver := range resolvers {
+			go func() {
 				resp, err := resolver.Resolve(ctx, msg)
 				resultQueue <- JobResult{resp, err}
 				if pending.Add(-1) == 0 {
 					close(resultQueue)
 				}
-			}(resolvers[i])
+			}()
 		}
 
 		for it := range resultQueue {

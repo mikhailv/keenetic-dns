@@ -57,7 +57,7 @@ func main() { //nolint:funlen // ignore
 	settableResolver := NewSettableResolver(resolver)
 	defer closeCloser(settableResolver, "resolver", logger)
 
-	listenConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
+	configWatcher := watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
 		mdnsServicesCfg.Set(cfg.MDNS.Services)
 		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
@@ -66,11 +66,14 @@ func main() { //nolint:funlen // ignore
 			logger.Error("failed to close resolver", "err", err)
 		}
 	})
+	defer closeCloser(configWatcher, "config_watcher", logger)
 
 	logger.Info("config loaded", "route_timeout", cfg.Routing.RouteTimeout)
 
 	dnsStore := NewDNSStore(cfg.Routing.RouteTimeout)
 	saveStore := createDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
+	defer saveStore()
+
 	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, saveStore)
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
@@ -127,8 +130,7 @@ func main() { //nolint:funlen // ignore
 	logFlush()
 
 	<-ctx.Done()
-
-	saveStore()
+	logger.Info("shutting down...")
 }
 
 func serve(ctx context.Context, server interface{ Serve(context.Context) error }) {
@@ -147,8 +149,11 @@ func exitIfError(err error) {
 }
 
 func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
+	logger.Info("closing " + name + "...")
 	if err := closer.Close(); err != nil {
 		logger.Error("failed to close "+name, "err", err)
+	} else {
+		logger.Info("closed " + name)
 	}
 }
 
@@ -220,7 +225,13 @@ func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stre
 	return logger, stream, flush
 }
 
-func listenConfigUpdate(ctx context.Context, logger *slog.Logger, configFile string, updateCheckInterval time.Duration, onUpdate func(cfg config.Config)) {
+func watchConfigUpdate(
+	ctx context.Context,
+	logger *slog.Logger,
+	configFile string,
+	updateCheckInterval time.Duration,
+	onUpdate func(cfg config.Config),
+) io.Closer {
 	getModTime := func() (time.Time, bool) {
 		f, err := os.Stat(configFile)
 		if err != nil {
@@ -240,7 +251,9 @@ func listenConfigUpdate(ctx context.Context, logger *slog.Logger, configFile str
 		}
 	}
 
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		modTime, _ := getModTime()
 		util.RunPeriodically(ctx.Done(), updateCheckInterval, func() {
 			if t, ok := getModTime(); ok && t.After(modTime) {
@@ -250,6 +263,11 @@ func listenConfigUpdate(ctx context.Context, logger *slog.Logger, configFile str
 			}
 		})
 	}()
+
+	return util.CloserFunc(func() error {
+		<-done
+		return nil
+	})
 }
 
 func createDNSProvider(name string, cfg config.DNSProvider) (Provider, error) {
