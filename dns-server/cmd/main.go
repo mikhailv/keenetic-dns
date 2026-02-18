@@ -152,30 +152,45 @@ func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
 	}
 }
 
-func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (save func()) {
+func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (doSave func()) {
 	logger = logger.With("file", file)
-	logger.Info("loading ...")
-	if count, err := store.Load(file); err != nil {
-		logger.Error("load failed", "err", err)
-	} else {
-		logger.Info("load succeeded", "records", count)
+
+	load := func() {
+		logger.Info("loading ...")
+		count, dur, err := measure(func() (int, error) { return store.Load(file) })
+		if err != nil {
+			logger.Error("load failed", "err", err)
+		} else {
+			logger.Info("load succeeded", "records", count, "duration", dur)
+		}
 	}
 
-	return func() {
-		if removed := store.RemoveExpired(); len(removed) > 0 {
+	save := func() {
+		logger.Info("saving ...")
+		count, dur, err := measure(func() (int, error) { return store.Save(file) })
+		if err != nil {
+			logger.Error("save failed", "err", err)
+		} else {
+			logger.Info("save succeeded", "records", count, "duration", dur)
+		}
+	}
+
+	removeExpired := func() {
+		removed, dur, _ := measure(func() ([]types.DNSRecord, error) { return store.RemoveExpired(), nil })
+		if len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
 				for _, r := range removed {
 					logger.Debug("dns record expired", "domain", r.Domain, "ip", r.IP, "resolved", r.Resolved)
 				}
 			}
-			logger.Info("removed expired records", "removed", len(removed))
+			logger.Info("removed expired records", "removed", len(removed), "duration", dur)
 		}
-		logger.Info("saving ...")
-		if count, err := store.Save(file); err != nil {
-			logger.Error("save failed", "err", err)
-		} else {
-			logger.Info("save succeeded", "records", count)
-		}
+	}
+
+	load()
+	return func() {
+		removeExpired()
+		save()
 	}
 }
 
@@ -291,4 +306,10 @@ func getDefaultInterface() (*net.Interface, error) {
 	}
 
 	return nil, fmt.Errorf("no suitable network interface found")
+}
+
+func measure[T any](fn func() (T, error)) (T, time.Duration, error) {
+	st := time.Now()
+	r, err := fn()
+	return r, time.Since(st), err
 }

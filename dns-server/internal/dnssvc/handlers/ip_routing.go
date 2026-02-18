@@ -46,56 +46,67 @@ func (s ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, e
 
 func (s ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg) {
 	reqName := resp.Question[0].Name
-
-	var cnameByName util.LazyMap[string, dns.CNAME]
-	var ipsByName util.LazyMap[string, []types.IPv4]
-
-	var ttl uint32 = math.MaxUint32
-
-	for _, rr := range resp.Answer {
-		switch v := rr.(type) {
-		case *dns.A:
-			ipsByName.Set(v.Hdr.Name, append(ipsByName[v.Hdr.Name], types.NewIPv4(v.A)))
-			ttl = min(ttl, v.Hdr.Ttl)
-		case *dns.CNAME:
-			cnameByName.Set(v.Hdr.Name, *v)
-		}
-	}
-
-	var ips []types.ResolvedIP
-	var visited util.Set[string]
-
-	var routedByName bool
-	var routingIface string
-	var routingPattern string
-
-	for name := reqName; !visited.Has(name); {
-		if !routedByName {
-			routedByName, routingPattern, routingIface = s.ipRoutes.LookupHost(name)
-		}
-		if cn, ok := cnameByName[name]; ok {
-			visited.Add(name)
-			name = cn.Target
-			ttl = min(ttl, cn.Hdr.Ttl)
-		} else {
-			nameIPs := ipsByName[name]
-			ips = make([]types.ResolvedIP, len(nameIPs))
-			for i, ip := range nameIPs {
-				staticAddress, _, _ := s.ipRoutes.LookupIP(ip)
-				ips[i] = types.ResolvedIP{
-					IP:          ip,
-					RouteAdded:  routedByName && !staticAddress,
-					RouteIface:  routingIface,
-					RouteReason: routingPattern,
-				}
-			}
-			break
-		}
-	}
-
+	ipsByName, cnameByName, ttl := s.extractAnswerRecords(resp.Answer)
+	ips := s.resolveIPs(reqName, ipsByName, cnameByName, &ttl)
 	if len(ips) > 0 {
 		s.processResolvedIPs(ctx, reqName, ttl, ips)
 	}
+}
+
+// extractAnswerRecords parses DNS answer section into A records (grouped by name), CNAME records, and minimum TTL.
+func (s ipRoutingHandler) extractAnswerRecords(answers []dns.RR) (map[string][]types.IPv4, map[string]dns.CNAME, uint32) {
+	ipsByName := map[string][]types.IPv4{}
+	var cnameByName map[string]dns.CNAME
+	minTTL := uint32(math.MaxUint32)
+	for _, rr := range answers {
+		switch v := rr.(type) {
+		case *dns.A:
+			ipsByName[v.Hdr.Name] = append(ipsByName[v.Hdr.Name], types.NewIPv4(v.A))
+			minTTL = min(minTTL, v.Hdr.Ttl)
+		case *dns.CNAME:
+			if cnameByName == nil {
+				cnameByName = map[string]dns.CNAME{}
+			}
+			cnameByName[v.Hdr.Name] = *v
+		}
+	}
+	return ipsByName, cnameByName, minTTL
+}
+
+// resolveIPs follows CNAME chain from reqName to find final IPs and determines routing for each.
+func (s ipRoutingHandler) resolveIPs(reqName string, ipsByName map[string][]types.IPv4, cnameByName map[string]dns.CNAME, ttl *uint32) []types.ResolvedIP {
+	var visited util.Set[string]
+	var routedByName bool
+	var routingIface, routingPattern string
+
+	name := reqName
+	for !visited.Has(name) {
+		if !routedByName {
+			routedByName, routingPattern, routingIface = s.ipRoutes.LookupHost(name)
+		}
+		cn, ok := cnameByName[name]
+		if !ok {
+			return s.buildResolvedIPs(ipsByName[name], routedByName, routingIface, routingPattern)
+		}
+		visited.Add(name)
+		name = cn.Target
+		*ttl = min(*ttl, cn.Hdr.Ttl)
+	}
+	return nil
+}
+
+func (s ipRoutingHandler) buildResolvedIPs(ips []types.IPv4, routedByName bool, routingIface, routingPattern string) []types.ResolvedIP {
+	result := make([]types.ResolvedIP, len(ips))
+	for i, ip := range ips {
+		staticAddress, _, _ := s.ipRoutes.LookupIP(ip)
+		result[i] = types.ResolvedIP{
+			IP:          ip,
+			RouteAdded:  routedByName && !staticAddress,
+			RouteIface:  routingIface,
+			RouteReason: routingPattern,
+		}
+	}
+	return result
 }
 
 func (s ipRoutingHandler) processResolvedIPs(ctx context.Context, domain string, ttl uint32, ips []types.ResolvedIP) {
