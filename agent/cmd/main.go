@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal"
@@ -15,7 +17,8 @@ import (
 )
 
 func main() {
-	ctx := setup.ListenStopSignal(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	var httpServerAddr string
 	var pprofAddr string

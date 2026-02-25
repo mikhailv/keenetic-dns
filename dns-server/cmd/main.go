@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent"
@@ -27,7 +29,8 @@ import (
 )
 
 func main() { //nolint:funlen // ignore
-	ctx := setup.ListenStopSignal(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	configFile := flag.String("config", "./config.yaml", "config file path")
 	pprofAddr := flag.String("pprof", "", "pprof handler address")
