@@ -39,7 +39,7 @@ func (s *DomainList) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 func (s DomainList) Match(domain string) (pattern string) {
-	if len(s) == 0 {
+	if len(s) == 0 || domain == "" {
 		return ""
 	}
 	// TODO: O(N) host lookup, maybe optimize?

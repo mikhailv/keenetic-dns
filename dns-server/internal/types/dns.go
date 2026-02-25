@@ -77,6 +77,10 @@ type ResolvedIP struct {
 	RouteReason string `json:"route_reason,omitempty"`
 }
 
+func (s *ResolvedIP) Routed() bool {
+	return s.RouteIface != ""
+}
+
 var _ stream.CursorAware = (*DNSRawQuery)(nil)
 
 type DNSRawQuery struct {
