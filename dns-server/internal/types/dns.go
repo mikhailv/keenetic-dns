@@ -52,9 +52,8 @@ type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
 	Time       time.Time     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
-	Domain     string        `json:"domain"`
-	TTL        uint32        `json:"ttl"`
-	IPs        []ResolvedIP  `json:"ips"`
+	Duration   float64       `json:"duration"`
+	DomainLookup
 }
 
 func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
@@ -63,21 +62,47 @@ func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 
 func (s *DNSQuery) HasRoutedIPs() bool {
 	for _, ip := range s.IPs {
-		if ip.RouteIface != "" {
+		if ip.Routed() {
 			return true
 		}
 	}
 	return false
 }
 
-type ResolvedIP struct {
-	IP          IPv4   `json:"ip"`
-	RouteAdded  bool   `json:"route_added,omitempty"`
-	RouteIface  string `json:"route_iface,omitempty"`
-	RouteReason string `json:"route_reason,omitempty"`
+type DomainLookup struct {
+	Domain string                `json:"domain"`
+	CNames []DomainEntry[string] `json:"cnames,omitempty"`
+	IPs    []DomainIP            `json:"ips"`
 }
 
-func (s *ResolvedIP) Routed() bool {
+type DomainIP struct {
+	IP          IPv4                  `json:"ip"`
+	TTL         uint32                `json:"ttl"`
+	PTR         []DomainEntry[string] `json:"ptr,omitempty"`
+	SOA         []DomainEntry[string] `json:"soa,omitempty"`
+	RouteAdded  bool                  `json:"route_added,omitempty"`
+	RouteIface  string                `json:"route_iface,omitempty"`
+	RouteReason string                `json:"route_reason,omitempty"`
+}
+
+type DomainEntry[T comparable] struct {
+	Name T      `json:"name"`
+	TTL  uint32 `json:"ttl"`
+}
+
+func (s *DomainLookup) SetRouted(added bool, iface, reason string) {
+	for i := range s.IPs {
+		s.IPs[i].SetRouted(added, iface, reason)
+	}
+}
+
+func (s *DomainIP) SetRouted(added bool, iface, reason string) {
+	s.RouteAdded = added
+	s.RouteIface = iface
+	s.RouteReason = reason
+}
+
+func (s *DomainIP) Routed() bool {
 	return s.RouteIface != ""
 }
 

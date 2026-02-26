@@ -14,13 +14,22 @@ export interface DNSQuery {
   cursor: string;
   time: Date;
   client_addr: string;
+  duration: number;
   domain: string;
-  ttl: number;
-  ips: RoutedIP[];
+  cnames?: DomainEntry<string>[];
+  ips: DomainIP[];
 }
 
-export interface RoutedIP {
+export interface DomainEntry<T> {
+  name: T;
+  ttl: number;
+}
+
+export interface DomainIP {
   ip: string;
+  ttl: number;
+  ptr?: DomainEntry<string>[];
+  soa?: DomainEntry<string>[];
   route_added?: boolean;
   route_iface?: string;
   route_reason?: string;

@@ -4,7 +4,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { consume } from '@lit/context';
 import { serviceContext } from '../context';
 import { Service } from '../service';
-import { DNSQuery } from '../types';
+import { DNSQuery, DomainEntry, DomainIP } from '../types';
 import { listenStream, Stream } from '../stream';
 
 const maxItems = 200;
@@ -60,6 +60,7 @@ export class DNSRequestsElement extends LitElement {
           <th scope="col">TTL</th>
           <th scope="col">IP</th>
           <th scope="col">Routed</th>
+          <th scope="col">Duration</th>
         </tr>
         </thead>
         <tbody class="table-group-divider">
@@ -68,12 +69,17 @@ export class DNSRequestsElement extends LitElement {
             <td title=${it.time.toLocaleString()}>${formatTime(it.time)}</td>
             <td>${it.client_addr.split(':')[0]}</td>
             <td>${it.domain}</td>
-            <td>${it.ttl}</td>
             <td class="fw-light" style="font-size: 0.9rem">
-              ${it.ips.map(v => html`<div>${v.ip}</div>`)}
+              ${it.ips.map(v => html`<div title="${ipTitle(v)}">${v.ttl}</div>`)}
             </td>
             <td class="fw-light" style="font-size: 0.9rem">
-              ${it.ips.map(v => html`<div>${v.route_iface ? `${v.route_iface} (${v.route_reason})${v.route_added ? ' (added)' : ''}` : '-'}</div>`)}
+              ${it.ips.map(v => html`<div title="${ipTitle(v)}">${v.ip}</div>`)}
+            </td>
+            <td class="fw-light" style="font-size: 0.9rem">
+              ${it.ips.map(v => html`<div title="${ipTitle(v)}">${v.route_iface ? `${v.route_iface} (${v.route_reason})${v.route_added ? ' (added)' : ''}` : '-'}</div>`)}
+            </td>
+            <td class="fw-light" style="font-size: 0.9rem">
+              ${it.duration}
             </td>
           </tr>
         `)}
@@ -85,4 +91,13 @@ export class DNSRequestsElement extends LitElement {
 
 function formatTime(d: Date): string {
   return d.toTimeString().split(' ')[0];
+}
+
+function ipTitle(ip: DomainIP): string {
+  return `IP: ${ip.ip}\nTTL: ${ip.ttl}\n${formatDomainEntries('PTR', ip.ptr)}${formatDomainEntries('SOA', ip.soa)}`;
+}
+
+function formatDomainEntries<T>(type: string, entries?: DomainEntry<T>[]): string {
+  const r = (entries ?? []).map(v => `${type}: ${v.name} (${v.ttl})`).join('\n');
+  return r === '' ? '' : r + '\n';
 }

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"math"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -41,109 +42,143 @@ type ipRoutingHandler struct {
 }
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+	st := time.Now()
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp)
+		s.processTypeAResponse(ctx, resp, st)
 	}
 	return resp, err
 }
 
-func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg) {
-	reqName := resp.Question[0].Name
-	ipsByName, cnameByName, ttl := s.extractAnswerRecords(resp.Answer)
-	ips := s.resolveIPs(ctx, reqName, ipsByName, cnameByName, &ttl)
-	if len(ips) > 0 {
-		s.processResolvedIPs(ctx, reqName, ttl, ips)
+func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, st time.Time) {
+	domain := resp.Question[0].Name
+	res := s.parseResponse(domain, resp.Answer)
+	if len(res.IPs) > 0 {
+		s.resolveReverseRecords(ctx, &res)
+		s.resolveRouting(&res)
+		s.processDomainLookup(ctx, res, st)
 	}
 }
 
-// extractAnswerRecords parses DNS answer section into A records (grouped by name), CNAME records, and minimum TTL.
-func (s *ipRoutingHandler) extractAnswerRecords(answers []dns.RR) (map[string][]types.IPv4, map[string]dns.CNAME, uint32) {
-	ipsByName := map[string][]types.IPv4{}
-	var cnameByName map[string]dns.CNAME
-	minTTL := uint32(math.MaxUint32)
+func (s *ipRoutingHandler) parseResponse(domain string, answers []dns.RR) types.DomainLookup {
+	res := types.DomainLookup{
+		Domain: domain,
+		IPs:    make([]types.DomainIP, 0, 10),
+	}
+	for _, rr := range answers {
+		if v, ok := rr.(*dns.A); ok && v.Hdr.Name == domain {
+			res.IPs = append(res.IPs, types.DomainIP{
+				IP:  types.NewIPv4(v.A),
+				TTL: v.Hdr.Ttl,
+			})
+		}
+	}
+	if len(res.IPs) > 0 {
+		return res
+	}
+
+	ipsByName := map[string][]dns.A{}
+	cnameByName := map[string]dns.CNAME{}
+
 	for _, rr := range answers {
 		switch v := rr.(type) {
 		case *dns.A:
-			ipsByName[v.Hdr.Name] = append(ipsByName[v.Hdr.Name], types.NewIPv4(v.A))
-			minTTL = min(minTTL, v.Hdr.Ttl)
+			ipsByName[v.Hdr.Name] = append(ipsByName[v.Hdr.Name], *v)
 		case *dns.CNAME:
-			if cnameByName == nil {
-				cnameByName = map[string]dns.CNAME{}
-			}
 			cnameByName[v.Hdr.Name] = *v
 		}
 	}
-	return ipsByName, cnameByName, minTTL
-}
 
-// resolveIPs follows CNAME chain from reqName to find final IPs and determines routing for each.
-func (s *ipRoutingHandler) resolveIPs(
-	ctx context.Context,
-	reqName string,
-	ipsByName map[string][]types.IPv4,
-	cnameByName map[string]dns.CNAME,
-	ttl *uint32,
-) []types.ResolvedIP {
 	var visited util.Set[string]
-	var routedByName bool
-	var routingIface, routingPattern string
 
-	var ips []types.ResolvedIP
-
-	name := reqName
+	name := domain
 	for !visited.Has(name) {
-		if !routedByName {
-			routedByName, routingPattern, routingIface = s.ipRoutes.LookupHost(name)
-			if name != reqName {
-				routingPattern = "CNAME " + routingPattern
-			}
-		}
 		if cn, ok := cnameByName[name]; ok {
+			res.CNames = append(res.CNames, types.DomainEntry[string]{
+				Name: cn.Target,
+				TTL:  cn.Hdr.Ttl,
+			})
 			visited.Add(name)
 			name = cn.Target
-			*ttl = min(*ttl, cn.Hdr.Ttl)
 			continue
 		}
-		ips = s.buildResolvedIPs(ipsByName[name], routedByName, routingIface, routingPattern)
+		for _, it := range ipsByName[name] {
+			res.IPs = append(res.IPs, types.DomainIP{
+				IP:  types.NewIPv4(it.A),
+				TTL: it.Hdr.Ttl,
+			})
+		}
 		break
 	}
 
-	for i, it := range ips {
-		if it.Routed() {
-			continue
-		}
-		if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok { // static IP check
-			it.RouteIface = iface
-			it.RouteReason = pattern
-			ips[i] = it
-		} else if ok, ptrDomain, soaDomain := s.reverseLookup(ctx, it.IP); ok {
-			if ok, pattern, iface = s.ipRoutes.LookupHost(ptrDomain); ok {
-				it.RouteAdded = true
-				it.RouteIface = iface
-				it.RouteReason = "PTR " + pattern
-				ips[i] = it
-			}
-			if ok, pattern, iface = s.ipRoutes.LookupHost(soaDomain); ok {
-				it.RouteAdded = true
-				it.RouteIface = iface
-				it.RouteReason = "SOA " + pattern
-				ips[i] = it
-			}
-		}
-	}
-
-	return ips
+	return res
 }
 
-func (s *ipRoutingHandler) reverseLookup(ctx context.Context, ip types.IPv4) (ok bool, ptr string, soa string) {
-	if ip.HasPrefix() {
-		return false, "", ""
+func (s *ipRoutingHandler) resolveReverseRecords(ctx context.Context, x *types.DomainLookup) {
+	if len(x.IPs) == 0 {
+		return
+	}
+	if len(x.IPs) == 1 {
+		s.reverseLookup(ctx, &x.IPs[0])
+		return
+	}
+	var wg sync.WaitGroup
+	for i := range x.IPs {
+		wg.Go(func() {
+			s.reverseLookup(ctx, &x.IPs[i])
+		})
+	}
+	wg.Wait()
+}
+
+func (s *ipRoutingHandler) resolveRouting(dl *types.DomainLookup) {
+	if ok, pattern, iface := s.ipRoutes.LookupHost(dl.Domain); ok {
+		dl.SetRouted(true, iface, pattern)
+		return
+	}
+	for _, it := range dl.CNames {
+		if ok, pattern, iface := s.ipRoutes.LookupHost(it.Name); ok {
+			dl.SetRouted(true, iface, "CNAME "+pattern)
+			return
+		}
 	}
 
-	p := strings.Split(ip.String(), ".")
-	slices.Reverse(p)
-	domain := strings.Join(p, ".") + ".in-addr.arpa."
+loop:
+	for i := range dl.IPs {
+		it := &dl.IPs[i]
+		if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok { // static IP
+			it.SetRouted(false, iface, pattern)
+			continue loop
+		}
+		for _, ptr := range it.PTR {
+			if ok, pattern, iface := s.ipRoutes.LookupHost(ptr.Name); ok {
+				it.SetRouted(true, iface, "PTR "+pattern)
+				continue loop
+			}
+		}
+		for _, soa := range it.SOA {
+			if ok, pattern, iface := s.ipRoutes.LookupHost(soa.Name); ok {
+				it.SetRouted(true, iface, "SOA "+pattern)
+				continue loop
+			}
+		}
+	}
+}
+
+func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainIP) {
+	ip := dip.IP
+	if ip.HasPrefix() { // network address, should not be
+		return
+	}
+
+	var sb strings.Builder
+	sb.Grow(32)
+	for i := 3; i >= 0; i-- {
+		sb.WriteString(strconv.Itoa(int(ip[i])))
+		sb.WriteByte('.')
+	}
+	sb.WriteString("in-addr.arpa.")
+	domain := sb.String()
 
 	req := &dns.Msg{}
 	req.SetQuestion(domain, dns.TypePTR)
@@ -151,68 +186,46 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, ip types.IPv4) (ok
 
 	if resp, err := s.handler.Handle(ctx, req); err != nil {
 		s.logger.Error("failed PTR request", "err", err, "domain", domain, "ip", ip.String())
-	} else if resp.Response {
-		if len(resp.Answer) > 0 {
-			if len(resp.Answer) > 1 {
-				s.logger.Warn("more than one PTR answer", "domain", domain, "ip", ip.String())
-			}
-			if v, ok := resp.Answer[0].(*dns.PTR); ok {
-				ptr = v.Ptr
-			}
-		}
-		if len(resp.Ns) > 0 {
-			if len(resp.Ns) > 1 {
-				s.logger.Warn("more than one NS records in PTR response", "domain", domain, "ip", ip.String())
-			}
-			if v, ok := resp.Ns[0].(*dns.SOA); ok {
-				soa = v.Ns
+	} else {
+		for _, it := range resp.Answer {
+			if v, ok := it.(*dns.PTR); ok {
+				dip.PTR = append(dip.PTR, types.DomainEntry[string]{
+					Name: v.Ptr,
+					TTL:  v.Hdr.Ttl,
+				})
 			}
 		}
-		return true, ptr, soa
-	}
-	return false, "", ""
-}
-
-func (s *ipRoutingHandler) buildResolvedIPs(ips []types.IPv4, routedByName bool, routingIface, routingPattern string) []types.ResolvedIP {
-	result := make([]types.ResolvedIP, len(ips))
-	for i, ip := range ips {
-		if ok, pattern, iface := s.ipRoutes.LookupIP(ip); ok {
-			result[i] = types.ResolvedIP{
-				IP:          ip,
-				RouteIface:  iface,
-				RouteReason: pattern,
+		for _, it := range resp.Ns {
+			if v, ok := it.(*dns.SOA); ok {
+				dip.SOA = append(dip.SOA, types.DomainEntry[string]{
+					Name: v.Ns,
+					TTL:  v.Hdr.Ttl,
+				})
 			}
-		} else {
-			result[i] = types.ResolvedIP{
-				IP:          ip,
-				RouteAdded:  routedByName,
-				RouteIface:  routingIface,
-				RouteReason: routingPattern,
-			}
+		}
+		if len(dip.PTR) == 0 && len(dip.SOA) == 0 {
+			s.logger.Warn("unexpected PTR response without PTR/SOA data", "domain", domain, "ip", ip.String())
 		}
 	}
-	return result
 }
 
-func (s *ipRoutingHandler) processResolvedIPs(ctx context.Context, domain string, ttl uint32, ips []types.ResolvedIP) {
-	slices.SortFunc(ips, func(a, b types.ResolvedIP) int {
+func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, st time.Time) {
+	slices.SortFunc(dl.IPs, func(a, b types.DomainIP) int {
 		return bytes.Compare(a.IP[:], b.IP[:])
 	})
 
-	res := types.DNSQuery{
-		Time:       time.Now(),
-		ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
-		Domain:     domain,
-		TTL:        max(ttl, 1),
-		IPs:        ips,
-	}
-	for i := range res.IPs {
-		it := &res.IPs[i]
-		s.dnsStore.Add(types.NewDNSRecord(res.Domain, it.IP, res.Time, int(res.TTL)))
+	for i := range dl.IPs {
+		it := &dl.IPs[i]
+		s.dnsStore.Add(types.NewDNSRecord(dl.Domain, it.IP, st, int(it.TTL)))
 		if it.RouteAdded {
 			it.RouteAdded = s.ipRoutes.AddRoute(ctx, it.IP, "routed: "+it.RouteReason)
 		}
 	}
 
-	s.stream.Append(res)
+	s.stream.Append(types.DNSQuery{
+		Time:         st,
+		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
+		DomainLookup: dl,
+		Duration:     time.Since(st).Seconds(),
+	})
 }
