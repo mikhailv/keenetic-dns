@@ -103,8 +103,9 @@ func (s *HTTPServer) createHandler() (http.Handler, error) {
 	mux.Handle("GET /api/dns-queries/ws", createStreamHandler(s.queryStream, wsLogger, s.filterQueries))
 	mux.Handle("GET /api/dns-raw-queries", s.wrapHandler(createListHandler(s.rawQueryStream, s.filterRawQueries)))
 	mux.Handle("GET /api/dns-raw-queries/ws", createStreamHandler(s.rawQueryStream, wsLogger, s.filterRawQueries))
-	mux.Handle("GET /app.js", staticFileHandler("app.js"))
-	mux.Handle("GET /", staticFileHandler("index.html"))
+	mux.Handle("GET /static/", webBuildDirectoryHandler())
+	mux.Handle("GET /favicon.svg", webBuildFileHandler("favicon.svg"))
+	mux.Handle("GET /", webBuildFileHandler("index.html"))
 
 	var handler http.Handler = mux
 	handler = cors.Default().Handler(handler)

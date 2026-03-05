@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f9d58"/>
+      <stop offset="100%" style="stop-color:#057a3a"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+<!--  <rect width="100" height="100" fill="url(#bg)"/>-->
+
+  <!-- Shield shape, no circle -->
+  <path d="M50 8 L82 22 L82 50 C82 73 68 89 50 95 C32 89 18 73 18 50 L18 22 Z"
+        fill="url(#shield)" 
+        stroke="white"
+        stroke-width="3"
+        filter="url(#glow)"/>
+  
+  <!-- Arrows (circular flow) -->
+  <g filter="url(#glow)" stroke="#4ade80" stroke-width="4" fill="none" stroke-linecap="round">
+    <!-- Top arc -->
+    <path d="M32 42 A26 26 0 0 1 50 30" opacity="0.9"/>
+    <path d="M50 30 L46 34 M50 30 L54 34"/>
+    
+    <!-- Right arc -->
+    <path d="M58 30 A26 26 0 0 1 70 48" opacity="0.9"/>
+    <path d="M70 48 L66 44 M70 48 L74 52"/>
+    
+    <!-- Bottom arc -->
+    <path d="M70 54 A26 26 0 0 1 50 70" opacity="0.9"/>
+    <path d="M50 70 L54 66 M50 70 L46 74"/>
+    
+    <!-- Left arc -->
+    <path d="M48 70 A26 26 0 0 1 32 52" opacity="0.9"/>
+    <path d="M32 52 L36 56 M32 52 L28 48"/>
+  </g>
+  
+  <!-- Center dot -->
+  <circle cx="50" cy="50" r="5" fill="#4ade80" filter="url(#glow)"/>
+</svg>

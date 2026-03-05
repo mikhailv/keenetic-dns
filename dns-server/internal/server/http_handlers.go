@@ -13,7 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/web/static"
+	"github.com/mikhailv/keenetic-dns/dns-server/web"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 )
 
@@ -141,8 +141,12 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 	})
 }
 
-type staticFileHandler string
+func webBuildFileHandler(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, web.BuildFS, path)
+	}
+}
 
-func (h staticFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	http.ServeFileFS(w, r, static.FS, string(h))
+func webBuildDirectoryHandler() http.Handler {
+	return http.FileServer(http.FS(web.BuildFS))
 }

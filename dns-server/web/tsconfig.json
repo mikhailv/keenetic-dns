@@ -1,34 +1,16 @@
 {
-  "compilerOptions": {
-    "target": "es2018",
-    "module": "esnext",
-    "lib": ["ES7", "DOM", "DOM.Iterable", "ES2015.Iterable", "ES2018.AsyncIterable", "ES2015.Generator", "ES2018.AsyncGenerator"],
-    "declaration": false,
-    "declarationMap": false,
-    "sourceMap": true,
-    "inlineSources": true,
-    "outDir": "./static",
-    "rootDir": "./src",
-    "strict": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitAny": false,
-    "noImplicitThis": true,
-    "moduleResolution": "node",
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "noImplicitOverride": true,
-    "plugins": [
-      {
-        "name": "ts-lit-plugin",
-        "strict": true
-      }
-    ]
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"allowJs": true,
+		"checkJs": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"moduleResolution": "bundler",
+		"target": "ESNext",
+		"module": "ESNext"
+	}
 }

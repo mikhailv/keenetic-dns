@@ -1,0 +1,36 @@
+@import 'bootstrap/dist/css/bootstrap.min.css';
+
+.table-sticky-header thead th {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+
+.animate-new-row {
+	animation: anim-appear 1s ease-out forwards;
+}
+
+.animate-new-row td {
+	animation: anim-highlight 4s ease-in forwards;
+}
+
+@keyframes anim-appear {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes anim-highlight {
+	0% {
+		background-color: #eff5ff;
+	}
+	90% {
+		background-color: #eff5ff;
+	}
+	100% {
+		background-color: transparent;
+	}
+}

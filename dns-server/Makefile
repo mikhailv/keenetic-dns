@@ -10,7 +10,7 @@ build: build-web build-bin
 
 .PHONY: build-web
 build-web:
-	cd web && npm run build
+	cd web && pnpm run build
 
 .PHONY: build-bin
 build-bin:
