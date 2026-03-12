@@ -24,8 +24,7 @@ type cachedHandler struct {
 func (s cachedHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackDuration("dns.cache.handle")()
 	if dnssvc.HasSingleQuestion(req) {
-		query := req.Question[0]
-		if resp := s.cache.Get(ctx, query); resp != nil {
+		if resp := s.cache.Get(ctx, req.Question[0]); resp != nil {
 			metrics.TrackStatus("dns.cache", "hit")
 			resp.SetReply(req)
 			return resp, nil
@@ -33,8 +32,8 @@ func (s cachedHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, erro
 		metrics.TrackStatus("dns.cache", "miss")
 		resp, err := s.handler.Handle(ctx, req)
 		// TODO: cache succeeded and failed requests separately
-		if err == nil && resp.Rcode == dns.RcodeSuccess {
-			s.cache.Put(ctx, query, resp)
+		if err == nil && resp.Rcode == dns.RcodeSuccess && len(resp.Answer) > 0 {
+			s.cache.Put(ctx, resp)
 		}
 		return resp, err
 	}

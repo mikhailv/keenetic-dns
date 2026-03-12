@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -84,8 +85,11 @@ func main() { //nolint:funlen // ignore
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService)
 	ipRoutes.Start(ctx)
 
-	dnsCache := NewMemoryDNSCache()
+	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))
 	defer closeCloser(dnsCache, "dns cache", logger)
+	defer dnsCacheSave()
+
+	go util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave)
 
 	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.History.DNSQuerySize)
 	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.History.DNSQuerySize)
@@ -215,6 +219,48 @@ func createResolver(providersConfig map[string]config.DNSProvider, logger *slog.
 		}
 	}
 	return NewMultiProviderResolver(providers), nil
+}
+
+func setupDNSCache(file string, logger *slog.Logger) (cache DNSCache, save func()) {
+	cache = NewMemoryDNSCache()
+	pcache, _ := cache.(PersistentDNSCache)
+	if pcache == nil {
+		return cache, func() {}
+	}
+
+	logger = logger.With("file", file)
+
+	if f, err := os.Open(file); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			logger.Error("failed to open file", "err", err)
+		}
+	} else if loaded, err := pcache.Load(f); err != nil {
+		_ = f.Close()
+		logger.Error("failed to load cache from file", "err", err)
+	} else {
+		_ = f.Close()
+		logger.Info("loaded from file", "records", loaded)
+	}
+
+	return cache, func() {
+		syncClose := func(f *os.File) {
+			if err := f.Sync(); err != nil {
+				logger.Error("failed to sync file", "err", err)
+			}
+			if err := f.Close(); err != nil {
+				logger.Error("failed to close file", "err", err)
+			}
+		}
+		if f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
+			logger.Error("failed to create cache file", "err", err)
+		} else if saved, err := pcache.Save(f); err != nil {
+			logger.Error("failed to save cache to file", "err", err)
+			syncClose(f)
+		} else {
+			logger.Info("saved to file", "records", saved)
+			syncClose(f)
+		}
+	}
 }
 
 func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {

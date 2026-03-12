@@ -73,12 +73,6 @@ type DNSProvider struct {
 	Hosts    Hosts `yaml:"hosts"`
 }
 
-type Cache struct {
-	Size        int           `yaml:"size"`
-	Negative    bool          `yaml:"negative"`
-	NegativeTTL time.Duration `yaml:"negative_ttl"`
-}
-
 type Storage struct {
 	Local *LocalStorage `yaml:"local"`
 }
