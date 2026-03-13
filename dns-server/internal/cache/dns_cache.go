@@ -197,7 +197,7 @@ func (s *dnsCacheEntry) Expired() bool {
 	return time.Now().After(s.ExpiresAt())
 }
 
-func (s dnsCacheEntry) Msg() *dns.Msg {
+func (s *dnsCacheEntry) Msg() *dns.Msg {
 	var res dns.Msg
 	if err := res.Unpack(s.bytes); err != nil {
 		return nil

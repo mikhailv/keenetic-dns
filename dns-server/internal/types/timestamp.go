@@ -1,0 +1,43 @@
+package types
+
+import (
+	"bytes"
+	"strconv"
+	"time"
+)
+
+type Timestamp int64
+
+func TimestampFromTime(t time.Time) Timestamp {
+	return Timestamp(t.UnixMilli())
+}
+
+func (t Timestamp) Time() time.Time {
+	return time.UnixMilli(int64(t))
+}
+
+func (t Timestamp) Add(d time.Duration) Timestamp {
+	return TimestampFromTime(t.Time().Add(d))
+}
+
+func (t Timestamp) MarshalText() (text []byte, err error) {
+	return t.Time().UTC().AppendFormat(make([]byte, 0, 24), time.RFC3339Nano), nil
+}
+
+func (t *Timestamp) UnmarshalText(text []byte) error {
+	if bytes.ContainsRune(text, 'T') { // parse as RFC3339
+		var v time.Time
+		if err := v.UnmarshalText(text); err != nil {
+			return err
+		}
+		*t = TimestampFromTime(v)
+		return nil
+	}
+
+	v, err := strconv.ParseInt(string(text), 10, 64)
+	if err != nil {
+		return err
+	}
+	*t = Timestamp(v)
+	return nil
+}

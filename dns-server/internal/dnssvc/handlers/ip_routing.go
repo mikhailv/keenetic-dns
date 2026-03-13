@@ -42,21 +42,21 @@ type ipRoutingHandler struct {
 }
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	st := time.Now()
+	resolveTime := types.TimestampFromTime(time.Now())
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp, st)
+		s.processTypeAResponse(ctx, resp, resolveTime)
 	}
 	return resp, err
 }
 
-func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, st time.Time) {
+func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolveTime types.Timestamp) {
 	domain := resp.Question[0].Name
 	res := s.parseResponse(domain, resp.Answer)
 	if len(res.IPs) > 0 {
 		s.resolveReverseRecords(ctx, &res)
 		s.resolveRouting(&res)
-		s.processDomainLookup(ctx, res, st)
+		s.processDomainLookup(ctx, res, resolveTime)
 	}
 }
 
@@ -209,23 +209,23 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 	}
 }
 
-func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, st time.Time) {
+func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, resolveTime types.Timestamp) {
 	slices.SortFunc(dl.IPs, func(a, b types.DomainIP) int {
 		return bytes.Compare(a.IP[:], b.IP[:])
 	})
 
 	for i := range dl.IPs {
 		it := &dl.IPs[i]
-		s.dnsStore.Add(types.NewDNSRecord(dl.Domain, it.IP, st, int(it.TTL)))
+		s.dnsStore.Add(types.NewDNSRecord(dl.Domain, it.IP, resolveTime, int(it.TTL)))
 		if it.RouteAdded {
 			it.RouteAdded = s.ipRoutes.AddRoute(ctx, it.IP, "routed: "+it.RouteReason)
 		}
 	}
 
 	s.stream.Append(types.DNSQuery{
-		Time:         st,
+		Time:         resolveTime,
 		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
 		DomainLookup: dl,
-		Duration:     time.Since(st).Seconds(),
+		Duration:     time.Since(resolveTime.Time()).Seconds(),
 	})
 }

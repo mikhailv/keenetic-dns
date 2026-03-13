@@ -14,11 +14,11 @@ type DNSRecordKey struct {
 
 type DNSRecord struct {
 	DNSRecordKey
-	Resolved time.Time `json:"resolved" tsv:"resolved"`
-	Expires  time.Time `json:"expires" tsv:"expires"`
+	Resolved Timestamp `json:"resolved" tsv:"resolved"`
+	Expires  Timestamp `json:"expires" tsv:"expires"`
 }
 
-func NewDNSRecord(domain string, ip IPv4, resolveTime time.Time, ttlSeconds int) DNSRecord {
+func NewDNSRecord(domain string, ip IPv4, resolveTime Timestamp, ttlSeconds int) DNSRecord {
 	return DNSRecord{
 		DNSRecordKey: DNSRecordKey{ip, domain},
 		Resolved:     resolveTime,
@@ -27,21 +27,21 @@ func NewDNSRecord(domain string, ip IPv4, resolveTime time.Time, ttlSeconds int)
 }
 
 func (r DNSRecord) Expired(extraTTL time.Duration) bool {
-	return time.Now().After(r.Expires.Add(extraTTL))
+	return time.Now().After(r.Expires.Time().Add(extraTTL))
 }
 
 func (r DNSRecord) TTL() time.Duration {
 	if r.Expired(0) {
 		return 0
 	}
-	return time.Until(r.Expires).Truncate(time.Second)
+	return time.Until(r.Expires.Time()).Truncate(time.Second)
 }
 
 func (r DNSRecord) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("domain", r.Domain),
 		slog.String("ip", r.IP.String()),
-		slog.Time("resolved", r.Resolved),
+		slog.Time("resolved", r.Resolved.Time()),
 		slog.Duration("ttl", r.TTL()),
 	)
 }
@@ -50,7 +50,7 @@ var _ stream.CursorAware = (*DNSQuery)(nil)
 
 type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
-	Time       time.Time     `json:"time"`
+	Time       Timestamp     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
 	Duration   float64       `json:"duration"`
 	DomainLookup
@@ -110,7 +110,7 @@ var _ stream.CursorAware = (*DNSRawQuery)(nil)
 
 type DNSRawQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
-	Time       time.Time     `json:"time"`
+	Time       Timestamp     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
 	Response   bool          `json:"response,omitempty"`
 	Text       string        `json:"text"`

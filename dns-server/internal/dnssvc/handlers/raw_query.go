@@ -37,7 +37,7 @@ func (s rawQueryHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, er
 
 func (s rawQueryHandler) appendRawQuery(ctx context.Context, response bool, text string) {
 	s.stream.Append(types.DNSRawQuery{
-		Time:       time.Now(),
+		Time:       types.TimestampFromTime(time.Now()),
 		ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
 		Response:   response,
 		Text:       text,
