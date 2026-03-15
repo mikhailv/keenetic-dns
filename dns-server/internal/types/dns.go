@@ -4,7 +4,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/miekg/dns"
+
 	"github.com/mikhailv/keenetic-dns/internal/stream"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type DNSRecordKey struct {
@@ -113,9 +116,33 @@ type DNSRawQuery struct {
 	Time       Timestamp     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
 	Response   bool          `json:"response,omitempty"`
-	Text       string        `json:"text"`
+	Msg        PackedMsg     `json:"msg"`
+	Error      error         `json:"error,omitempty"`
 }
 
 func (s *DNSRawQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
+}
+
+func (s *DNSRawQuery) String() string {
+	if s.Msg != nil {
+		return s.Msg.String()
+	}
+	return "ERROR: " + s.Error.Error()
+}
+
+type PackedMsg []byte
+
+func (m PackedMsg) Unpack() *dns.Msg {
+	var r dns.Msg
+	util.PanicIf(r.Unpack(m))
+	return &r
+}
+
+func (m PackedMsg) String() string {
+	return m.Unpack().String()
+}
+
+func (m PackedMsg) MarshalText() ([]byte, error) {
+	return []byte(m.String()), nil
 }

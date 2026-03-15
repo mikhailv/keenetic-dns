@@ -7,6 +7,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 var (
@@ -31,11 +33,7 @@ func newIPv4(ip net.IP, prefix int) (IPv4, error) {
 }
 
 func NewIPv4(ip net.IP) IPv4 {
-	r, err := newIPv4(ip.To4(), 32)
-	if err != nil {
-		panic(err)
-	}
-	return r
+	return util.UnwrapResult(newIPv4(ip.To4(), 32))
 }
 
 func ParseIPv4(s string) (IPv4, error) {
@@ -56,11 +54,7 @@ func ParseIPv4(s string) (IPv4, error) {
 }
 
 func MustParseIPv4(s string) IPv4 {
-	ip, err := ParseIPv4(s)
-	if err != nil {
-		panic(err)
-	}
-	return ip
+	return util.UnwrapResult(ParseIPv4(s))
 }
 
 func (ip IPv4) HasPrefix() bool {

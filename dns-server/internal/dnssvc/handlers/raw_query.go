@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/miekg/dns"
@@ -11,6 +10,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 func NewRawQueryHandler(handler dnssvc.Handler, stream stream.Stream[types.DNSRawQuery]) dnssvc.Handler {
@@ -25,21 +25,21 @@ type rawQueryHandler struct {
 }
 
 func (s rawQueryHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
-	s.appendRawQuery(ctx, false, msg.String())
+	s.appendQuery(ctx, msg, nil)
 	resp, err := s.handler.Handle(ctx, msg)
-	if err != nil {
-		s.appendRawQuery(ctx, true, fmt.Sprintf("ERROR: query (id: %d) failed: %v", msg.Id, err))
-	} else {
-		s.appendRawQuery(ctx, true, resp.String())
-	}
+	s.appendQuery(ctx, resp, err)
 	return resp, err
 }
 
-func (s rawQueryHandler) appendRawQuery(ctx context.Context, response bool, text string) {
-	s.stream.Append(types.DNSRawQuery{
+func (s rawQueryHandler) appendQuery(ctx context.Context, msg *dns.Msg, err error) {
+	q := types.DNSRawQuery{
 		Time:       types.TimestampFromTime(time.Now()),
 		ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
-		Response:   response,
-		Text:       text,
-	})
+		Response:   (msg != nil && msg.Response) || err != nil,
+		Error:      err,
+	}
+	if msg != nil {
+		q.Msg = util.UnwrapResult(msg.Pack())
+	}
+	s.stream.Append(q)
 }

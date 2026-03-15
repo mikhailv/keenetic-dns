@@ -18,7 +18,7 @@ func (s *HTTPServer) filterRawQueries(_ *http.Request, query url.Values) FilterF
 		if onlyResponses && !val.Response {
 			return false
 		}
-		if search != "" && !strings.Contains(val.Text, search) {
+		if search != "" && !strings.Contains(val.String(), search) {
 			return false
 		}
 		return true
