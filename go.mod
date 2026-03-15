@@ -4,7 +4,6 @@ go 1.25.1
 
 require (
 	connectrpc.com/connect v1.19.1
-	github.com/brutella/dnssd v1.2.14
 	github.com/coder/websocket v1.8.14
 	github.com/klauspost/compress v1.18.4
 	github.com/miekg/dns v1.1.72
@@ -29,8 +28,6 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/vishvananda/netlink v1.3.1 // indirect
-	github.com/vishvananda/netns v0.0.5 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
