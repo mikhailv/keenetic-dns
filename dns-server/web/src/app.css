@@ -1,5 +1,13 @@
 @import 'bootstrap/dist/css/bootstrap.min.css';
 
+[data-bs-theme='light'] {
+	--anim-highlight-bg: #eff5ff;
+}
+
+[data-bs-theme='dark'] {
+	--anim-highlight-bg: #292b2f;
+}
+
 .table-sticky-header thead th {
 	position: sticky;
 	top: 0;
@@ -25,10 +33,10 @@
 
 @keyframes anim-highlight {
 	0% {
-		background-color: #eff5ff;
+		background-color: var(--anim-highlight-bg);
 	}
 	90% {
-		background-color: #eff5ff;
+		background-color: var(--anim-highlight-bg);
 	}
 	100% {
 		background-color: transparent;
