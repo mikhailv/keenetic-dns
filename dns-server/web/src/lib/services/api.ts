@@ -1,6 +1,6 @@
-import type { DNSQuery, IPRoute } from '$lib/types';
-import { browser } from '$app/environment';
-import { type Stream, websocketStream } from '$lib/stream';
+import type { DNSQuery, IPRoute, LogEntry } from '$lib/types';
+import { createWebSocketStreamStore, type StreamStore } from '$lib/stores';
+import { baseURL } from '$lib/stores';
 
 interface ListResponse<T> {
 	items: T[];
@@ -44,9 +44,10 @@ export class APIService {
 		return data.items;
 	}
 
-	streamDNSQueries(preloadCount: number = 1, cursor: string = ''): Stream<DNSQuery[]> {
-		return websocketStream<DNSQuery[]>(
-			() => this.createDNSQueriesWebSocket(preloadCount, cursor),
+	createDNSQueryStreamStore(limit: number): StreamStore<DNSQuery> {
+		return createWebSocketStreamStore(
+			new URL(`${this.baseUrl}/api/dns-queries/ws`),
+			limit,
 			(data) => {
 				const res: StreamResponse<DNSQuery> = JSON.parse(data);
 				res.forEach((it) => (it.time = new Date(it.time)));
@@ -55,11 +56,13 @@ export class APIService {
 		);
 	}
 
-	createDNSQueriesWebSocket(preloadCount: number = 1, cursor: string = ''): WebSocket {
-		return new WebSocket(
-			`${this.baseUrl}/api/dns-queries/ws?preload_count=${preloadCount}&cursor=${cursor}`
-		);
+	createLogStreamStore(limit: number): StreamStore<LogEntry> {
+		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/logs/ws`), limit, (data) => {
+			const res: StreamResponse<LogEntry> = JSON.parse(data);
+			res.forEach((it) => (it.time = new Date(it.time)));
+			return res;
+		});
 	}
 }
 
-export const api = new APIService((browser ? localStorage['API_BASE_URL'] : '') ?? '');
+export const api = new APIService(baseURL.href);

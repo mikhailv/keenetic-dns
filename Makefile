@@ -1,6 +1,7 @@
 SSH_PATH ?= root@192.168.2.1:/opt
 SSH_PATH_KEENETIC = $(SSH_PATH)/keenetic-dns
 SSH_PORT ?= 22
+GOARCH ?= arm64
 
 .PHONY: all
 all: lint govulncheck build
@@ -10,15 +11,16 @@ build: build-agent build-dns-server
 
 .PHONY: build-agent
 build-agent:
-	GOARCH=arm64 $(MAKE) -C agent
+	GOARCH=$(GOARCH) $(MAKE) -C agent
 
 .PHONY: build-dns-server
 build-dns-server:
-	GOARCH=arm64 $(MAKE) -C dns-server
+	GOARCH=$(GOARCH) $(MAKE) -C dns-server
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run -v
+	$(MAKE) -C agent lint
+	$(MAKE) -C dns-server lint
 
 .PHONY: govulncheck
 govulncheck:

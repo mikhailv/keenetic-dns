@@ -2,55 +2,19 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/services/api';
 	import type { DNSQuery, DomainIP } from '$lib/types';
-	import { listenStream, type Stream } from '$lib/stream';
+	import type { StreamStore } from '$lib/stores';
 
 	const MAX_ITEMS = 200;
-	const USE_WS = false;
 
-	let queries = $state<DNSQuery[]>([]);
-	let error = $state<string | null>(null);
-
-	let ws: WebSocket | null = null;
-	let stream: Stream<DNSQuery[]> | null = null;
+	let stream: StreamStore<DNSQuery> = api.createDNSQueryStreamStore(MAX_ITEMS);
 
 	onMount(() => {
-		if (USE_WS) {
-			connectWebSocket();
-		} else {
-			stream = api.streamDNSQueries(MAX_ITEMS);
-			listenStream(stream, async (res) => {
-				if (res !== 'cancelled' && res.value) {
-					// Add new queries to the beginning, maintaining max items limit
-					queries = [...[...res.value].reverse(), ...queries].slice(0, MAX_ITEMS);
-				}
-			});
-		}
+		stream.start();
 	});
 
 	onDestroy(() => {
-		stream?.cancel();
-		ws?.close();
+		stream.stop();
 	});
-
-	function connectWebSocket() {
-		ws = api.createDNSQueriesWebSocket(MAX_ITEMS);
-
-		ws.onmessage = (event) => {
-			const data: DNSQuery[] = JSON.parse(event.data);
-			data.forEach((q) => (q.time = new Date(q.time)));
-			// Add new queries to the beginning, maintaining max items limit
-			queries = [...data.reverse(), ...queries].slice(0, MAX_ITEMS);
-		};
-
-		ws.onerror = () => {
-			error = 'WebSocket connection failed';
-		};
-
-		ws.onclose = () => {
-			// Auto-reconnect after 2 seconds
-			setTimeout(connectWebSocket, 2000);
-		};
-	}
 
 	function formatTime(date: Date): string {
 		return date.toTimeString().split(' ')[0];
@@ -69,8 +33,8 @@
 
 <h1>DNS Queries</h1>
 
-{#if error}
-	<div class="alert alert-danger" role="alert">{error}</div>
+{#if $stream.error}
+	<div class="alert alert-danger" role="alert">{$stream.error}</div>
 {/if}
 
 <div class="table-responsive">
@@ -87,9 +51,11 @@
 			</tr>
 		</thead>
 		<tbody class="table-group-divider">
-			{#each queries as query (query.cursor)}
+			{#each $stream.items as query (query.cursor)}
 				<tr class="animate-new-row">
-					<td title={query.time.toLocaleString()}>{formatTime(query.time)}</td>
+					<td title={query.time.toLocaleString()} style="font-size: 0.9rem"
+						>{formatTime(query.time)}</td
+					>
 					<td>{query.client_addr.split(':')[0]}</td>
 					<td>{query.domain}</td>
 					<td class="fw-light" style="font-size: 0.9rem">

@@ -10,7 +10,12 @@ build: build-web build-bin
 
 .PHONY: build-web
 build-web:
-	cd web && pnpm run build
+	$(MAKE) -C web build
+
+.PHONY: lint
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run -v
+	$(MAKE) -C web lint
 
 .PHONY: build-bin
 build-bin:

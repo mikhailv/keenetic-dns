@@ -40,5 +40,5 @@ export interface LogEntry {
 	time: Date;
 	level: string;
 	msg: string;
-	attrs: Record<string, string>;
+	attrs?: Record<string, string>;
 }
