@@ -19,6 +19,7 @@ type Handler interface {
 }
 
 type Resolver interface {
+	Name() string
 	Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error)
 	Close() error
 }

@@ -36,6 +36,10 @@ func NewMDNSClient(name string, address string, timeout time.Duration) dnssvc.Re
 	}
 }
 
+func (s *mdnsClient) Name() string {
+	return s.name
+}
+
 func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackNamedDuration("mdns_client.resolve", s.name)()
 	conn, err := s.connection()

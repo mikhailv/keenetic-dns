@@ -29,6 +29,10 @@ func NewDNSClient(name string, net string, address string, timeout time.Duration
 	}
 }
 
+func (s *dnsClient) Name() string {
+	return s.name
+}
+
 func (s *dnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackNamedDuration(s.client.Net+"_client.resolve", s.name)()
 	resp, _, err := s.client.ExchangeContext(ctx, msg, s.address)

@@ -8,20 +8,27 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 )
 
-func NewStaticHostResolver(hosts config.Hosts, ttl time.Duration) dnssvc.Resolver {
-	return staticHostResolver{hosts, ttl}
+func NewStaticHostResolver(name string, hosts config.Hosts, ttl time.Duration) dnssvc.Resolver {
+	return staticHostResolver{name, hosts, ttl}
 }
 
 var _ dnssvc.Resolver = staticHostResolver{}
 
 type staticHostResolver struct {
+	name  string
 	hosts config.Hosts
 	ttl   time.Duration
 }
 
+func (s staticHostResolver) Name() string {
+	return s.name
+}
+
 func (s staticHostResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
+	defer metrics.TrackNamedDuration("static_hosts.resolve", s.name)()
 	if dnssvc.HasSingleQuestion(req, dns.TypeA) {
 		domain := req.Question[0].Name
 		if ip, ok := s.hosts[domain]; ok {

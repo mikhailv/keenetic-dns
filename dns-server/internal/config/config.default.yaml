@@ -11,14 +11,12 @@ agent:
 
 dns:
   ttl_override: 60s
+  drop_ech: false
   providers: {}
-  domain_aliases: {}
-  hosts: {}
 
-cache:
-  size: 5000
-  negative: true
-  negative_ttl: 30s
+mdns:
+  enabled: false
+  services: []
 
 storage:
   local:

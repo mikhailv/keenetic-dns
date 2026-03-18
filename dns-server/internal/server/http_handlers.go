@@ -100,7 +100,7 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 
 		cursor, _ := stream.ParseCursor(query.Get("cursor"))
 		if cursor == 0 {
-			cursor = st.QueryBackward(math.MaxUint64, preloadCount+1, nil).LastCursor
+			cursor = st.QueryBackward(math.MaxUint64, preloadCount+1, filter).LastCursor
 		}
 
 		updateCh := make(chan struct{})

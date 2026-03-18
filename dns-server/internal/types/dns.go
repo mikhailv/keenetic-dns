@@ -56,6 +56,7 @@ type DNSQuery struct {
 	Time       Timestamp     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
 	Duration   float64       `json:"duration"`
+	ResolvedBy string        `json:"resolved_by"`
 	DomainLookup
 }
 

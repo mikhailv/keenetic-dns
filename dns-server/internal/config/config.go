@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -41,6 +43,7 @@ type Agent struct {
 
 type DNS struct {
 	TTLOverride time.Duration          `yaml:"ttl_override"`
+	DropECH     bool                   `yaml:"drop_ech"`
 	Providers   map[string]DNSProvider `yaml:"providers"`
 }
 
@@ -67,7 +70,6 @@ type DNSProvider struct {
 	Rewrite  map[string]string `yaml:"rewrite"`
 	Timeout  time.Duration     `yaml:"timeout"`
 	Types    []string          `yaml:"types"`
-	DropECH  bool              `yaml:"drop_ech"`
 	// one of following must be set
 	Endpoint *URL  `yaml:"endpoint"`
 	Hosts    Hosts `yaml:"hosts"`
@@ -146,7 +148,7 @@ func LoadConfig(file string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = yaml.NewDecoder(f).Decode(cfg); err != nil {
+	if err = newYAMLDecoder(f).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 	cfg.init()
@@ -155,10 +157,16 @@ func LoadConfig(file string) (*Config, error) {
 
 func defaultConfig() (*Config, error) {
 	cfg := &Config{}
-	if err := yaml.Unmarshal(defaultConfigYAML, cfg); err != nil {
+	if err := newYAMLDecoder(bytes.NewReader(defaultConfigYAML)).Decode(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load default config: %w", err)
 	}
 	return cfg, nil
+}
+
+func newYAMLDecoder(r io.Reader) *yaml.Decoder {
+	decoder := yaml.NewDecoder(r)
+	decoder.KnownFields(true)
+	return decoder
 }
 
 func (c *DNS) init() {

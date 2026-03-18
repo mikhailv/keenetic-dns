@@ -8,7 +8,7 @@ watch:
 
 .PHONY: serve
 serve:
-	pnpm run serve
+	pnpm run dev
 
 .PHONY: lint
 lint:

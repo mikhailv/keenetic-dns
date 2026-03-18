@@ -12,6 +12,8 @@ import (
 	"github.com/miekg/dns"
 )
 
+var errNoResolversProvided = errors.New("no resolvers provided")
+
 func NewMultiProviderResolver(providers []Provider) Resolver {
 	return multiProviderResolver(providers)
 }
@@ -19,6 +21,10 @@ func NewMultiProviderResolver(providers []Provider) Resolver {
 var _ Resolver = multiProviderResolver{}
 
 type multiProviderResolver []Provider
+
+func (s multiProviderResolver) Name() string {
+	return "multi_resolver"
+}
 
 func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	resolvers := map[int32][]Resolver{}
@@ -37,23 +43,25 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 	slices.Reverse(priorityKeys) // in descending order
 
 	var errs []error
-	var badResp *dns.Msg
+	var badResult *resolveJobResult
 
 	for _, key := range priorityKeys {
-		for resp, err := range resolveInParallel(ctx, resolvers[key], msg) {
-			if isSucceededResponse(resp) {
-				return resp, nil
+		for r := range resolveInParallel(ctx, resolvers[key], msg) {
+			if r.err != nil {
+				errs = append(errs, r.err)
+				continue
 			}
-			if err != nil {
-				errs = append(errs, err)
-			} else {
-				badResp = resp
+			if isSucceededResponse(r.resp) {
+				SetResolvedByInContext(ctx, r.resolver.Name())
+				return r.resp, nil
 			}
+			badResult = &r
 		}
 	}
 
-	if badResp != nil {
-		return badResp, nil
+	if badResult != nil {
+		SetResolvedByInContext(ctx, badResult.resolver.Name())
+		return badResult.resp, nil
 	}
 	return RefusedResponse(msg), errors.Join(errs...)
 }
@@ -66,26 +74,30 @@ func (s multiProviderResolver) Close() error {
 	return errors.Join(errs...)
 }
 
-func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) iter.Seq2[*dns.Msg, error] {
+type resolveJobResult struct {
+	resolver Resolver
+	resp     *dns.Msg
+	err      error
+}
+
+func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) iter.Seq[resolveJobResult] {
 	if len(resolvers) == 0 {
-		return noResolversProvided
+		return func(yield func(resolveJobResult) bool) {
+			yield(resolveJobResult{nil, nil, errNoResolversProvided})
+		}
 	}
 
-	return func(yield func(*dns.Msg, error) bool) {
+	return func(yield func(resolveJobResult) bool) {
 		if len(resolvers) == 1 {
-			yield(resolvers[0].Resolve(ctx, msg))
+			resp, err := resolvers[0].Resolve(ctx, msg)
+			yield(resolveJobResult{resolvers[0], resp, err})
 			return
-		}
-
-		type JobResult struct {
-			msg *dns.Msg
-			err error
 		}
 
 		var pending atomic.Int32
 		pending.Store(int32(len(resolvers)))
 
-		resultQueue := make(chan JobResult, len(resolvers))
+		resultQueue := make(chan resolveJobResult, len(resolvers))
 
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
@@ -93,23 +105,41 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 		for _, resolver := range resolvers {
 			go func() {
 				resp, err := resolver.Resolve(ctx, msg)
-				resultQueue <- JobResult{resp, err}
+				resultQueue <- resolveJobResult{resolver, resp, err}
 				if pending.Add(-1) == 0 {
 					close(resultQueue)
 				}
 			}()
 		}
 
-		for it := range resultQueue {
-			if !yield(it.msg, it.err) {
+		for res := range resultQueue {
+			if !yield(res) {
 				return
 			}
 		}
 	}
 }
 
-var errNoResolversProvided = errors.New("no resolvers provided")
+type contextKeyResolvedBy struct{}
 
-func noResolversProvided(yield func(*dns.Msg, error) bool) {
-	yield(nil, errNoResolversProvided)
+// WithResolvedByContext returns a context that can track which resolver handled a query.
+// Use SetResolvedByInContext to set the resolver name.
+func WithResolvedByContext(ctx context.Context) context.Context {
+	var resolvedBy string
+	return context.WithValue(ctx, contextKeyResolvedBy{}, &resolvedBy)
+}
+
+// SetResolvedByInContext sets the resolver name in the context.
+// The context must be initialized with WithResolvedByContext first.
+func SetResolvedByInContext(ctx context.Context, resolvedBy string) {
+	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*string); ok {
+		*v = resolvedBy
+	}
+}
+
+func GetResolvedBy(ctx context.Context) string {
+	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*string); ok {
+		return *v
+	}
+	return ""
 }

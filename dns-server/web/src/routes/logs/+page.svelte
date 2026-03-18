@@ -41,7 +41,7 @@
 			return '';
 		}
 		return Object.entries(attrs)
-			.map(([key, val]) => `${key}: ${val}`)
+			.map(([key, val]) => `${key}= ${val}`)
 			.join('\n');
 	}
 </script>
@@ -69,14 +69,13 @@
 		<tbody class="table-group-divider">
 			{#each $stream.items as entry (entry.cursor)}
 				<tr class="animate-new-row">
-					<td title={entry.time.toLocaleString()} style="font-size: 0.9rem"
+					<td title={entry.time.toLocaleString()} class="fw-light text-sm1"
 						>{formatTime(entry.time)}</td
 					>
-					<td class={getLevelClass(entry.level)} style="font-size: 0.8rem">{entry.level}</td>
-					<td class="fw-light">{entry.msg}</td>
-					<td class="fw-light" style="font-size: 0.9rem; white-space: pre-wrap">
-						{formatAttrs(entry.attrs)}
-					</td>
+					<td class="{getLevelClass(entry.level)} text-sm2">{entry.level}</td>
+					<td class="text-sm1">{entry.msg}</td>
+					<td class="fw-light text-sm1" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td
+					>
 				</tr>
 			{/each}
 		</tbody>

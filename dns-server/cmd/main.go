@@ -36,7 +36,6 @@ func main() { //nolint:funlen // ignore
 	configFile := flag.String("config", "./config.yaml", "config file path")
 	pprofAddr := flag.String("pprof", "", "pprof handler address")
 	debug := flag.Bool("debug", false, "enable debug logging")
-	verbose := flag.Bool("verbose", false, "enable verbose output")
 	flag.Parse()
 
 	cfg, err := config.LoadConfig(*configFile)
@@ -52,25 +51,6 @@ func main() { //nolint:funlen // ignore
 
 	routingCfg := config.NewDynamic(&cfg.Routing)
 	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
-
-	resolver, err := createResolver(cfg.DNS.Providers, logger)
-	if err != nil {
-		exitWithError(fmt.Errorf("failed to create resolver: %w", err))
-	}
-
-	settableResolver := NewSettableResolver(resolver)
-	defer closeCloser(settableResolver, "resolver", logger)
-
-	configWatcher := watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
-		routingCfg.Set(&cfg.Routing)
-		mdnsServicesCfg.Set(cfg.MDNS.Services)
-		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
-			logger.Error("failed to create resolver after config update", "err", err)
-		} else if err := settableResolver.SetResolver(newResolver); err != nil {
-			logger.Error("failed to close resolver", "err", err)
-		}
-	})
-	defer closeCloser(configWatcher, "config_watcher", logger)
 
 	logger.Info("config loaded", "route_timeout", cfg.Routing.RouteTimeout)
 
@@ -99,17 +79,35 @@ func main() { //nolint:funlen // ignore
 		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_addr", query.ClientAddr)
 	})
 
+	resolver, err := createResolver(cfg.DNS.Providers, logger)
+	if err != nil {
+		exitWithError(fmt.Errorf("failed to create resolver: %w", err))
+	}
+
+	settableResolver := NewSettableResolver(resolver)
+	defer closeCloser(settableResolver, "resolver", logger)
+
+	configWatcher := watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
+		routingCfg.Set(&cfg.Routing)
+		mdnsServicesCfg.Set(cfg.MDNS.Services)
+		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
+			logger.Error("failed to create resolver after config update", "err", err)
+		} else if err := settableResolver.SetResolver(newResolver); err != nil {
+			logger.Error("failed to close resolver", "err", err)
+		}
+	})
+	defer closeCloser(configWatcher, "config_watcher", logger)
+
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			EnableMiddleware(VerboseMiddleware, *verbose), // pre+post
-			NewRawQueryMiddleware(rawQueryStream),         // pre+post
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride), // post
-			SingleInflightMiddleware,                      // pre
+			NewRawQueryMiddleware(rawQueryStream),                // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),        // post
+			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH), // post
+			SingleInflightMiddleware,                             // pre
 			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream, log.WithPrefix(logger, "ip_routing")), // post
-			NewCacheMiddleware(dnsCache), // pre
-			ErrorSafeResponseMiddleware,  // post
+			ErrorSafeResponseMiddleware, // post
 		},
-		settableResolver,
+		NewCachedResolver("cache", settableResolver, dnsCache),
 	)
 
 	httpServer := NewHTTPServer(
@@ -326,21 +324,18 @@ func createDNSProvider(name string, cfg config.DNSProvider) (Provider, error) {
 
 	var resolver Resolver
 	if len(cfg.Hosts) > 0 {
-		resolver = NewStaticHostResolver(cfg.Hosts, time.Minute)
+		resolver = NewStaticHostResolver(name+" (static)", cfg.Hosts, time.Minute)
 	} else {
 		switch cfg.Endpoint.Scheme {
 		case "http", "https":
-			resolver = NewDoHClient(name, cfg.Endpoint.String(), cfg.Timeout)
+			resolver = NewDoHClient(name+" (DoH)", cfg.Endpoint.String(), cfg.Timeout)
 		case "dns", "dns+udp":
-			resolver = NewDNSClient(name, "udp", cfg.Endpoint.Host, cfg.Timeout)
+			resolver = NewDNSClient(name+" (udp)", "udp", cfg.Endpoint.Host, cfg.Timeout)
 		case "dns+tcp":
-			resolver = NewDNSClient(name, "tcp", cfg.Endpoint.Host, cfg.Timeout)
+			resolver = NewDNSClient(name+" (tcp)", "tcp", cfg.Endpoint.Host, cfg.Timeout)
 		case "mdns":
-			resolver = NewMDNSClient(name, cfg.Endpoint.Host, cfg.Timeout)
+			resolver = NewMDNSClient(name+" (mDNS)", cfg.Endpoint.Host, cfg.Timeout)
 		}
-	}
-	if cfg.DropECH {
-		resolver = NewMiddlewareChainResolver([]Middleware{DropECHMiddleware}, resolver)
 	}
 	return NewProvider(resolver, cfg)
 }

@@ -43,20 +43,21 @@ type ipRoutingHandler struct {
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	resolveTime := types.TimestampFromTime(time.Now())
+	ctx = dnssvc.WithResolvedByContext(ctx)
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp, resolveTime)
+		s.processTypeAResponse(ctx, resp, dnssvc.GetResolvedBy(ctx), resolveTime)
 	}
 	return resp, err
 }
 
-func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolveTime types.Timestamp) {
+func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolvedBy string, resolveTime types.Timestamp) {
 	domain := resp.Question[0].Name
 	res := s.parseResponse(domain, resp.Answer)
 	if len(res.IPs) > 0 {
 		s.resolveReverseRecords(ctx, &res)
 		s.resolveRouting(&res)
-		s.processDomainLookup(ctx, res, resolveTime)
+		s.processDomainLookup(ctx, res, resolvedBy, resolveTime)
 	}
 }
 
@@ -209,7 +210,7 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 	}
 }
 
-func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, resolveTime types.Timestamp) {
+func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, resolvedBy string, resolveTime types.Timestamp) {
 	slices.SortFunc(dl.IPs, func(a, b types.DomainIP) int {
 		return bytes.Compare(a.IP[:], b.IP[:])
 	})
@@ -227,5 +228,6 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.Dom
 		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
 		DomainLookup: dl,
 		Duration:     time.Since(resolveTime.Time()).Seconds(),
+		ResolvedBy:   resolvedBy,
 	})
 }

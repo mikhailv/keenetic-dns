@@ -1,19 +1,25 @@
-package dnssvc
+package resolvers
 
 import (
 	"context"
 	"sync"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 )
 
 type SettableResolver struct {
 	mu       sync.RWMutex
-	resolver Resolver
+	resolver dnssvc.Resolver
 }
 
-func NewSettableResolver(resolver Resolver) *SettableResolver {
+func NewSettableResolver(resolver dnssvc.Resolver) *SettableResolver {
 	return &SettableResolver{resolver: resolver}
+}
+
+func (s *SettableResolver) Name() string {
+	return s.resolver.Name()
 }
 
 func (s *SettableResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
@@ -28,7 +34,7 @@ func (s *SettableResolver) Close() error {
 	return s.resolver.Close()
 }
 
-func (s *SettableResolver) SetResolver(resolver Resolver) error {
+func (s *SettableResolver) SetResolver(resolver dnssvc.Resolver) error {
 	s.mu.Lock()
 	err := s.resolver.Close()
 	s.resolver = resolver

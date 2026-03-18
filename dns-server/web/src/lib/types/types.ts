@@ -15,6 +15,7 @@ export interface DNSQuery {
 	time: Date;
 	client_addr: string;
 	duration: number;
+	resolved_by: string;
 	domain: string;
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];

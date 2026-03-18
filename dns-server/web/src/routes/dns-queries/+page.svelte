@@ -53,22 +53,25 @@
 		<tbody class="table-group-divider">
 			{#each $stream.items as query (query.cursor)}
 				<tr class="animate-new-row">
-					<td title={query.time.toLocaleString()} style="font-size: 0.9rem"
+					<td title={query.time.toLocaleString()} class="fw-light text-sm1"
 						>{formatTime(query.time)}</td
 					>
-					<td>{query.client_addr.split(':')[0]}</td>
-					<td>{query.domain}</td>
-					<td class="fw-light" style="font-size: 0.9rem">
+					<td class="text-sm1">{query.client_addr.split(':')[0]}</td>
+					<td>
+						{query.domain}
+						<div class="fw-light text-sm2" title="resolved by">{query.resolved_by}</div>
+					</td>
+					<td class="fw-light text-sm2">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ttl}</div>
 						{/each}
 					</td>
-					<td class="fw-light" style="font-size: 0.9rem">
+					<td class="fw-light text-sm2">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ip}</div>
 						{/each}
 					</td>
-					<td class="fw-light" style="font-size: 0.9rem">
+					<td class="fw-light text-sm2">
 						{#each query.ips as ip (ip.ip)}
 							<div>
 								{ip.route_iface
@@ -77,7 +80,7 @@
 							</div>
 						{/each}
 					</td>
-					<td class="fw-light" style="font-size: 0.9rem">{query.duration}</td>
+					<td class="fw-light text-sm3">{query.duration}</td>
 				</tr>
 			{/each}
 		</tbody>

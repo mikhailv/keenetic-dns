@@ -34,6 +34,10 @@ func NewDoHClient(name string, url string, timeout time.Duration) dnssvc.Resolve
 	}
 }
 
+func (s *dohClient) Name() string {
+	return s.name
+}
+
 func (s *dohClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackNamedDuration("doh_client.resolve", s.name)()
 
