@@ -1,47 +1,28 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { api } from '$lib/services/api';
-	import type { IPRoute } from '$lib/types';
+	import { createRouteStore } from '$lib/stores';
 
-	let routes = $state<IPRoute[]>([]);
+	const ROUTES_RELOAD_INTERVAL = 5000;
+
+	const routes = createRouteStore();
 	let loading = $state(false);
-	let error = $state<string | null>(null);
-	let filter = $state('');
-	let refreshInterval: ReturnType<typeof setInterval>;
+	let deferredRefresh: ReturnType<typeof setTimeout>;
 
-	onMount(() => {
-		loadRoutes();
-		refreshInterval = setInterval(loadRoutes, 5000);
+	onMount(async () => {
+		await reload();
+		deferredRefresh = setInterval(reload, ROUTES_RELOAD_INTERVAL);
 	});
 
 	onDestroy(() => {
-		clearInterval(refreshInterval);
+		clearTimeout(deferredRefresh);
 	});
 
-	async function loadRoutes() {
+	async function reload() {
+		clearTimeout(deferredRefresh);
 		loading = true;
-		error = null;
-		try {
-			routes = await api.getRoutes();
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load routes';
-		} finally {
-			loading = false;
-		}
-	}
-
-	function filteredRoutes(): IPRoute[] {
-		const f = filter.trim().toLowerCase();
-		if (!f) return routes;
-
-		return routes.filter(
-			(route) =>
-				route.addr.toLowerCase().includes(f) ||
-				route.iface.toLowerCase().includes(f) ||
-				route.dns_records?.some(
-					(rec) => rec.domain.toLowerCase().includes(f) || rec.ip.toLowerCase().includes(f)
-				)
-		);
+		await routes.reload();
+		loading = false;
+		deferredRefresh = setTimeout(reload, ROUTES_RELOAD_INTERVAL);
 	}
 
 	function formatDuration(expires: Date): string {
@@ -68,7 +49,7 @@
 <h1>Routes</h1>
 
 <div class="hstack gap-3 mb-3">
-	<button class="btn btn-outline-primary btn-refresh" onclick={loadRoutes} disabled={loading}>
+	<button class="btn btn-outline-primary btn-refresh" onclick={reload} disabled={loading}>
 		{#if loading}
 			<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
 		{/if}
@@ -79,17 +60,16 @@
 		type="text"
 		placeholder="Filter..."
 		aria-label="Filter"
-		bind:value={filter}
-	/>
+		bind:value={routes.filter} />
 </div>
 
-{#if error}
-	<div class="alert alert-danger" role="alert">{error}</div>
-{:else if loading && routes.length === 0}
+{#if $routes.error}
+	<div class="alert alert-danger" role="alert">{$routes.error}</div>
+{:else if loading && $routes.total === 0}
 	<p class="text-body-secondary pt-1">Loading data...</p>
 {:else}
 	<table class="table table-sm table-hover caption-top">
-		<caption class="text-end pb-0">Routes: {filteredRoutes().length}</caption>
+		<caption class="text-end pb-0">Routes: {$routes.total}</caption>
 		<thead>
 			<tr>
 				<th scope="col" style="width: 1%">#</th>
@@ -101,7 +81,7 @@
 			</tr>
 		</thead>
 		<tbody class="table-group-divider">
-			{#each filteredRoutes() as route, i (route.addr + route.iface)}
+			{#each $routes.items as route, i (route.addr + route.iface)}
 				<tr>
 					<th scope="row">{i + 1}</th>
 					<td>{route.addr}</td>

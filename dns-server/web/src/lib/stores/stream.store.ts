@@ -1,13 +1,14 @@
-import { type Writable, writable } from 'svelte/store';
+import { type Readable, writable } from 'svelte/store';
+import { mutator } from '$lib/stores/util';
 
-export interface StreamStore<T> extends Writable<StreamStoreState<T>> {
+export interface StreamStore<T> extends Readable<Readonly<StreamStoreState<T>>> {
 	start(): void;
 	stop(): void;
 }
 
 interface StreamStoreState<T> {
 	items: T[];
-	error: string | null;
+	error?: string;
 }
 
 export function createWebSocketStreamStore<T extends { cursor: string }>(
@@ -15,56 +16,53 @@ export function createWebSocketStreamStore<T extends { cursor: string }>(
 	limit: number,
 	parser: (data: typeof MessageEvent.prototype.data) => T[]
 ): StreamStore<T> {
-	const { subscribe, set, update } = writable<StreamStoreState<T>>({
-		items: [],
-		error: null
+	const { subscribe, update } = writable<StreamStoreState<T>>({
+		items: []
 	});
+	const mutate = mutator(update);
 
 	const RECONNECT_TIMEOUT = 2000;
 
-	let stopped = true;
+	let connected = false;
 	let ws: WebSocket | null = null;
 	let cursor: string = '';
 
 	function connect() {
-		stopped = false;
+		connected = true;
 
 		url.searchParams.set('preload_count', String(limit));
 		url.searchParams.set('cursor', cursor);
 
 		ws = new WebSocket(url);
 		ws.onopen = () => {
-			update((v) => {
-				v.error = null;
-				return v;
-			});
+			mutate((v) => (v.error = undefined));
 		};
 		ws.onerror = () => {
-			update((v) => {
-				v.error = 'WebSocket connection failed';
-				return v;
-			});
+			mutate((v) => (v.error = 'WebSocket connection failed'));
 		};
 		ws.onclose = () => {
-			if (!stopped) {
+			if (connected) {
 				setTimeout(connect, RECONNECT_TIMEOUT);
 			}
 		};
 		ws.onmessage = (ev) => {
-			const data: T[] = parser(ev.data);
-			if (data.length) {
-				cursor = data[data.length - 1].cursor;
+			try {
+				const data: T[] = parser(ev.data);
+				if (data.length) {
+					cursor = data[data.length - 1].cursor;
+				}
+				mutate((v) => {
+					// Add new entries to the beginning, maintaining max items limit
+					v.items = [...data.reverse(), ...v.items].slice(0, limit);
+				});
+			} catch (e) {
+				mutate((v) => (v.error = `WebSocket data parse error: ${e}`));
 			}
-			update((v) => {
-				// Add new entries to the beginning, maintaining max items limit
-				v.items = [...data.reverse(), ...v.items].slice(0, limit);
-				return v;
-			});
 		};
 	}
 
 	function disconnect() {
-		stopped = true;
+		connected = false;
 		cursor = '';
 		ws?.close();
 		ws = null;
@@ -72,8 +70,6 @@ export function createWebSocketStreamStore<T extends { cursor: string }>(
 
 	return {
 		subscribe,
-		set,
-		update,
 		start: () => {
 			disconnect();
 			connect();

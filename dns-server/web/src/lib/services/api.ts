@@ -1,6 +1,5 @@
-import type { DNSQuery, IPRoute, LogEntry } from '$lib/types';
-import { createWebSocketStreamStore, type StreamStore } from '$lib/stores';
-import { baseURL } from '$lib/stores';
+import type { DNSQuery, HostInfo, IPRoute, LogEntry } from '$lib/types';
+import { baseURL, createWebSocketStreamStore, type StreamStore } from '$lib/stores';
 
 interface ListResponse<T> {
 	items: T[];
@@ -11,6 +10,20 @@ interface ListResponse<T> {
 	next_page_url: string;
 }
 
+interface HostsResponse {
+	hosts: HostInfo[];
+}
+
+export type ListResult<T> = {
+	items: T[];
+	error?: string;
+};
+
+export type DataResult<T> = {
+	data?: T;
+	error?: string;
+};
+
 type StreamResponse<T> = T[];
 
 export class APIService {
@@ -20,53 +33,77 @@ export class APIService {
 		this.baseUrl = baseUrl.replace(/\/$/, '');
 	}
 
-	async getRoutes(): Promise<IPRoute[]> {
-		const res = await fetch(`${this.baseUrl}/api/routes`);
-		if (!res.ok) {
-			throw new Error(`Failed to fetch routes: ${res.status}`);
-		}
-		const data: IPRoute[] = await res.json();
-		data.forEach((route) => {
-			route.added_at = new Date(route.added_at);
-			route.dns_records?.forEach((it) => {
-				it.resolved = new Date(it.resolved);
-				it.expires = new Date(it.expires);
-			});
-		});
-		return data;
+	async getRoutes(): Promise<ListResult<IPRoute>> {
+		const { data, error } = await requestData<IPRoute[]>(`${this.baseUrl}/api/routes`);
+		return {
+			items: data?.map(parseIPRoute) ?? [],
+			error
+		};
 	}
 
-	async getDNSQueries(backward: boolean, count: number): Promise<DNSQuery[]> {
-		const res = await fetch(
+	async getHosts(): Promise<ListResult<HostInfo>> {
+		const { data, error } = await requestData<HostsResponse>(`${this.baseUrl}/api/hosts`);
+		return {
+			items: data?.hosts ?? [],
+			error
+		};
+	}
+
+	async getDNSQueries(backward: boolean, count: number): Promise<ListResult<DNSQuery>> {
+		const { data, error } = await requestData<ListResponse<DNSQuery>>(
 			`${this.baseUrl}/api/dns-queries?backward=${backward ? 1 : 0}&count=${count}`
 		);
-		if (!res.ok) {
-			throw new Error(`Failed to fetch DNS queries: ${res.status}`);
-		}
-		const data: ListResponse<DNSQuery> = await res.json();
-		data.items.forEach((it) => (it.time = new Date(it.time)));
-		return data.items;
+		return {
+			items: data?.items?.map(parseDNSQuery) ?? [],
+			error
+		};
 	}
 
 	createDNSQueryStreamStore(limit: number): StreamStore<DNSQuery> {
 		return createWebSocketStreamStore(
 			new URL(`${this.baseUrl}/api/dns-queries/ws`),
 			limit,
-			(data) => {
-				const res: StreamResponse<DNSQuery> = JSON.parse(data);
-				res.forEach((it) => (it.time = new Date(it.time)));
-				return res;
-			}
+			(data) => (JSON.parse(data) as StreamResponse<DNSQuery>).map(parseDNSQuery)
 		);
 	}
 
 	createLogStreamStore(limit: number): StreamStore<LogEntry> {
-		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/logs/ws`), limit, (data) => {
-			const res: StreamResponse<LogEntry> = JSON.parse(data);
-			res.forEach((it) => (it.time = new Date(it.time)));
-			return res;
-		});
+		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/logs/ws`), limit, (data) =>
+			(JSON.parse(data) as StreamResponse<LogEntry>).map(parseLogEntry)
+		);
 	}
 }
 
 export const api = new APIService(baseURL.href);
+
+function parseIPRoute(it: IPRoute): IPRoute {
+	it.added_at = new Date(it.added_at);
+	it.dns_records?.forEach((it) => {
+		it.resolved = new Date(it.resolved);
+		it.expires = new Date(it.expires);
+	});
+	return it;
+}
+
+function parseDNSQuery(it: DNSQuery): DNSQuery {
+	it.time = new Date(it.time);
+	it.client_ip = it.client_addr.split(':')[0];
+	return it;
+}
+
+function parseLogEntry(it: LogEntry): LogEntry {
+	it.time = new Date(it.time);
+	return it;
+}
+
+async function requestData<T>(url: URL | string, opts?: RequestInit): Promise<DataResult<T>> {
+	try {
+		const resp = await fetch(url, opts);
+		if (!resp.ok) {
+			return { error: `unexpected status code: ${resp.status}` };
+		}
+		return { data: (await resp.json()) as T };
+	} catch (e) {
+		return { error: `Failed to load data: ${e}` };
+	}
+}

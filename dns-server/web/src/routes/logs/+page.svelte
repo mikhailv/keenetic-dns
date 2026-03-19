@@ -6,7 +6,7 @@
 
 	const MAX_ITEMS = 1000;
 
-	let stream: StreamStore<LogEntry> = api.createLogStreamStore(MAX_ITEMS);
+	const stream: StreamStore<LogEntry> = api.createLogStreamStore(MAX_ITEMS);
 
 	onMount(() => {
 		stream.start();
@@ -69,13 +69,10 @@
 		<tbody class="table-group-divider">
 			{#each $stream.items as entry (entry.cursor)}
 				<tr class="animate-new-row">
-					<td title={entry.time.toLocaleString()} class="fw-light text-sm1"
-						>{formatTime(entry.time)}</td
-					>
+					<td title={entry.time.toLocaleString()} class="fw-light text-sm1">{formatTime(entry.time)}</td>
 					<td class="{getLevelClass(entry.level)} text-sm2">{entry.level}</td>
 					<td class="text-sm1">{entry.msg}</td>
-					<td class="fw-light text-sm2" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td
-					>
+					<td class="fw-light text-sm2" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td>
 				</tr>
 			{/each}
 		</tbody>

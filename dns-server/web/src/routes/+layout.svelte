@@ -15,9 +15,7 @@
 <nav class="d-flex align-items-center mb-4">
 	<div class="nav nav-pills me-auto">
 		<a class="nav-link" class:active={page.url.pathname === '/routes'} href="/routes">Routes</a>
-		<a class="nav-link" class:active={page.url.pathname === '/dns-queries'} href="/dns-queries"
-			>DNS Queries</a
-		>
+		<a class="nav-link" class:active={page.url.pathname === '/dns-queries'} href="/dns-queries">DNS Queries</a>
 		<a class="nav-link" class:active={page.url.pathname === '/logs'} href="/logs">Logs</a>
 	</div>
 	<div class="btn-group btn-group-sm" role="group" aria-label="Theme">
@@ -26,8 +24,7 @@
 				type="button"
 				class="btn btn-outline-secondary"
 				class:active={$theme === t.value}
-				onclick={() => ($theme = t.value)}
-			>
+				onclick={() => ($theme = t.value)}>
 				{t.label}
 			</button>
 		{/each}
