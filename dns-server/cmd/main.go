@@ -323,7 +323,7 @@ func getDefaultInterface() (*net.Interface, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no suitable network interface found")
+	return nil, errors.New("no suitable network interface found")
 }
 
 func loadFromFile(file string, logger *slog.Logger, loader func(io.Reader) (int, error)) {

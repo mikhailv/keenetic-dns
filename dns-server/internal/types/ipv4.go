@@ -41,13 +41,13 @@ func NewIPv4(ip net.IP) IPv4 {
 func ParseIPv4(s string) (IPv4, error) {
 	var ip net.IP
 	var prefix int
-	if p := strings.IndexByte(s, '/'); p < 0 {
+	if before, after, ok := strings.Cut(s, "/"); !ok {
 		ip = net.ParseIP(s)
 		prefix = 32
 	} else {
-		ip = net.ParseIP(s[:p])
-		if n, err := strconv.Atoi(s[p+1:]); err != nil {
-			return IPv4{}, fmt.Errorf("failed to parse IP prefix '%s': %w", s[p+1:], err)
+		ip = net.ParseIP(before)
+		if n, err := strconv.Atoi(after); err != nil {
+			return IPv4{}, fmt.Errorf("failed to parse IP prefix '%s': %w", after, err)
 		} else {
 			prefix = n
 		}
@@ -108,7 +108,6 @@ func PrefixMatch(prefixIP, ip IPv4) bool {
 	}
 	m := prefixIP.Mask()
 	for i := range 4 {
-		//nolint:gosec // false positive `G602: slice index out of range`
 		if prefixIP[i]&m[i] != ip[i]&m[i] {
 			return false
 		}

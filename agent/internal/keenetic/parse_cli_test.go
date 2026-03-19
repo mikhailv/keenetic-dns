@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseOutput(t *testing.T) {
@@ -17,7 +18,7 @@ func TestParseOutput(t *testing.T) {
                    ip: 192.168.2.99
 
 [K`)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// assert
 		assert.Equal(t, []Object{
@@ -38,7 +39,7 @@ func TestParseOutput(t *testing.T) {
                        3010
              firmware: 4.03.C.6.0-5
 `)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// assert
 		assert.Equal(t, []Object{

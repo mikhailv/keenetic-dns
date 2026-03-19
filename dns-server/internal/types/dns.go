@@ -11,10 +11,10 @@ import (
 )
 
 type DNSRecord struct {
-	IP       IPv4      `json:"ip" tsv:"ip"`
-	Domain   string    `json:"domain" tsv:"domain"`
-	Resolved Timestamp `json:"resolved" tsv:"resolved"`
-	Expires  Timestamp `json:"expires" tsv:"expires"`
+	IP       IPv4      `json:"ip"`
+	Domain   string    `json:"domain"`
+	Resolved Timestamp `json:"resolved"`
+	Expires  Timestamp `json:"expires"`
 }
 
 func NewDNSRecord(domain string, ip IPv4, resolveTime Timestamp, ttlSeconds int) DNSRecord {

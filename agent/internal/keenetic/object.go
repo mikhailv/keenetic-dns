@@ -41,13 +41,13 @@ func (s Object) String() string {
 }
 
 func (s Object) get(prop string) any {
-	p := strings.Index(prop, ".")
-	if p == -1 {
+	before, after, ok := strings.Cut(prop, ".")
+	if !ok {
 		return s[prop]
 	}
-	if v, ok := s[prop[:p]]; ok {
+	if v, ok := s[before]; ok {
 		if c, ok := v.(Object); ok {
-			return c.get(prop[p+1:])
+			return c.get(after)
 		}
 	}
 	return nil

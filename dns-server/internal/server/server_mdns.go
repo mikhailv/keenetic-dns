@@ -82,7 +82,7 @@ func (s *MDNSServer) Serve(ctx context.Context) error {
 	return s.serveLoop(ctx, conn)
 }
 
-func (s *MDNSServer) serveLoop(ctx context.Context, conn *net.UDPConn) error {
+func (s *MDNSServer) serveLoop(ctx context.Context, conn *net.UDPConn) error { //nolint:unparam // it's ok that error is always nil
 	mcastDst := &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 	var buf [64 << 10]byte
@@ -172,7 +172,7 @@ func (s *MDNSServer) refresh() {
 	s.services.Store(&services)
 }
 
-func (s *MDNSServer) handleQuery(query *dns.Msg) *dns.Msg { //nolint:cyclop,funlen // ok
+func (s *MDNSServer) handleQuery(query *dns.Msg) *dns.Msg { //nolint:cyclop,funlen,gocognit // ok
 	services := *s.services.Load()
 
 	var resp dns.Msg

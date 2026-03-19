@@ -5,51 +5,36 @@ run:
   modules-download-mode: readonly
 
 linters:
-  default: none
-  enable:
-    - asasalint
-    - bidichk
-    - bodyclose
-    - containedctx
-    - cyclop
-    - decorder
-    - dogsled
-    - dupl
-    - durationcheck
-    - errcheck
-    - errchkjson
-    - errname
-    - errorlint
-    - exhaustive
-    - funlen
-    - gocheckcompilerdirectives
-    - gocritic
-    - gomoddirectives
-    - gomodguard
-    - goprintffuncname
-    - gosec
-    - gosmopolitan
-    - govet
-    - importas
-    - ineffassign
-    - lll
-    - loggercheck
-    - makezero
-    - mirror
-    - misspell
-    - nakedret
-    - nilerr
-    - noctx
-    - nolintlint
-    - prealloc
-    - predeclared
-    - reassign
-    - rowserrcheck
-    - sqlclosecheck
-    - staticcheck
-    - unconvert
-    - unused
-    - whitespace
+  default: all
+  disable:
+    - contextcheck
+    - depguard
+    - embeddedstructfieldcheck
+    - err113
+    - exhaustruct
+    - funcorder
+    - gochecknoglobals
+    - gochecknoinits
+    - godox
+    - inamedparam
+    - ireturn
+    - mnd
+    - musttag
+    - nlreturn
+    - noinlineerr
+    - nonamedreturns
+    - paralleltest
+    - promlinter # maybe?
+    - protogetter
+    - recvcheck
+    - revive
+    - tagalign
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck # maybe?
+    - wsl
+    - wsl_v5
   settings:
     cyclop:
       max-complexity: 20

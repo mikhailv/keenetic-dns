@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ func (s *networkService) HasRule(ctx context.Context, req *v1.HasRuleReq) (*v1.H
 func (s *networkService) AddRule(ctx context.Context, req *v1.AddRuleReq) (*v1.AddRuleResp, error) {
 	rule := req.Rule
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", fmt.Sprint(rule.Table), "priority", fmt.Sprint(rule.Priority))
+	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", u32ToStr(rule.Table), "priority", u32ToStr(rule.Priority))
 	res, err := s.runCmd(cmd)
 	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "", rule, "output", res.ErrOutput)
@@ -65,7 +66,7 @@ func (s *networkService) AddRule(ctx context.Context, req *v1.AddRuleReq) (*v1.A
 
 func (s *networkService) ListRoutes(ctx context.Context, req *v1.ListRoutesReq) (*v1.ListRoutesResp, error) {
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "list", "table", fmt.Sprint(req.Table))
+	cmd := exec.CommandContext(ctx, "ip", "route", "list", "table", u32ToStr(req.Table))
 	res, err := s.runCmd(cmd)
 	if err != nil {
 		s.logger.Error("failed to load route table", "err", err, "table", req.Table, "output", res.ErrOutput)
@@ -92,7 +93,7 @@ func (s *networkService) ListRoutes(ctx context.Context, req *v1.ListRoutesReq) 
 func (s *networkService) AddRoute(ctx context.Context, req *v1.AddRouteReq) (*v1.AddRouteResp, error) {
 	route := req.Route
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
+	cmd := exec.CommandContext(ctx, "ip", "route", "add", "table", u32ToStr(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
 	if err != nil && !strings.Contains(res.ErrOutput, "ip: RTNETLINK answers: File exists") {
 		s.logger.Error("failed to add route", "err", err, "", route, "output", res.ErrOutput)
@@ -105,7 +106,7 @@ func (s *networkService) AddRoute(ctx context.Context, req *v1.AddRouteReq) (*v1
 func (s *networkService) DeleteRoute(ctx context.Context, req *v1.DeleteRouteReq) (*v1.DeleteRouteResp, error) {
 	route := req.Route
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", fmt.Sprint(route.Table), route.Address, "dev", route.Iface)
+	cmd := exec.CommandContext(ctx, "ip", "route", "del", "table", u32ToStr(route.Table), route.Address, "dev", route.Iface)
 	res, err := s.runCmd(cmd)
 	if err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route, "output", res.ErrOutput)
@@ -246,4 +247,8 @@ func parseHostInfo(obj keenetic.Object) *v1.HostInfo {
 			}
 		}),
 	}
+}
+
+func u32ToStr(v uint32) string {
+	return strconv.FormatUint(uint64(v), 10)
 }

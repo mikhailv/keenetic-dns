@@ -45,7 +45,7 @@ func (s *dohClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error)
 	if err != nil {
 		return nil, fmt.Errorf("doh_client: failed to pack request message: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewBuffer(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("doh_client: failed to create request: %w", err)
 	}

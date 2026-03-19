@@ -13,7 +13,7 @@ build:
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run -v
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3 run -v
 
 .PHONY: generate-rpc
 generate-rpc:

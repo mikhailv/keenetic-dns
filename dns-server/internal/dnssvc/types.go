@@ -26,7 +26,7 @@ type Resolver interface {
 
 type Middleware func(handler Handler) Handler
 
-var NopMiddleware = func(handler Handler) Handler { return handler }
+func NopMiddleware(handler Handler) Handler { return handler }
 
 func NewMiddlewareChainHandler(middlewares []Middleware, handler Handler) Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
