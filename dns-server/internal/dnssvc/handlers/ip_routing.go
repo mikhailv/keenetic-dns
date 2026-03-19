@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"iter"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -62,27 +63,30 @@ func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.M
 	}
 }
 
-func (s *ipRoutingHandler) parseResponse(domain string, answers []dns.RR) *types.DomainLookup {
-	res := &types.DomainLookup{
-		Domain: domain,
-		IPs:    make([]types.DomainIP, 0, 10),
-	}
-	for _, rr := range answers {
-		if v, ok := rr.(*dns.A); ok && v.Hdr.Name == domain {
+func (s *ipRoutingHandler) parseResponse(domain string, records []dns.RR) *types.DomainLookup {
+	if count := seqSize(iterateARecords(domain, records)); count > 0 {
+		res := &types.DomainLookup{
+			Domain: domain,
+			IPs:    make([]types.DomainIP, 0, count),
+		}
+		for r := range iterateARecords(domain, records) {
 			res.IPs = append(res.IPs, types.DomainIP{
-				IP:  types.NewIPv4(v.A),
-				TTL: v.Hdr.Ttl,
+				IP:  types.NewIPv4(r.A),
+				TTL: r.Hdr.Ttl,
 			})
 		}
-	}
-	if len(res.IPs) > 0 {
 		return res
+	}
+
+	res := &types.DomainLookup{
+		Domain: domain,
+		IPs:    make([]types.DomainIP, 0, seqSize(iterateARecords("", records))),
 	}
 
 	ipsByName := map[string][]dns.A{}
 	cnameByName := map[string]dns.CNAME{}
 
-	for _, rr := range answers {
+	for _, rr := range records {
 		switch v := rr.(type) {
 		case *dns.A:
 			ipsByName[v.Hdr.Name] = append(ipsByName[v.Hdr.Name], *v)
@@ -135,7 +139,7 @@ func (s *ipRoutingHandler) resolveReverseRecords(ctx context.Context, dl *types.
 
 func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainIP) {
 	ip := dip.IP
-	if ip.HasPrefix() { // network address, should not be
+	if ip.HasPrefix() || isPrivateNetwork(ip) { // network address or address from private network should not be processed
 		return
 	}
 
@@ -192,4 +196,37 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 		Duration:     time.Since(dl.Time.Time()).Seconds(),
 		RoutedIPs:    routedIPs,
 	})
+}
+
+func iterateARecords(domain string, answers []dns.RR) iter.Seq[*dns.A] {
+	return func(yield func(*dns.A) bool) {
+		for _, rr := range answers {
+			if v, ok := rr.(*dns.A); ok && (domain == "" || v.Hdr.Name == domain) && !yield(v) {
+				break
+			}
+		}
+	}
+}
+
+func seqSize[T any](seq iter.Seq[T]) int {
+	size := 0
+	for range seq {
+		size++
+	}
+	return size
+}
+
+var privateNetworks = []types.IPv4{
+	types.MustParseIPv4("10.0.0.0/8"),
+	types.MustParseIPv4("172.16.0.0/12"),
+	types.MustParseIPv4("192.168.0.0/16"),
+}
+
+func isPrivateNetwork(ip types.IPv4) bool {
+	for _, network := range privateNetworks {
+		if types.PrefixMatch(network, ip) {
+			return true
+		}
+	}
+	return false
 }
