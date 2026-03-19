@@ -10,7 +10,8 @@ import (
 )
 
 func (s *HTTPServer) handleListRoutes(w http.ResponseWriter, req *http.Request) (int, error) {
-	routes := s.ipRoutes.Routes()
+	query := req.URL.Query()
+	routes := s.ipRoutes.Routes(queryParamSet(query, "with_lookups"))
 	slices.SortFunc(routes, func(a, b routing.IPRouteDNS) int {
 		if ap, bp := a.Addr.HasPrefix(), b.Addr.HasPrefix(); ap != bp {
 			if ap {

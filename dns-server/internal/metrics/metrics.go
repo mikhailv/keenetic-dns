@@ -40,3 +40,13 @@ func TrackNamedDuration(operation, name string) func() {
 func TrackStatus(operation, status string) {
 	operationStatusCounter.WithLabelValues(operation, status).Inc()
 }
+
+func TrackWeakMapSize(name string, getSize func() int) {
+	promauto.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace:   promNamespace,
+		Name:        "weakmap_size",
+		ConstLabels: map[string]string{"name": name},
+	}, func() float64 {
+		return float64(getSize())
+	})
+}

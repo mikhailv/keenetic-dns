@@ -14,6 +14,8 @@ import (
 var (
 	errInvalidIPv4Address = errors.New("invalid IPv4 address")
 	errInvalidIPv4Prefix  = errors.New("prefix must be between 0 and 32")
+
+	ipv4MarshalTextCache util.WeakMapVal[IPv4, []byte]
 )
 
 type IPv4 [5]byte
@@ -86,8 +88,9 @@ func (ip IPv4) AppendText(b []byte) []byte {
 }
 
 func (ip IPv4) MarshalText() ([]byte, error) {
-	var buf [20]byte
-	return ip.AppendText(buf[:0]), nil
+	return ipv4MarshalTextCache.GetOrCompute(ip, func() []byte {
+		return ip.AppendText(make([]byte, 0, 20))
+	}), nil
 }
 
 func (ip *IPv4) UnmarshalText(b []byte) error {

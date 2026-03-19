@@ -11,7 +11,7 @@ type SyncMap[K comparable, V any] struct {
 	m  map[K]V
 }
 
-func (s *SyncMap[K, V]) Set(k K, v V) {
+func (s *SyncMap[K, V]) Put(k K, v V) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.m == nil {
@@ -21,7 +21,7 @@ func (s *SyncMap[K, V]) Set(k K, v V) {
 	}
 }
 
-func (s *SyncMap[K, V]) SetIfAbsent(k K, v V) {
+func (s *SyncMap[K, V]) PutIfAbsent(k K, v V) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.m == nil {

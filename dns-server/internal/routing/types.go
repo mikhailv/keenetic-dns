@@ -31,7 +31,7 @@ type IPRouteDNS struct {
 	IPRoute
 	IPRouteInfo
 	DNSRecord []types.DNSRecord     `json:"dns_records,omitempty"`
-	Lookups   []*types.DomainLookup `json:"lookup,omitempty"`
+	Lookups   []*types.DomainLookup `json:"lookups,omitempty"`
 }
 
 func (r IPRouteDNS) LogValue() slog.Value {

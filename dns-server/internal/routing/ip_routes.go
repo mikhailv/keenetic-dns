@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -62,7 +63,7 @@ func (s *IPRouteController) lookupIP(ip types.IPv4) (ok bool, pattern, iface str
 	return false, "", ""
 }
 
-func (s *IPRouteController) Routes() []IPRouteDNS {
+func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for route, info := range s.routes.Snapshot() {
 		lookups := s.dnsStore.LookupIP(route.Addr)
@@ -77,7 +78,11 @@ func (s *IPRouteController) Routes() []IPRouteDNS {
 		slices.SortFunc(records, func(a, b types.DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
-		res = append(res, IPRouteDNS{route, info, records, lookups})
+		if withLookups {
+			res = append(res, IPRouteDNS{route, info, records, lookups})
+		} else {
+			res = append(res, IPRouteDNS{route, info, records, nil})
+		}
 	}
 	return res
 }
@@ -150,7 +155,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	defer log.Profile(s.logger, "reconcile routes")()
 
 	for _, it := range s.lookups.RemoveExpired() {
-		s.logger.Info("removed expired lookup", "domain", it.Domain, "added", it.Time, "resolved_by", it.ResolvedBy)
+		s.logger.Info("removed expired lookup", "domain", it.Domain, "added", formatAgo(it.Time.Time()), "resolved_by", it.ResolvedBy)
 	}
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
@@ -159,9 +164,9 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	added := 0
 	for route, info := range actual {
 		if definedRoutes.Has(route) {
-			s.routes.SetIfAbsent(route, info)
+			s.routes.PutIfAbsent(route, info)
 		} else if s.addRoute(ctx, route, info) {
-			s.routes.SetIfAbsent(route, info)
+			s.routes.PutIfAbsent(route, info)
 			added++
 		}
 	}
@@ -244,7 +249,7 @@ func (s *IPRouteController) AddRoutes(ctx context.Context, lookup types.DomainLo
 		}
 		info := IPRouteInfo{lookup.Domain, it.Reason, lookup.Time}
 		if s.addRoute(ctx, route, info) {
-			s.routes.SetIfAbsent(route, info)
+			s.routes.PutIfAbsent(route, info)
 			it.Added = true
 			res[ip] = it
 		}
@@ -277,7 +282,7 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute, reas
 		return false
 	}
 	if info, ok := s.routes.Get(route); ok {
-		s.logger.Info("route deleted", "", route, "reason", reason, "domain", info.Domain, "added", info.AddedAt.Time().String())
+		s.logger.Info("route deleted", "", route, "reason", reason, "domain", info.Domain, "added", formatAgo(info.AddedAt.Time()))
 	} else {
 		s.logger.Info("route deleted", "", route, "reason", reason)
 	}
@@ -377,4 +382,13 @@ func mapToAgentRoute(route IPRoute) *agentv1.Route {
 		Iface:   route.Iface,
 		Address: route.Addr.String(),
 	}
+}
+
+func formatAgo(t time.Time) string {
+	d := time.Since(t)
+	seconds := d.Seconds()
+	if seconds >= 60 {
+		return strconv.Itoa(int(seconds/60)) + " min ago"
+	}
+	return strconv.Itoa(int(seconds)) + " sec ago"
 }

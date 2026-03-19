@@ -69,9 +69,9 @@ type DomainLookup struct {
 }
 
 func (s *DomainLookup) Expired(extraTTL time.Duration) bool {
-	resolveTime := s.Time.Time()
+	ageSeconds := int(time.Since(s.Time.Time()).Seconds() - extraTTL.Seconds())
 	for _, ip := range s.IPs {
-		if ip.Expired(resolveTime, extraTTL) {
+		if ip.Expired(ageSeconds) {
 			return true
 		}
 	}
@@ -85,17 +85,17 @@ type DomainIP struct {
 	SOA []DomainEntry[string] `json:"soa,omitempty"`
 }
 
-func (s *DomainIP) Expired(resolveTime time.Time, extraTTL time.Duration) bool {
-	if time.Now().After(resolveTime.Add(time.Duration(s.TTL) * time.Second).Add(extraTTL)) {
+func (s *DomainIP) Expired(ageSeconds int) bool {
+	if int(s.TTL) <= ageSeconds {
 		return true
 	}
 	for _, it := range s.PTR {
-		if it.Expired(resolveTime, extraTTL) {
+		if it.Expired(ageSeconds) {
 			return true
 		}
 	}
 	for _, it := range s.SOA {
-		if it.Expired(resolveTime, extraTTL) {
+		if it.Expired(ageSeconds) {
 			return true
 		}
 	}
@@ -107,8 +107,8 @@ type DomainEntry[T comparable] struct {
 	TTL  uint32 `json:"ttl"`
 }
 
-func (s *DomainEntry[T]) Expired(resolveTime time.Time, extraTTL time.Duration) bool {
-	return time.Now().After(resolveTime.Add(time.Duration(s.TTL) * time.Second).Add(extraTTL))
+func (s *DomainEntry[T]) Expired(ageSeconds int) bool {
+	return int(s.TTL) <= ageSeconds
 }
 
 type ResolvedBy struct {

@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"strconv"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
+
+var timestampMarshalTextCache util.WeakMapVal[Timestamp, []byte]
 
 type Timestamp int64
 
@@ -24,7 +28,10 @@ func (t Timestamp) Add(d time.Duration) Timestamp {
 }
 
 func (t Timestamp) MarshalText() (text []byte, err error) {
-	return t.Time().UTC().AppendFormat(make([]byte, 0, 24), time.RFC3339Nano), nil
+	return timestampMarshalTextCache.GetOrCompute(t, func() []byte {
+		// 2026-03-19T10:08:13.653Z
+		return t.Time().UTC().AppendFormat(make([]byte, 0, 24), time.RFC3339Nano)
+	}), nil
 }
 
 func (t *Timestamp) UnmarshalText(text []byte) error {

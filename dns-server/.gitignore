@@ -1,5 +1,4 @@
 /dns-server
 /config*.yaml
-/domains.json
-/domains.tsv.gz
 /dns_cache.dat
+/dns_store.dat
