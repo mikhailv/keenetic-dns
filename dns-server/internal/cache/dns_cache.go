@@ -7,13 +7,14 @@ import (
 	"io"
 	"maps"
 	"math"
-	"slices"
 	"sync"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/klauspost/compress/gzip"
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type DNSCache interface {
@@ -130,7 +131,7 @@ func (s *memDNSCache) Load(reader io.Reader) (count int, err error) {
 
 func (s *memDNSCache) Save(writer io.Writer) (count int, err error) {
 	s.mu.RLock()
-	entries := slices.AppendSeq(make([]dnsCacheEntry, 0, len(s.entries)), maps.Values(s.entries))
+	entries := util.SeqToSlice(len(s.entries), maps.Values(s.entries))
 	s.mu.RUnlock()
 
 	bufWriter := bufio.NewWriter(writer)

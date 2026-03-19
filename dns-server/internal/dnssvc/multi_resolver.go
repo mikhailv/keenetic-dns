@@ -13,6 +13,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 var errNoResolversProvided = errors.New("no resolvers provided")
@@ -41,7 +42,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 		return RefusedResponse(msg), fmt.Errorf("unable to choose DNS provider to process query: %+v", *msg)
 	}
 
-	priorityKeys := slices.AppendSeq(make([]int32, 0, len(resolvers)), maps.Keys(resolvers))
+	priorityKeys := util.SeqToSlice(len(resolvers), maps.Keys(resolvers))
 	slices.Sort(priorityKeys)
 	slices.Reverse(priorityKeys) // in descending order
 

@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"bytes"
+	"cmp"
 	"iter"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,22 +13,19 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-type lookupKey struct {
-	IP     types.IPv4
-	Domain string
-}
+type lookupKey string
 
 type LookupIndex struct {
 	mu       sync.RWMutex
 	all      map[lookupKey]*types.DomainLookup
-	byIP     map[types.IPv4][]string
+	byIP     map[types.IPv4][]lookupKey
 	extraTTL time.Duration
 }
 
 func NewLookupIndex(extraTTL time.Duration) *LookupIndex {
 	return &LookupIndex{
 		all:      map[lookupKey]*types.DomainLookup{},
-		byIP:     map[types.IPv4][]string{},
+		byIP:     map[types.IPv4][]lookupKey{},
 		extraTTL: extraTTL,
 	}
 }
@@ -40,17 +40,16 @@ func (s *LookupIndex) Clear() {
 func (s *LookupIndex) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	// TODO: very ineffective, improve it
-	return len(s.Snapshot())
+	return len(s.all)
 }
 
-func (s *LookupIndex) LookupIP(ip types.IPv4) []*types.DomainLookup {
+func (s *LookupIndex) LookupByIP(ip types.IPv4) []*types.DomainLookup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	domains := s.byIP[ip]
-	res := make([]*types.DomainLookup, 0, len(domains))
-	for _, domain := range domains {
-		rec := s.all[lookupKey{ip, domain}]
+	keys := s.byIP[ip]
+	res := make([]*types.DomainLookup, 0, len(keys))
+	for _, key := range keys {
+		rec := s.all[key]
 		if !rec.Expired(s.extraTTL) {
 			res = append(res, rec)
 		}
@@ -64,13 +63,10 @@ func (s *LookupIndex) Add(rec *types.DomainLookup) bool {
 	if rec.Expired(s.extraTTL) {
 		return false
 	}
+	key := makeLookupKey(rec)
+	s.all[key] = rec
 	for _, it := range rec.IPs {
-		s.all[lookupKey{it.IP, rec.Domain}] = rec
-		domains := s.byIP[it.IP]
-		domains = append(domains, rec.Domain)
-		slices.Sort(domains)
-		domains = slices.Compact(domains)
-		s.byIP[it.IP] = domains
+		s.byIP[it.IP] = appendUnique(s.byIP[it.IP], key)
 	}
 	return true
 }
@@ -82,14 +78,15 @@ func (s *LookupIndex) Remove(rec *types.DomainLookup) {
 }
 
 func (s *LookupIndex) remove(rec *types.DomainLookup) {
+	key := makeLookupKey(rec)
+	delete(s.all, key)
 	for _, it := range rec.IPs {
-		delete(s.all, lookupKey{it.IP, rec.Domain})
-		if domains, ok := s.byIP[it.IP]; ok {
-			domains = slices.DeleteFunc(domains, func(s string) bool { return s == rec.Domain })
-			if len(domains) == 0 {
+		if keys, ok := s.byIP[it.IP]; ok {
+			keys = slices.DeleteFunc(keys, func(it lookupKey) bool { return it == key })
+			if len(keys) == 0 {
 				delete(s.byIP, it.IP)
 			} else {
-				s.byIP[it.IP] = domains
+				s.byIP[it.IP] = keys
 			}
 		}
 	}
@@ -108,20 +105,22 @@ func (s *LookupIndex) RemoveExpired() []*types.DomainLookup {
 	return removed
 }
 
-func (s *LookupIndex) Snapshot() []*types.DomainLookup {
+func (s *LookupIndex) Values() []*types.DomainLookup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var res util.Set[*types.DomainLookup]
-	for _, it := range s.all {
-		res.Add(it)
-	}
-	return res.Values()
+	return util.SeqToSlice(len(s.all), s.iterator(false))
 }
 
 func (s *LookupIndex) Iterator() iter.Seq[*types.DomainLookup] {
+	return s.iterator(true)
+}
+
+func (s *LookupIndex) iterator(withLock bool) iter.Seq[*types.DomainLookup] {
 	return func(yield func(*types.DomainLookup) bool) {
-		s.mu.RLock()
-		defer s.mu.RUnlock()
+		if withLock {
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+		}
 		for _, r := range s.all {
 			if r.Expired(s.extraTTL) {
 				continue
@@ -131,4 +130,28 @@ func (s *LookupIndex) Iterator() iter.Seq[*types.DomainLookup] {
 			}
 		}
 	}
+}
+
+func makeLookupKey(dl *types.DomainLookup) lookupKey {
+	ips := make([][4]byte, len(dl.IPs))
+	for i := range dl.IPs {
+		ips[i] = [4]byte(dl.IPs[i].IP[:4])
+	}
+	slices.SortFunc(ips, func(a, b [4]byte) int {
+		return bytes.Compare(a[:], b[:])
+	})
+	var sb strings.Builder
+	sb.Grow(len(dl.Domain) + 5*len(ips))
+	sb.WriteString(dl.Domain)
+	for _, ip := range ips {
+		sb.WriteByte(0)
+		sb.Write(ip[:])
+	}
+	return lookupKey(sb.String())
+}
+
+func appendUnique[T cmp.Ordered, S ~[]T](values S, value T) S {
+	values = append(values, value)
+	slices.Sort(values)
+	return slices.Compact(values)
 }

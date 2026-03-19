@@ -23,8 +23,8 @@ func NewDNSStore(extraTTL time.Duration) *DNSStore {
 	}
 }
 
-func (s *DNSStore) LookupIP(ip types.IPv4) []*types.DomainLookup {
-	return s.index.LookupIP(ip)
+func (s *DNSStore) LookupByIP(ip types.IPv4) []*types.DomainLookup {
+	return s.index.LookupByIP(ip)
 }
 
 func (s *DNSStore) Add(rec *types.DomainLookup) {

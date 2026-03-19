@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"maps"
 	"slices"
 	"strconv"
 	"sync"
@@ -66,15 +67,21 @@ func (s *IPRouteController) lookupIP(ip types.IPv4) (ok bool, pattern, iface str
 func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for route, info := range s.routes.Snapshot() {
-		lookups := s.dnsStore.LookupIP(route.Addr)
-		records := make([]types.DNSRecord, 0, len(lookups))
+		lookups := s.lookups.LookupByIP(route.Addr)
+		recordSet := make(map[string]types.DNSRecord, len(lookups))
 		for _, l := range lookups {
+			if _, ok := recordSet[l.Domain]; ok {
+				continue
+			}
 			for _, it := range l.IPs {
-				if it.IP == route.Addr {
-					records = append(records, types.NewDNSRecord(l.Domain, it.IP, l.Time, int(it.TTL)))
+				if it.IP != route.Addr {
+					continue
 				}
+				recordSet[l.Domain] = types.NewDNSRecord(l.Domain, it.IP, l.Time, int(it.TTL))
+				break
 			}
 		}
+		records := util.SeqToSlice(len(recordSet), maps.Values(recordSet))
 		slices.SortFunc(records, func(a, b types.DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
@@ -155,7 +162,8 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	defer log.Profile(s.logger, "reconcile routes")()
 
 	for _, it := range s.lookups.RemoveExpired() {
-		s.logger.Info("removed expired lookup", "domain", it.Domain, "added", formatAgo(it.Time.Time()), "resolved_by", it.ResolvedBy)
+		s.logger.Info("removed expired lookup", "domain", it.Domain,
+			"added", formatAgo(it.Time.Time()), "resolved_by", it.ResolvedBy.Resolver)
 	}
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
@@ -201,7 +209,7 @@ func (s *IPRouteController) partitionRoutes(
 	}
 
 	// Partition routes from DNS records.
-	for _, dl := range s.lookups.Snapshot() {
+	for _, dl := range s.lookups.Values() {
 		routedIPs := s.resolveRouting(dl)
 		if len(routedIPs) == 0 {
 			s.lookups.Remove(dl)
