@@ -56,7 +56,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 				continue
 			}
 			if isSucceededResponse(r.resp) {
-				SetResolvedByInContext(ctx, r.resolver.Name(), r.duration)
+				SetResolverInfoInContext(ctx, r.resolver.Name(), r.duration)
 				return r.resp, nil
 			}
 			badResult = &r
@@ -64,7 +64,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 	}
 
 	if badResult != nil {
-		SetResolvedByInContext(ctx, badResult.resolver.Name(), badResult.duration)
+		SetResolverInfoInContext(ctx, badResult.resolver.Name(), badResult.duration)
 		return badResult.resp, nil
 	}
 	return RefusedResponse(msg), errors.Join(errs...)
@@ -131,23 +131,23 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 
 type contextKeyResolvedBy struct{}
 
-// WithResolvedByContext returns a context that can track which resolver handled a query.
-// Use SetResolvedByInContext to set the resolver name.
-func WithResolvedByContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKeyResolvedBy{}, &types.ResolvedBy{})
+// WithResolverInfoContext returns a context that can track which resolver handled a query.
+// Use SetResolverInfoInContext to set the resolver name.
+func WithResolverInfoContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKeyResolvedBy{}, &types.ResolverInfo{})
 }
 
-// SetResolvedByInContext sets the resolver name in the context.
-// The context must be initialized with WithResolvedByContext first.
-func SetResolvedByInContext(ctx context.Context, resolver string, duration time.Duration) {
-	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolvedBy); ok {
-		*v = types.ResolvedBy{Resolver: resolver, Duration: duration.Seconds()}
+// SetResolverInfoInContext sets the resolver name and resolution duration in the context.
+// The context must be initialized with WithResolverInfoContext first.
+func SetResolverInfoInContext(ctx context.Context, resolver string, duration time.Duration) {
+	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolverInfo); ok {
+		*v = types.ResolverInfo{Name: resolver, Duration: duration.Seconds()}
 	}
 }
 
-func GetResolvedBy(ctx context.Context) types.ResolvedBy {
-	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolvedBy); ok {
+func GetResolverInfo(ctx context.Context) types.ResolverInfo {
+	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolverInfo); ok {
 		return *v
 	}
-	return types.ResolvedBy{}
+	return types.ResolverInfo{}
 }

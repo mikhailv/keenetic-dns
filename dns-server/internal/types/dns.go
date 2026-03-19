@@ -61,11 +61,11 @@ func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 }
 
 type DomainLookup struct {
-	Time       Timestamp             `json:"time"`
-	ResolvedBy ResolvedBy            `json:"resolved_by"`
-	Domain     string                `json:"domain"`
-	CNames     []DomainEntry[string] `json:"cnames,omitempty"`
-	IPs        []DomainIP            `json:"ips"`
+	Time     Timestamp             `json:"time"`
+	Resolver ResolverInfo          `json:"resolver"`
+	Domain   string                `json:"domain"`
+	CNames   []DomainEntry[string] `json:"cnames,omitempty"`
+	IPs      []DomainIP            `json:"ips"`
 }
 
 func (s *DomainLookup) Expired(extraTTL time.Duration) bool {
@@ -79,10 +79,11 @@ func (s *DomainLookup) Expired(extraTTL time.Duration) bool {
 }
 
 type DomainIP struct {
-	IP  IPv4                  `json:"ip"`
-	TTL uint32                `json:"ttl"`
-	PTR []DomainEntry[string] `json:"ptr,omitempty"`
-	SOA []DomainEntry[string] `json:"soa,omitempty"`
+	IP          IPv4                  `json:"ip"`
+	TTL         uint32                `json:"ttl"`
+	PTR         []DomainEntry[string] `json:"ptr,omitempty"`
+	SOA         []DomainEntry[string] `json:"soa,omitempty"`
+	PTRResolver ResolverInfo          `json:"ptr_resolver"`
 }
 
 func (s *DomainIP) Expired(ageSeconds int) bool {
@@ -111,8 +112,8 @@ func (s *DomainEntry[T]) Expired(ageSeconds int) bool {
 	return int(s.TTL) <= ageSeconds
 }
 
-type ResolvedBy struct {
-	Resolver string  `json:"resolver"`
+type ResolverInfo struct {
+	Name     string  `json:"name"`
 	Duration float64 `json:"duration"`
 }
 

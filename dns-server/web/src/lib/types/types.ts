@@ -19,14 +19,16 @@ export interface DNSQuery {
 	time: Date;
 	client_addr: string;
 	duration: number;
-	resolved_by: {
-		resolver: string;
-		duration: number;
-	};
+	resolver: ResolverInfo;
 	domain: string;
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];
 	routed_ips?: Record<string, RoutedIP>;
+}
+
+export interface ResolverInfo {
+	name: string;
+	duration: number;
 }
 
 export interface DomainEntry<T> {
@@ -39,6 +41,7 @@ export interface DomainIP {
 	ttl: number;
 	ptr?: DomainEntry<string>[];
 	soa?: DomainEntry<string>[];
+	ptr_resolver: ResolverInfo;
 }
 
 export interface RoutedIP {

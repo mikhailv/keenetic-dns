@@ -20,10 +20,23 @@
 		return date.toTimeString().split(' ')[0];
 	}
 
+	function formatMilli(seconds: number): string {
+		return (seconds * 1000).toFixed(2);
+	}
+
 	function ipTitle(ip: DomainIP): string {
 		const ptrInfo = ip.ptr?.map((p) => `PTR: ${p.name} (${p.ttl})`).join('\n') ?? '';
 		const soaInfo = ip.soa?.map((s) => `SOA: ${s.name} (${s.ttl})`).join('\n') ?? '';
-		return `IP: ${ip.ip}\nTTL: ${ip.ttl}\n${ptrInfo}${soaInfo}`;
+		return [
+			`IP: ${ip.ip}`,
+			`TTL: ${ip.ttl}`,
+			ptrInfo,
+			soaInfo,
+			`Resolver: ${ip.ptr_resolver.name}`,
+			`Duration: ${formatMilli(ip.ptr_resolver.duration)} ms`
+		]
+			.filter((s) => s !== '')
+			.join('\n');
 	}
 </script>
 
@@ -59,8 +72,8 @@
 					<td class="text-sm1">{query.client_addr.split(':')[0]}</td>
 					<td>
 						{query.domain}
-						<div class="fw-light text-sm2" title="resolved by">
-							{query.resolved_by.resolver} / {(query.resolved_by.duration * 1000).toFixed(2)} ms
+						<div class="fw-light text-sm2" title="resolver">
+							{query.resolver.name} / {formatMilli(query.resolver.duration)} ms
 						</div>
 					</td>
 					<td class="fw-light text-sm1">
@@ -81,7 +94,7 @@
 							</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm3">{(query.duration * 1000).toFixed(2)} ms</td>
+					<td class="fw-light text-sm3">{formatMilli(query.duration)} ms</td>
 				</tr>
 			{/each}
 		</tbody>

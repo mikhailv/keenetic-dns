@@ -163,7 +163,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 
 	for _, it := range s.lookups.RemoveExpired() {
 		s.logger.Info("removed expired lookup", "domain", it.Domain,
-			"added", formatAgo(it.Time.Time()), "resolved_by", it.ResolvedBy.Resolver)
+			"added", formatAgo(it.Time.Time()), "resolver", it.Resolver.Name)
 	}
 
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)

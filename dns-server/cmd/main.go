@@ -363,5 +363,5 @@ func saveToFile(file string, logger *slog.Logger, saver func(io.Writer) (int, er
 func measure[T any](fn func() (T, error)) (T, time.Duration, error) {
 	st := time.Now()
 	r, err := fn()
-	return r, time.Since(st), err
+	return r, time.Since(st).Truncate(time.Microsecond), err
 }

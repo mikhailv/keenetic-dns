@@ -44,19 +44,19 @@ type ipRoutingHandler struct {
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	resolveTime := types.TimestampFromTime(time.Now())
-	ctx = dnssvc.WithResolvedByContext(ctx)
+	ctx = dnssvc.WithResolverInfoContext(ctx)
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp, resolveTime, dnssvc.GetResolvedBy(ctx))
+		s.processTypeAResponse(ctx, resp, resolveTime, dnssvc.GetResolverInfo(ctx))
 	}
 	return resp, err
 }
 
-func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolveTime types.Timestamp, resolvedBy types.ResolvedBy) {
+func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolveTime types.Timestamp, resolver types.ResolverInfo) {
 	domain := resp.Question[0].Name
 	dl := s.parseResponse(domain, resp.Answer)
 	dl.Time = resolveTime
-	dl.ResolvedBy = resolvedBy
+	dl.Resolver = resolver
 	if len(dl.IPs) > 0 {
 		s.resolveReverseRecords(ctx, dl)
 		s.processDomainLookup(ctx, dl)
@@ -156,28 +156,32 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 	req.SetQuestion(domain, dns.TypePTR)
 	req.RecursionDesired = true
 
-	if resp, err := s.handler.Handle(ctx, req); err != nil {
+	ctx = dnssvc.WithResolverInfoContext(ctx)
+	resp, err := s.handler.Handle(ctx, req)
+	if err != nil {
 		s.logger.Error("failed PTR request", "err", err, "domain", domain, "ip", ip.String())
-	} else {
-		for _, it := range resp.Answer {
-			if v, ok := it.(*dns.PTR); ok {
-				dip.PTR = append(dip.PTR, types.DomainEntry[string]{
-					Name: v.Ptr,
-					TTL:  v.Hdr.Ttl,
-				})
-			}
+		return
+	}
+	dip.PTRResolver = dnssvc.GetResolverInfo(ctx)
+
+	for _, it := range resp.Answer {
+		if v, ok := it.(*dns.PTR); ok {
+			dip.PTR = append(dip.PTR, types.DomainEntry[string]{
+				Name: v.Ptr,
+				TTL:  v.Hdr.Ttl,
+			})
 		}
-		for _, it := range resp.Ns {
-			if v, ok := it.(*dns.SOA); ok {
-				dip.SOA = append(dip.SOA, types.DomainEntry[string]{
-					Name: v.Ns,
-					TTL:  v.Hdr.Ttl,
-				})
-			}
+	}
+	for _, it := range resp.Ns {
+		if v, ok := it.(*dns.SOA); ok {
+			dip.SOA = append(dip.SOA, types.DomainEntry[string]{
+				Name: v.Ns,
+				TTL:  v.Hdr.Ttl,
+			})
 		}
-		if len(dip.PTR) == 0 && len(dip.SOA) == 0 {
-			s.logger.Warn("unexpected PTR response without PTR/SOA data", "domain", domain, "ip", ip.String())
-		}
+	}
+	if len(dip.PTR) == 0 && len(dip.SOA) == 0 {
+		s.logger.Warn("unexpected PTR response without PTR/SOA data", "domain", domain, "ip", ip.String())
 	}
 }
 
