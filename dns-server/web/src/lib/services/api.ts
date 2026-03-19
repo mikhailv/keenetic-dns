@@ -27,7 +27,11 @@ export class APIService {
 		}
 		const data: IPRoute[] = await res.json();
 		data.forEach((route) => {
-			route.dns_records?.forEach((r) => (r.expires = new Date(r.expires)));
+			route.added_at = new Date(route.added_at);
+			route.dns_records?.forEach((it) => {
+				it.resolved = new Date(it.resolved);
+				it.expires = new Date(it.expires);
+			});
 		});
 		return data;
 	}

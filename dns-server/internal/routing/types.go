@@ -21,9 +21,17 @@ func (r IPRoute) LogValue() slog.Value {
 	)
 }
 
+type IPRouteInfo struct {
+	Domain  string          `json:"domain"`
+	Reason  string          `json:"reason"`
+	AddedAt types.Timestamp `json:"added_at"`
+}
+
 type IPRouteDNS struct {
 	IPRoute
-	DNSRecord []types.DNSRecord `json:"dns_records,omitempty"`
+	IPRouteInfo
+	DNSRecord []types.DNSRecord     `json:"dns_records,omitempty"`
+	Lookups   []*types.DomainLookup `json:"lookup,omitempty"`
 }
 
 func (r IPRouteDNS) LogValue() slog.Value {

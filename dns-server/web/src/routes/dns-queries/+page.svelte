@@ -59,28 +59,29 @@
 					<td class="text-sm1">{query.client_addr.split(':')[0]}</td>
 					<td>
 						{query.domain}
-						<div class="fw-light text-sm2" title="resolved by">{query.resolved_by}</div>
+						<div class="fw-light text-sm2" title="resolved by">
+							{query.resolved_by.resolver} / {(query.resolved_by.duration * 1000).toFixed(2)} ms
+						</div>
 					</td>
-					<td class="fw-light text-sm2">
+					<td class="fw-light text-sm1">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ttl}</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm2">
+					<td class="fw-light text-sm1">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ip}</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm2">
+					<td class="fw-light text-sm1">
 						{#each query.ips as ip (ip.ip)}
+							{@const route = query.routed_ips?.[ip.ip]}
 							<div>
-								{ip.route_iface
-									? `${ip.route_iface} (${ip.route_reason})${ip.route_added ? ' (added)' : ''}`
-									: '-'}
+								{route ? `${route.iface} (${route.reason})${route.added ? ' (added)' : ''}` : '-'}
 							</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm3">{query.duration}</td>
+					<td class="fw-light text-sm3">{(query.duration * 1000).toFixed(2)} ms</td>
 				</tr>
 			{/each}
 		</tbody>

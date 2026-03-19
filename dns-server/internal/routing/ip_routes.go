@@ -23,7 +23,8 @@ type IPRouteController struct {
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
 	networkService agent.NetworkServiceClient
-	routes         util.SyncSet[IPRoute]
+	lookups        *storage.LookupIndex
+	routes         util.SyncMap[IPRoute, IPRouteInfo]
 	reconcileMu    sync.Mutex
 	reconcileCh    chan struct{}
 }
@@ -33,17 +34,19 @@ func NewIPRouteController(
 	logger *slog.Logger,
 	dnsStore *storage.DNSStore,
 	networkService agent.NetworkServiceClient,
+	routeTimeout time.Duration,
 ) *IPRouteController {
 	return &IPRouteController{
 		cfg:            cfg,
 		logger:         logger,
 		dnsStore:       dnsStore,
 		networkService: networkService,
+		lookups:        storage.NewLookupIndex(routeTimeout),
 		reconcileCh:    make(chan struct{}, 1),
 	}
 }
 
-func (s *IPRouteController) LookupHost(host string) (ok bool, pattern, iface string) {
+func (s *IPRouteController) lookupHost(host string) (ok bool, pattern, iface string) {
 	cfg := s.cfg.Get()
 	if pattern = cfg.LookupHost(host); pattern != "" {
 		return true, pattern, cfg.Rule.Oif
@@ -51,7 +54,7 @@ func (s *IPRouteController) LookupHost(host string) (ok bool, pattern, iface str
 	return false, "", ""
 }
 
-func (s *IPRouteController) LookupIP(ip types.IPv4) (ok bool, pattern, iface string) {
+func (s *IPRouteController) lookupIP(ip types.IPv4) (ok bool, pattern, iface string) {
 	cfg := s.cfg.Get()
 	if pattern = cfg.LookupIP(ip); pattern != "" {
 		return true, pattern, cfg.Rule.Oif
@@ -61,18 +64,29 @@ func (s *IPRouteController) LookupIP(ip types.IPv4) (ok bool, pattern, iface str
 
 func (s *IPRouteController) Routes() []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
-	for _, route := range s.routes.Values() {
-		records := s.dnsStore.LookupIP(route.Addr)
+	for route, info := range s.routes.Snapshot() {
+		lookups := s.dnsStore.LookupIP(route.Addr)
+		records := make([]types.DNSRecord, 0, len(lookups))
+		for _, l := range lookups {
+			for _, it := range l.IPs {
+				if it.IP == route.Addr {
+					records = append(records, types.NewDNSRecord(l.Domain, it.IP, l.Time, int(it.TTL)))
+				}
+			}
+		}
 		slices.SortFunc(records, func(a, b types.DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
-		res = append(res, IPRouteDNS{route, records})
+		res = append(res, IPRouteDNS{route, info, records, lookups})
 	}
 	return res
 }
 
 func (s *IPRouteController) Start(ctx context.Context) {
 	s.cfg.Listen(func() { s.onConfigUpdated(ctx) })
+	for it := range s.dnsStore.Iterator() {
+		s.lookups.Add(it)
+	}
 	go s.startReconcileLoop(ctx)
 }
 
@@ -135,15 +149,19 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 	defer metrics.TrackDuration("reconcile_routes")()
 	defer log.Profile(s.logger, "reconcile routes")()
 
+	for _, it := range s.lookups.RemoveExpired() {
+		s.logger.Info("removed expired lookup", "domain", it.Domain, "added", it.Time, "resolved_by", it.ResolvedBy)
+	}
+
 	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
 	actual, obsolete := s.partitionRoutes(cfg, definedRoutes)
 
 	added := 0
-	for route, reason := range actual {
+	for route, info := range actual {
 		if definedRoutes.Has(route) {
-			s.routes.Add(route)
-		} else if s.addRoute(ctx, route, reason) {
-			s.routes.Add(route)
+			s.routes.SetIfAbsent(route, info)
+		} else if s.addRoute(ctx, route, info) {
+			s.routes.SetIfAbsent(route, info)
 			added++
 		}
 	}
@@ -158,43 +176,53 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 		}
 	}
 
-	s.logger.Info("routes updated", "added", added, "deleted", deleted, "total", s.routes.Size())
+	s.logger.Info("routes updated", "added", added, "deleted", deleted,
+		"routes", s.routes.Size(), "lookups", s.lookups.Size())
 }
 
 // partitionRoutes splits routes into two sets: actual (should exist) and obsolete (should be removed).
-func (s *IPRouteController) partitionRoutes(cfg *config.Routing, definedRoutes util.Set[IPRoute]) (actual, obsolete map[IPRoute]string) {
-	actual = make(map[IPRoute]string, s.routes.Size())
+func (s *IPRouteController) partitionRoutes(
+	cfg *config.Routing,
+	definedRoutes util.Set[IPRoute],
+) (actual map[IPRoute]IPRouteInfo, obsolete map[IPRoute]string) {
+	actual = make(map[IPRoute]IPRouteInfo, s.routes.Size())
 	obsolete = make(map[IPRoute]string, 10)
+
+	tsNow := types.TimestampFromTime(time.Now())
 
 	// Static routes always belong to actual.
 	for _, addr := range cfg.Static {
-		actual[s.makeRoute(cfg, addr)] = "static"
+		actual[s.makeRoute(cfg, addr)] = IPRouteInfo{"", "static", tsNow}
 	}
 
 	// Partition routes from DNS records.
-	for rec := range s.dnsStore.RecordIterator() {
-		route := s.makeRoute(cfg, rec.IP)
-		if actual[route] != "" {
-			continue
+	for _, dl := range s.lookups.Snapshot() {
+		routedIPs := s.resolveRouting(dl)
+		if len(routedIPs) == 0 {
+			s.lookups.Remove(dl)
 		}
-		if pattern := cfg.LookupHost(rec.Domain); pattern != "" {
-			actual[route] = "match: " + pattern
-			delete(obsolete, route)
-		} else {
-			obsolete[route] = "no match"
+		for _, it := range dl.IPs {
+			route := s.makeRoute(cfg, it.IP)
+			if _, ok := actual[route]; ok {
+				continue
+			}
+			r, routed := routedIPs[it.IP]
+			if routed && !r.Static {
+				actual[route] = IPRouteInfo{dl.Domain, r.Reason, dl.Time}
+			}
 		}
 	}
 
 	// Routes defined on router but not in actual are expired.
 	for route := range definedRoutes {
-		if actual[route] == "" {
+		if _, ok := actual[route]; !ok {
 			obsolete[route] = "expired"
 		}
 	}
 
 	// Routes in local cache but not in either set are obsolete.
 	for route := range s.routes.Iterator() {
-		if actual[route] == "" && obsolete[route] == "" {
+		if _, ok := actual[route]; !ok && obsolete[route] == "" {
 			obsolete[route] = "obsolete"
 		}
 	}
@@ -202,16 +230,29 @@ func (s *IPRouteController) partitionRoutes(cfg *config.Routing, definedRoutes u
 	return actual, obsolete
 }
 
-func (s *IPRouteController) AddRoute(ctx context.Context, ip types.IPv4, reason string) bool {
-	route := s.makeRoute(s.cfg.Get(), ip)
-	if !s.routes.Has(route) && s.addRoute(ctx, route, reason) {
-		s.routes.Add(route)
-		return true
+func (s *IPRouteController) AddRoutes(ctx context.Context, lookup types.DomainLookup) types.RoutedIPs {
+	res := s.resolveRouting(&lookup)
+	if len(res) == 0 {
+		return res
 	}
-	return false
+	s.lookups.Add(&lookup)
+	cfg := s.cfg.Get()
+	for ip, it := range res {
+		route := s.makeRoute(cfg, ip)
+		if s.routes.Has(route) {
+			continue
+		}
+		info := IPRouteInfo{lookup.Domain, it.Reason, lookup.Time}
+		if s.addRoute(ctx, route, info) {
+			s.routes.SetIfAbsent(route, info)
+			it.Added = true
+			res[ip] = it
+		}
+	}
+	return res
 }
 
-func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, reason string) bool {
+func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, info IPRouteInfo) bool {
 	defer metrics.TrackDuration("add_route")()
 
 	_, err := s.networkService.AddRoute(ctx, &agentv1.AddRouteReq{
@@ -221,7 +262,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, reason 
 		s.logger.Error("failed to add route", "err", err, "", route)
 		return false
 	}
-	s.logger.Info("route added", "", route, "reason", reason)
+	s.logger.Info("route added", "", route, "domain", info.Domain, "reason", info.Reason)
 	return true
 }
 
@@ -235,7 +276,11 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute, reas
 		s.logger.Error("failed to delete route", "err", err, "", route)
 		return false
 	}
-	s.logger.Info("route deleted", "", route, "reason", reason)
+	if info, ok := s.routes.Get(route); ok {
+		s.logger.Info("route deleted", "", route, "reason", reason, "domain", info.Domain, "added", info.AddedAt.Time().String())
+	} else {
+		s.logger.Info("route deleted", "", route, "reason", reason)
+	}
 	return true
 }
 
@@ -273,6 +318,49 @@ func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Se
 		routes.Add(route)
 	}
 	return routes
+}
+
+func (s *IPRouteController) resolveRouting(dl *types.DomainLookup) types.RoutedIPs {
+	res := types.RoutedIPs{}
+
+	addAll := func(iface, reason string, ips []types.DomainIP) types.RoutedIPs {
+		for _, it := range ips {
+			res.Add(iface, reason, it.IP)
+		}
+		return res
+	}
+
+	if ok, pattern, iface := s.lookupHost(dl.Domain); ok {
+		return addAll(iface, pattern, dl.IPs)
+	}
+	for _, it := range dl.CNames {
+		if ok, pattern, iface := s.lookupHost(it.Name); ok {
+			return addAll(iface, "CNAME "+pattern, dl.IPs)
+		}
+	}
+
+loop:
+	for _, it := range dl.IPs {
+		ip := it.IP
+		if ok, pattern, iface := s.lookupIP(ip); ok { // static IP
+			res.AddStatic(iface, pattern, ip)
+			continue loop
+		}
+		for _, ptr := range it.PTR {
+			if ok, pattern, iface := s.lookupHost(ptr.Name); ok {
+				res.Add(iface, "PTR "+pattern, ip)
+				continue loop
+			}
+		}
+		for _, soa := range it.SOA {
+			if ok, pattern, iface := s.lookupHost(soa.Name); ok {
+				res.Add(iface, "SOA "+pattern, ip)
+				continue loop
+			}
+		}
+	}
+
+	return res
 }
 
 func mapToAgentRule(rule IPRoutingRule) *agentv1.Rule {

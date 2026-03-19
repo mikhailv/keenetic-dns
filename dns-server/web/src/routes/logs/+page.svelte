@@ -4,7 +4,7 @@
 	import type { LogEntry } from '$lib/types';
 	import type { StreamStore } from '$lib/stores/stream.store';
 
-	const MAX_ITEMS = 200;
+	const MAX_ITEMS = 1000;
 
 	let stream: StreamStore<LogEntry> = api.createLogStreamStore(MAX_ITEMS);
 
@@ -74,7 +74,7 @@
 					>
 					<td class="{getLevelClass(entry.level)} text-sm2">{entry.level}</td>
 					<td class="text-sm1">{entry.msg}</td>
-					<td class="fw-light text-sm1" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td
+					<td class="fw-light text-sm2" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td
 					>
 				</tr>
 			{/each}

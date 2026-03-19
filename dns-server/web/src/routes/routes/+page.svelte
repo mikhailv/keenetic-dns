@@ -44,13 +44,13 @@
 		);
 	}
 
-	function formatExpires(expires: Date): string {
+	function formatDuration(expires: Date): string {
 		const seconds = Math.floor((expires.getTime() - Date.now()) / 1000);
 		const duration = durationString(Math.abs(seconds));
 		if (seconds >= 0) {
 			return duration;
 		}
-		return `expired ${duration} ago`;
+		return `${duration} ago`;
 	}
 
 	function durationString(seconds: number) {
@@ -93,9 +93,11 @@
 		<thead>
 			<tr>
 				<th scope="col" style="width: 1%">#</th>
-				<th scope="col" style="width: 15%">Address</th>
-				<th scope="col" style="width: 15%">Interface</th>
-				<th scope="col" class="ps-2">DNS Records</th>
+				<th scope="col" style="width: 10%">Address</th>
+				<th scope="col" style="width: 10%">Interface</th>
+				<th scope="col">DNS Records</th>
+				<th scope="col" style="width: 15%" class="d-none d-lg-table-cell">TTL</th>
+				<th scope="col" style="width: 20%" class="d-none d-lg-table-cell">Info</th>
 			</tr>
 		</thead>
 		<tbody class="table-group-divider">
@@ -104,21 +106,27 @@
 					<th scope="row">{i + 1}</th>
 					<td>{route.addr}</td>
 					<td style="font-size: 0.9rem">{route.iface}</td>
-					<td class="ps-2">
+					<td class="fw-light text-sm1">
 						{#each route.dns_records ?? [] as rec (rec.domain)}
-							<div class="row" style="font-size: 0.9rem">
-								<div class="col fw-light">{rec.domain}</div>
-								<div class="col d-none d-lg-block">
-									{#if rec.expires > new Date()}
-										{formatExpires(rec.expires)}
-									{:else}
-										<span class="fw-light text-body-secondary">
-											{formatExpires(rec.expires)}
-										</span>
-									{/if}
-								</div>
+							<div>{rec.domain}</div>
+						{/each}
+					</td>
+					<td class="d-none d-lg-table-cell text-sm1">
+						{#each route.dns_records ?? [] as rec (rec.domain)}
+							<div>
+								{#if rec.expires > new Date()}
+									{formatDuration(rec.expires)}
+								{:else}
+									<span class="fw-light text-body-secondary">
+										expired {formatDuration(rec.expires)}
+									</span>
+								{/if}
 							</div>
 						{/each}
+					</td>
+					<td class="d-none d-lg-table-cell fw-light text-body-secondary text-sm1">
+						<div>added {formatDuration(route.added_at)}</div>
+						<div>reason: <strong>{route.reason}</strong></div>
 					</td>
 				</tr>
 			{/each}

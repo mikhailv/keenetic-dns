@@ -3,7 +3,6 @@ package cache
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"io"
 	"maps"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/klauspost/compress/gzip"
 	"github.com/miekg/dns"
 )
@@ -78,9 +78,9 @@ func (s *memDNSCache) Put(ctx context.Context, msg *dns.Msg) {
 				s.mu.Lock()
 				now := time.Now()
 				s.entries[msg.Question[0]] = dnsCacheEntry{
-					bytes:   b,
-					added:   uint32(now.Unix()),
-					expires: uint32(now.Add(time.Duration(ttl) * time.Second).Unix()),
+					Bytes:   b,
+					Added:   uint32(now.Unix()),
+					Expires: uint32(now.Add(time.Duration(ttl) * time.Second).Unix()),
 				}
 				s.mu.Unlock()
 			}
@@ -108,24 +108,14 @@ func (s *memDNSCache) Load(reader io.Reader) (count int, err error) {
 
 	clear(s.entries)
 
+	decoder := cbor.NewDecoder(gz)
+
 	for {
-		var n uint16
-		if err := binary.Read(gz, binary.LittleEndian, &n); err != nil {
+		var r dnsCacheEntry
+		if err := decoder.Decode(&r); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return 0, err
-		}
-		r := dnsCacheEntry{
-			bytes: make([]byte, n),
-		}
-		if _, err := io.ReadFull(gz, r.bytes); err != nil {
-			return 0, err
-		}
-		if err := binary.Read(gz, binary.LittleEndian, &r.added); err != nil {
-			return 0, err
-		}
-		if err := binary.Read(gz, binary.LittleEndian, &r.expires); err != nil {
 			return 0, err
 		}
 		if r.Expired() {
@@ -148,20 +138,12 @@ func (s *memDNSCache) Save(writer io.Writer) (count int, err error) {
 	gz := gzip.NewWriter(bufWriter)
 	defer handleError(gz.Close, &err)
 
+	encoder := cbor.NewEncoder(gz)
 	for _, v := range entries {
 		if v.Expired() {
 			continue
 		}
-		if err := binary.Write(gz, binary.LittleEndian, uint16(len(v.bytes))); err != nil {
-			return 0, err
-		}
-		if _, err := gz.Write(v.bytes); err != nil {
-			return 0, err
-		}
-		if err := binary.Write(gz, binary.LittleEndian, v.added); err != nil {
-			return 0, err
-		}
-		if err := binary.Write(gz, binary.LittleEndian, v.expires); err != nil {
+		if err := encoder.Encode(v); err != nil {
 			return 0, err
 		}
 		count++
@@ -180,17 +162,18 @@ func (s *memDNSCache) removeExpired() {
 }
 
 type dnsCacheEntry struct {
-	bytes   []byte
-	added   uint32 // timestamp
-	expires uint32 // timestamp
+	_       struct{} `cbor:",toarray"`
+	Bytes   []byte
+	Added   uint32 // timestamp
+	Expires uint32 // timestamp
 }
 
 func (s *dnsCacheEntry) AddedAt() time.Time {
-	return time.Unix(int64(s.added), 0)
+	return time.Unix(int64(s.Added), 0)
 }
 
 func (s *dnsCacheEntry) ExpiresAt() time.Time {
-	return time.Unix(int64(s.expires), 0)
+	return time.Unix(int64(s.Expires), 0)
 }
 
 func (s *dnsCacheEntry) Expired() bool {
@@ -199,7 +182,7 @@ func (s *dnsCacheEntry) Expired() bool {
 
 func (s *dnsCacheEntry) Msg() *dns.Msg {
 	var res dns.Msg
-	if err := res.Unpack(s.bytes); err != nil {
+	if err := res.Unpack(s.Bytes); err != nil {
 		return nil
 	}
 	seconds := int(time.Since(s.AddedAt()).Seconds())

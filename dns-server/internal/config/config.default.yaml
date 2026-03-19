@@ -20,7 +20,7 @@ mdns:
 
 storage:
   local:
-    file: domains.tsv.gz
+    file: dns_store.dat
     save_interval: 10m
 
 routing:

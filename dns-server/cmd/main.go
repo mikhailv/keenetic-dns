@@ -54,15 +54,14 @@ func main() { //nolint:funlen // ignore
 
 	logger.Info("config loaded", "route_timeout", cfg.Routing.RouteTimeout)
 
-	dnsStore := NewDNSStore(cfg.Routing.RouteTimeout)
-	saveStore := createDNSStoreSaver(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), dnsStore)
-	defer saveStore()
+	dnsStore, dnsStoreSave := setupDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), cfg.Routing.RouteTimeout)
+	defer dnsStoreSave()
 
-	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, saveStore)
+	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, dnsStoreSave)
 
 	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 
-	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService)
+	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.Routing.RouteTimeout)
 	ipRoutes.Start(ctx)
 
 	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))
@@ -162,45 +161,28 @@ func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
 	}
 }
 
-func createDNSStoreSaver(file string, logger *slog.Logger, store *DNSStore) (doSave func()) {
+func setupDNSStore(file string, logger *slog.Logger, retentionTime time.Duration) (store *DNSStore, save func()) {
+	store = NewDNSStore(retentionTime)
+
 	logger = logger.With("file", file)
 
-	load := func() {
-		logger.Info("loading ...")
-		count, dur, err := measure(func() (int, error) { return store.Load(file) })
-		if err != nil {
-			logger.Error("load failed", "err", err)
-		} else {
-			logger.Info("load succeeded", "records", count, "duration", dur)
-		}
-	}
-
-	save := func() {
-		logger.Info("saving ...")
-		count, dur, err := measure(func() (int, error) { return store.Save(file) })
-		if err != nil {
-			logger.Error("save failed", "err", err)
-		} else {
-			logger.Info("save succeeded", "records", count, "duration", dur)
-		}
-	}
-
 	removeExpired := func() {
-		removed, dur, _ := measure(func() ([]types.DNSRecord, error) { return store.RemoveExpired(), nil })
+		removed, dur, _ := measure(func() ([]*types.DomainLookup, error) { return store.RemoveExpired(), nil })
 		if len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
 				for _, r := range removed {
-					logger.Debug("dns record expired", "domain", r.Domain, "ip", r.IP, "resolved", r.Resolved)
+					logger.Debug("dns record expired", "domain", r.Domain, "ips", r.IPs, "resolved", r.Time)
 				}
 			}
 			logger.Info("removed expired records", "removed", len(removed), "duration", dur)
 		}
 	}
 
-	load()
-	return func() {
+	loadFromFile(file, logger, store.Load)
+
+	return store, func() {
 		removeExpired()
-		save()
+		saveToFile(file, logger, store.Save)
 	}
 }
 
@@ -228,36 +210,10 @@ func setupDNSCache(file string, logger *slog.Logger) (cache DNSCache, save func(
 
 	logger = logger.With("file", file)
 
-	if f, err := os.Open(file); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			logger.Error("failed to open file", "err", err)
-		}
-	} else if loaded, err := pcache.Load(f); err != nil {
-		_ = f.Close()
-		logger.Error("failed to load cache from file", "err", err)
-	} else {
-		_ = f.Close()
-		logger.Info("loaded from file", "records", loaded)
-	}
+	loadFromFile(file, logger, pcache.Load)
 
 	return cache, func() {
-		syncClose := func(f *os.File) {
-			if err := f.Sync(); err != nil {
-				logger.Error("failed to sync file", "err", err)
-			}
-			if err := f.Close(); err != nil {
-				logger.Error("failed to close file", "err", err)
-			}
-		}
-		if f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
-			logger.Error("failed to create cache file", "err", err)
-		} else if saved, err := pcache.Save(f); err != nil {
-			logger.Error("failed to save cache to file", "err", err)
-			syncClose(f)
-		} else {
-			logger.Info("saved to file", "records", saved)
-			syncClose(f)
-		}
+		saveToFile(file, logger, pcache.Save)
 	}
 }
 
@@ -368,6 +324,40 @@ func getDefaultInterface() (*net.Interface, error) {
 	}
 
 	return nil, fmt.Errorf("no suitable network interface found")
+}
+
+func loadFromFile(file string, logger *slog.Logger, loader func(io.Reader) (int, error)) {
+	if f, err := os.Open(file); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			logger.Error("failed to open file", "err", err)
+		}
+	} else if loaded, dur, err := measure(func() (int, error) { return loader(f) }); err != nil {
+		_ = f.Close()
+		logger.Error("failed to load from file", "err", err)
+	} else {
+		_ = f.Close()
+		logger.Info("loaded from file", "records", loaded, "duration", dur)
+	}
+}
+
+func saveToFile(file string, logger *slog.Logger, saver func(io.Writer) (int, error)) {
+	syncClose := func(f *os.File) {
+		if err := f.Sync(); err != nil {
+			logger.Error("failed to sync file", "err", err)
+		}
+		if err := f.Close(); err != nil {
+			logger.Error("failed to close file", "err", err)
+		}
+	}
+	if f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
+		logger.Error("failed to create file", "err", err)
+	} else if saved, dur, err := measure(func() (int, error) { return saver(f) }); err != nil {
+		logger.Error("failed to save to file", "err", err)
+		syncClose(f)
+	} else {
+		logger.Info("saved to file", "records", saved, "duration", dur)
+		syncClose(f)
+	}
 }
 
 func measure[T any](fn func() (T, error)) (T, time.Duration, error) {

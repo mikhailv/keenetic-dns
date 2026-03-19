@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"time"
 
 	"github.com/miekg/dns"
 
@@ -29,10 +30,11 @@ func (s cachedResolver) Name() string {
 func (s cachedResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
 	defer metrics.TrackNamedDuration("dns_cache.resolve", s.name)()
 	if dnssvc.HasSingleQuestion(req) {
+		st := time.Now()
 		if resp := s.cache.Get(ctx, req.Question[0]); resp != nil {
 			metrics.TrackStatus("dns_cache", "hit")
 			resp.SetReply(req)
-			dnssvc.SetResolvedByInContext(ctx, s.Name())
+			dnssvc.SetResolvedByInContext(ctx, s.Name(), time.Since(st))
 			return resp, nil
 		}
 		metrics.TrackStatus("dns_cache", "miss")

@@ -13,6 +13,9 @@ func TimestampFromTime(t time.Time) Timestamp {
 }
 
 func (t Timestamp) Time() time.Time {
+	if t == 0 {
+		return time.Time{}
+	}
 	return time.UnixMilli(int64(t))
 }
 

@@ -46,18 +46,19 @@ func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 	ctx = dnssvc.WithResolvedByContext(ctx)
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp, dnssvc.GetResolvedBy(ctx), resolveTime)
+		s.processTypeAResponse(ctx, resp, resolveTime, dnssvc.GetResolvedBy(ctx))
 	}
 	return resp, err
 }
 
-func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolvedBy string, resolveTime types.Timestamp) {
+func (s *ipRoutingHandler) processTypeAResponse(ctx context.Context, resp *dns.Msg, resolveTime types.Timestamp, resolvedBy types.ResolvedBy) {
 	domain := resp.Question[0].Name
-	res := s.parseResponse(domain, resp.Answer)
-	if len(res.IPs) > 0 {
-		s.resolveReverseRecords(ctx, &res)
-		s.resolveRouting(&res)
-		s.processDomainLookup(ctx, res, resolvedBy, resolveTime)
+	dl := s.parseResponse(domain, resp.Answer)
+	dl.Time = resolveTime
+	dl.ResolvedBy = resolvedBy
+	if len(dl.IPs) > 0 {
+		s.resolveReverseRecords(ctx, &dl)
+		s.processDomainLookup(ctx, dl)
 	}
 }
 
@@ -115,55 +116,21 @@ func (s *ipRoutingHandler) parseResponse(domain string, answers []dns.RR) types.
 	return res
 }
 
-func (s *ipRoutingHandler) resolveReverseRecords(ctx context.Context, x *types.DomainLookup) {
-	if len(x.IPs) == 0 {
+func (s *ipRoutingHandler) resolveReverseRecords(ctx context.Context, dl *types.DomainLookup) {
+	if len(dl.IPs) == 0 {
 		return
 	}
-	if len(x.IPs) == 1 {
-		s.reverseLookup(ctx, &x.IPs[0])
+	if len(dl.IPs) == 1 {
+		s.reverseLookup(ctx, &dl.IPs[0])
 		return
 	}
 	var wg sync.WaitGroup
-	for i := range x.IPs {
+	for i := range dl.IPs {
 		wg.Go(func() {
-			s.reverseLookup(ctx, &x.IPs[i])
+			s.reverseLookup(ctx, &dl.IPs[i])
 		})
 	}
 	wg.Wait()
-}
-
-func (s *ipRoutingHandler) resolveRouting(dl *types.DomainLookup) {
-	if ok, pattern, iface := s.ipRoutes.LookupHost(dl.Domain); ok {
-		dl.SetRouted(true, iface, pattern)
-		return
-	}
-	for _, it := range dl.CNames {
-		if ok, pattern, iface := s.ipRoutes.LookupHost(it.Name); ok {
-			dl.SetRouted(true, iface, "CNAME "+pattern)
-			return
-		}
-	}
-
-loop:
-	for i := range dl.IPs {
-		it := &dl.IPs[i]
-		if ok, pattern, iface := s.ipRoutes.LookupIP(it.IP); ok { // static IP
-			it.SetRouted(false, iface, pattern)
-			continue loop
-		}
-		for _, ptr := range it.PTR {
-			if ok, pattern, iface := s.ipRoutes.LookupHost(ptr.Name); ok {
-				it.SetRouted(true, iface, "PTR "+pattern)
-				continue loop
-			}
-		}
-		for _, soa := range it.SOA {
-			if ok, pattern, iface := s.ipRoutes.LookupHost(soa.Name); ok {
-				it.SetRouted(true, iface, "SOA "+pattern)
-				continue loop
-			}
-		}
-	}
 }
 
 func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainIP) {
@@ -210,24 +177,19 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 	}
 }
 
-func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup, resolvedBy string, resolveTime types.Timestamp) {
+func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl types.DomainLookup) {
 	slices.SortFunc(dl.IPs, func(a, b types.DomainIP) int {
 		return bytes.Compare(a.IP[:], b.IP[:])
 	})
 
-	for i := range dl.IPs {
-		it := &dl.IPs[i]
-		s.dnsStore.Add(types.NewDNSRecord(dl.Domain, it.IP, resolveTime, int(it.TTL)))
-		if it.RouteAdded {
-			it.RouteAdded = s.ipRoutes.AddRoute(ctx, it.IP, "routed: "+it.RouteReason)
-		}
-	}
+	s.dnsStore.Add(&dl)
+
+	routedIPs := s.ipRoutes.AddRoutes(ctx, dl)
 
 	s.stream.Append(types.DNSQuery{
-		Time:         resolveTime,
 		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
 		DomainLookup: dl,
-		Duration:     time.Since(resolveTime.Time()).Seconds(),
-		ResolvedBy:   resolvedBy,
+		Duration:     time.Since(dl.Time.Time()).Seconds(),
+		RoutedIPs:    routedIPs,
 	})
 }

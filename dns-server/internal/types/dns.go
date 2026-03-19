@@ -10,22 +10,19 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-type DNSRecordKey struct {
-	IP     IPv4   `json:"ip" tsv:"ip"`
-	Domain string `json:"domain" tsv:"domain"`
-}
-
 type DNSRecord struct {
-	DNSRecordKey
+	IP       IPv4      `json:"ip" tsv:"ip"`
+	Domain   string    `json:"domain" tsv:"domain"`
 	Resolved Timestamp `json:"resolved" tsv:"resolved"`
 	Expires  Timestamp `json:"expires" tsv:"expires"`
 }
 
 func NewDNSRecord(domain string, ip IPv4, resolveTime Timestamp, ttlSeconds int) DNSRecord {
 	return DNSRecord{
-		DNSRecordKey: DNSRecordKey{ip, domain},
-		Resolved:     resolveTime,
-		Expires:      resolveTime.Add(time.Duration(ttlSeconds) * time.Second),
+		IP:       ip,
+		Domain:   domain,
+		Resolved: resolveTime,
+		Expires:  resolveTime.Add(time.Duration(ttlSeconds) * time.Second),
 	}
 }
 
@@ -53,10 +50,9 @@ var _ stream.CursorAware = (*DNSQuery)(nil)
 
 type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
-	Time       Timestamp     `json:"time"`
 	ClientAddr string        `json:"client_addr"`
 	Duration   float64       `json:"duration"`
-	ResolvedBy string        `json:"resolved_by"`
+	RoutedIPs  RoutedIPs     `json:"routed_ips,omitempty"`
 	DomainLookup
 }
 
@@ -64,29 +60,46 @@ func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
 
-func (s *DNSQuery) HasRoutedIPs() bool {
+type DomainLookup struct {
+	Time       Timestamp             `json:"time"`
+	ResolvedBy ResolvedBy            `json:"resolved_by"`
+	Domain     string                `json:"domain"`
+	CNames     []DomainEntry[string] `json:"cnames,omitempty"`
+	IPs        []DomainIP            `json:"ips"`
+}
+
+func (s *DomainLookup) Expired(extraTTL time.Duration) bool {
+	resolveTime := s.Time.Time()
 	for _, ip := range s.IPs {
-		if ip.Routed() {
+		if ip.Expired(resolveTime, extraTTL) {
 			return true
 		}
 	}
 	return false
 }
 
-type DomainLookup struct {
-	Domain string                `json:"domain"`
-	CNames []DomainEntry[string] `json:"cnames,omitempty"`
-	IPs    []DomainIP            `json:"ips"`
+type DomainIP struct {
+	IP  IPv4                  `json:"ip"`
+	TTL uint32                `json:"ttl"`
+	PTR []DomainEntry[string] `json:"ptr,omitempty"`
+	SOA []DomainEntry[string] `json:"soa,omitempty"`
 }
 
-type DomainIP struct {
-	IP          IPv4                  `json:"ip"`
-	TTL         uint32                `json:"ttl"`
-	PTR         []DomainEntry[string] `json:"ptr,omitempty"`
-	SOA         []DomainEntry[string] `json:"soa,omitempty"`
-	RouteAdded  bool                  `json:"route_added,omitempty"`
-	RouteIface  string                `json:"route_iface,omitempty"`
-	RouteReason string                `json:"route_reason,omitempty"`
+func (s *DomainIP) Expired(resolveTime time.Time, extraTTL time.Duration) bool {
+	if time.Now().After(resolveTime.Add(time.Duration(s.TTL) * time.Second).Add(extraTTL)) {
+		return true
+	}
+	for _, it := range s.PTR {
+		if it.Expired(resolveTime, extraTTL) {
+			return true
+		}
+	}
+	for _, it := range s.SOA {
+		if it.Expired(resolveTime, extraTTL) {
+			return true
+		}
+	}
+	return false
 }
 
 type DomainEntry[T comparable] struct {
@@ -94,20 +107,40 @@ type DomainEntry[T comparable] struct {
 	TTL  uint32 `json:"ttl"`
 }
 
-func (s *DomainLookup) SetRouted(added bool, iface, reason string) {
-	for i := range s.IPs {
-		s.IPs[i].SetRouted(added, iface, reason)
+func (s *DomainEntry[T]) Expired(resolveTime time.Time, extraTTL time.Duration) bool {
+	return time.Now().After(resolveTime.Add(time.Duration(s.TTL) * time.Second).Add(extraTTL))
+}
+
+type ResolvedBy struct {
+	Resolver string  `json:"resolver"`
+	Duration float64 `json:"duration"`
+}
+
+type RoutedIP struct {
+	IP     IPv4   `json:"ip"`
+	Static bool   `json:"static"`
+	Iface  string `json:"iface"`
+	Reason string `json:"reason"`
+	Added  bool   `json:"added"`
+}
+
+type RoutedIPs map[IPv4]RoutedIP
+
+func (s *RoutedIPs) Add(iface, reason string, ip IPv4) {
+	(*s)[ip] = RoutedIP{
+		IP:     ip,
+		Iface:  iface,
+		Reason: reason,
 	}
 }
 
-func (s *DomainIP) SetRouted(added bool, iface, reason string) {
-	s.RouteAdded = added
-	s.RouteIface = iface
-	s.RouteReason = reason
-}
-
-func (s *DomainIP) Routed() bool {
-	return s.RouteIface != ""
+func (s *RoutedIPs) AddStatic(iface, reason string, ip IPv4) {
+	(*s)[ip] = RoutedIP{
+		IP:     ip,
+		Static: true,
+		Iface:  iface,
+		Reason: reason,
+	}
 }
 
 var _ stream.CursorAware = (*DNSRawQuery)(nil)

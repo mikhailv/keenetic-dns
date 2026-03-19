@@ -1,12 +1,16 @@
 export interface IPRoute {
-	addr: string;
+	table: number;
 	iface: string;
+	addr: string;
+	reason: string;
+	added_at: Date;
 	dns_records?: DNSRecord[];
 }
 
 export interface DNSRecord {
 	ip: string;
 	domain: string;
+	resolved: Date;
 	expires: Date;
 }
 
@@ -15,10 +19,14 @@ export interface DNSQuery {
 	time: Date;
 	client_addr: string;
 	duration: number;
-	resolved_by: string;
+	resolved_by: {
+		resolver: string;
+		duration: number;
+	};
 	domain: string;
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];
+	routed_ips?: Record<string, RoutedIP>;
 }
 
 export interface DomainEntry<T> {
@@ -31,9 +39,14 @@ export interface DomainIP {
 	ttl: number;
 	ptr?: DomainEntry<string>[];
 	soa?: DomainEntry<string>[];
-	route_added?: boolean;
-	route_iface?: string;
-	route_reason?: string;
+}
+
+export interface RoutedIP {
+	ip: string;
+	static: boolean;
+	iface: string;
+	reason: string;
+	added: boolean;
 }
 
 export interface LogEntry {
