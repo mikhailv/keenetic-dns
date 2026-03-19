@@ -243,14 +243,17 @@ func (s *IPRouteController) partitionRoutes(
 	return actual, obsolete
 }
 
-func (s *IPRouteController) AddRoutes(ctx context.Context, lookup types.DomainLookup) types.RoutedIPs {
-	res := s.resolveRouting(&lookup)
+func (s *IPRouteController) AddRoutes(ctx context.Context, lookup *types.DomainLookup) types.RoutedIPs {
+	res := s.resolveRouting(lookup)
 	if len(res) == 0 {
 		return res
 	}
-	s.lookups.Add(&lookup)
+	s.lookups.Add(lookup)
 	cfg := s.cfg.Get()
 	for ip, it := range res {
+		if it.Static {
+			continue
+		}
 		route := s.makeRoute(cfg, ip)
 		if s.routes.Has(route) {
 			continue
