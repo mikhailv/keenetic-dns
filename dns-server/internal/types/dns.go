@@ -128,17 +128,20 @@ type RoutedIP struct {
 type RoutedIPs map[IPv4]RoutedIP
 
 func (s *RoutedIPs) Add(iface, reason string, ip IPv4) {
-	(*s)[ip] = RoutedIP{
-		IP:     ip,
-		Iface:  iface,
-		Reason: reason,
-	}
+	s.add(false, iface, reason, ip)
 }
 
 func (s *RoutedIPs) AddStatic(iface, reason string, ip IPv4) {
+	s.add(true, iface, reason, ip)
+}
+
+func (s *RoutedIPs) add(static bool, iface, reason string, ip IPv4) {
+	if *s == nil {
+		*s = RoutedIPs{}
+	}
 	(*s)[ip] = RoutedIP{
 		IP:     ip,
-		Static: true,
+		Static: static,
 		Iface:  iface,
 		Reason: reason,
 	}

@@ -337,7 +337,12 @@ func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Se
 }
 
 func (s *IPRouteController) resolveRouting(dl *types.DomainLookup) types.RoutedIPs {
-	res := types.RoutedIPs{}
+	// TODO: implement better domain ignore logic with additional information why domain was ignored
+	if s.cfg.Get().LookupIgnoredHost(dl.Domain) != "" {
+		return nil
+	}
+
+	var res types.RoutedIPs
 
 	addAll := func(iface, reason string, ips []types.DomainIP) types.RoutedIPs {
 		for _, it := range ips {

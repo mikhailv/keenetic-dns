@@ -89,6 +89,7 @@ type Routing struct {
 	Reconcile    RoutingReconcile `yaml:"reconcile"`
 	RouteTimeout time.Duration    `yaml:"route_timeout"`
 	Hosts        DomainList       `yaml:"hosts"`
+	Ignore       DomainList       `yaml:"ignore"`
 	Static       []types.IPv4     `yaml:"static"`
 }
 
@@ -106,6 +107,10 @@ type RoutingReconcile struct {
 
 func (c *Routing) LookupHost(host string) (pattern string) {
 	return c.Hosts.Match(host)
+}
+
+func (c *Routing) LookupIgnoredHost(host string) (pattern string) {
+	return c.Ignore.Match(host)
 }
 
 func (c *Routing) LookupIP(ip types.IPv4) (pattern string) {
