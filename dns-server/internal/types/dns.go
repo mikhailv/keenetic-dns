@@ -52,7 +52,7 @@ type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
 	ClientAddr string        `json:"client_addr"`
 	Duration   float64       `json:"duration"`
-	RoutedIPs  RoutedIPs     `json:"routed_ips,omitempty"`
+	IPRoutings IPRoutings    `json:"ip_routings,omitempty"`
 	DomainLookup
 }
 
@@ -117,30 +117,52 @@ type ResolverInfo struct {
 	Duration float64 `json:"duration"`
 }
 
-type RoutedIP struct {
-	IP     IPv4   `json:"ip"`
-	Static bool   `json:"static"`
-	Iface  string `json:"iface"`
-	Reason string `json:"reason"`
-	Added  bool   `json:"added"`
+type RoutingAction string
+
+const (
+	ActionRouted  RoutingAction = "routed"
+	ActionIgnored RoutingAction = "ignored"
+)
+
+type IPRouting struct {
+	IP     IPv4          `json:"ip"`
+	Action RoutingAction `json:"action"`
+	Static bool          `json:"static"`
+	Iface  string        `json:"iface,omitempty"`
+	Reason string        `json:"reason"`
+	Added  bool          `json:"added,omitempty"`
 }
 
-type RoutedIPs map[IPv4]RoutedIP
+type IPRoutings map[IPv4]IPRouting
 
-func (s *RoutedIPs) Add(iface, reason string, ip IPv4) {
-	s.add(false, iface, reason, ip)
-}
-
-func (s *RoutedIPs) AddStatic(iface, reason string, ip IPv4) {
-	s.add(true, iface, reason, ip)
-}
-
-func (s *RoutedIPs) add(static bool, iface, reason string, ip IPv4) {
-	if *s == nil {
-		*s = RoutedIPs{}
+func (s *IPRoutings) Has(action RoutingAction) bool {
+	for _, it := range *s {
+		if it.Action == action {
+			return true
+		}
 	}
-	(*s)[ip] = RoutedIP{
+	return false
+}
+
+func (s *IPRoutings) AddRoute(iface, reason string, ip IPv4) {
+	s.add(ActionRouted, false, iface, reason, ip)
+}
+
+func (s *IPRoutings) AddStaticRoute(iface, reason string, ip IPv4) {
+	s.add(ActionRouted, true, iface, reason, ip)
+}
+
+func (s *IPRoutings) AddIgnored(reason string, ip IPv4) {
+	s.add(ActionIgnored, false, "", reason, ip)
+}
+
+func (s *IPRoutings) add(action RoutingAction, static bool, iface, reason string, ip IPv4) {
+	if *s == nil {
+		*s = IPRoutings{}
+	}
+	(*s)[ip] = IPRouting{
 		IP:     ip,
+		Action: action,
 		Static: static,
 		Iface:  iface,
 		Reason: reason,

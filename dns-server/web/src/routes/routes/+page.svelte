@@ -8,9 +8,8 @@
 	let loading = $state(false);
 	let deferredRefresh: ReturnType<typeof setTimeout>;
 
-	onMount(async () => {
-		await reload();
-		deferredRefresh = setInterval(reload, ROUTES_RELOAD_INTERVAL);
+	onMount(() => {
+		reload();
 	});
 
 	onDestroy(() => {

@@ -192,13 +192,13 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 
 	s.dnsStore.Add(dl)
 
-	routedIPs := s.ipRoutes.AddRoutes(ctx, dl)
+	ipRoutingSet := s.ipRoutes.AddRoutes(ctx, dl)
 
 	s.stream.Append(types.DNSQuery{
 		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
 		DomainLookup: *dl,
 		Duration:     time.Since(dl.Time.Time()).Seconds(),
-		RoutedIPs:    routedIPs,
+		IPRoutings:   ipRoutingSet,
 	})
 }
 

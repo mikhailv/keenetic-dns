@@ -16,7 +16,7 @@ func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc
 		return nil
 	}
 	return func(val types.DNSQuery) bool {
-		if excludeRouted && len(val.RoutedIPs) > 0 {
+		if excludeRouted && val.IPRoutings.Has(types.ActionRouted) {
 			return false
 		}
 		if search != "" && !strings.Contains(val.Domain, search) {

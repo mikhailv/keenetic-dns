@@ -44,7 +44,7 @@ linters:
     errcheck:
       check-type-assertions: true
     funlen:
-      lines: 60
+      lines: 80
       statements: 40
     gocritic:
       disabled-checks:

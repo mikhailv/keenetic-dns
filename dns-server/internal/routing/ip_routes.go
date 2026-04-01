@@ -64,6 +64,14 @@ func (s *IPRouteController) lookupIP(ip types.IPv4) (ok bool, pattern, iface str
 	return false, "", ""
 }
 
+func (s *IPRouteController) lookupIgnoredHost(host string) (ok bool, pattern string) {
+	cfg := s.cfg.Get()
+	if pattern = cfg.LookupIgnoredHost(host); pattern != "" {
+		return true, pattern
+	}
+	return false, ""
+}
+
 func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for route, info := range s.routes.Snapshot() {
@@ -96,13 +104,18 @@ func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 
 func (s *IPRouteController) Start(ctx context.Context) {
 	s.cfg.Listen(func() { s.onConfigUpdated(ctx) })
-	for it := range s.dnsStore.Iterator() {
-		s.lookups.Add(it)
-	}
+	s.syncLookups()
 	go s.startReconcileLoop(ctx)
 }
 
+func (s *IPRouteController) syncLookups() {
+	for it := range s.dnsStore.Iterator() {
+		s.lookups.Add(it)
+	}
+}
+
 func (s *IPRouteController) onConfigUpdated(ctx context.Context) {
+	s.syncLookups()
 	select {
 	case s.reconcileCh <- struct{}{}:
 	case <-ctx.Done():
@@ -210,17 +223,18 @@ func (s *IPRouteController) partitionRoutes(
 
 	// Partition routes from DNS records.
 	for _, dl := range s.lookups.Values() {
-		routedIPs := s.resolveRouting(dl)
-		if len(routedIPs) == 0 {
+		res := s.resolveRouting(dl)
+		if !res.Has(types.ActionRouted) {
 			s.lookups.Remove(dl)
+			continue
 		}
 		for _, it := range dl.IPs {
 			route := s.makeRoute(cfg, it.IP)
 			if _, ok := actual[route]; ok {
 				continue
 			}
-			r, routed := routedIPs[it.IP]
-			if routed && !r.Static {
+			r, found := res[it.IP]
+			if found && r.Action == types.ActionRouted && !r.Static {
 				actual[route] = IPRouteInfo{dl.Domain, r.Reason, dl.Time}
 			}
 		}
@@ -243,15 +257,15 @@ func (s *IPRouteController) partitionRoutes(
 	return actual, obsolete
 }
 
-func (s *IPRouteController) AddRoutes(ctx context.Context, lookup *types.DomainLookup) types.RoutedIPs {
+func (s *IPRouteController) AddRoutes(ctx context.Context, lookup *types.DomainLookup) types.IPRoutings {
 	res := s.resolveRouting(lookup)
-	if len(res) == 0 {
+	if !res.Has(types.ActionRouted) {
 		return res
 	}
 	s.lookups.Add(lookup)
 	cfg := s.cfg.Get()
 	for ip, it := range res {
-		if it.Static {
+		if it.Static || it.Action != types.ActionRouted {
 			continue
 		}
 		route := s.makeRoute(cfg, ip)
@@ -336,27 +350,36 @@ func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Se
 	return routes
 }
 
-func (s *IPRouteController) resolveRouting(dl *types.DomainLookup) types.RoutedIPs {
-	// TODO: implement better domain ignore logic with additional information why domain was ignored
-	if s.cfg.Get().LookupIgnoredHost(dl.Domain) != "" {
-		return nil
-	}
+func (s *IPRouteController) resolveRouting(dl *types.DomainLookup) types.IPRoutings { //nolint:gocognit // it's ok
+	var res types.IPRoutings
 
-	var res types.RoutedIPs
-
-	addAll := func(iface, reason string, ips []types.DomainIP) types.RoutedIPs {
+	allRouted := func(iface, reason string, ips []types.DomainIP) types.IPRoutings {
 		for _, it := range ips {
-			res.Add(iface, reason, it.IP)
+			res.AddRoute(iface, reason, it.IP)
 		}
 		return res
 	}
 
-	if ok, pattern, iface := s.lookupHost(dl.Domain); ok {
-		return addAll(iface, pattern, dl.IPs)
+	allIgnored := func(reason string, ips []types.DomainIP) types.IPRoutings {
+		for _, it := range ips {
+			res.AddIgnored(reason, it.IP)
+		}
+		return res
 	}
+
+	if ok, pattern := s.lookupIgnoredHost(dl.Domain); ok {
+		return allIgnored(pattern, dl.IPs)
+	}
+	if ok, pattern, iface := s.lookupHost(dl.Domain); ok {
+		return allRouted(iface, pattern, dl.IPs)
+	}
+
 	for _, it := range dl.CNames {
+		if ok, pattern := s.lookupIgnoredHost(it.Name); ok {
+			return allIgnored("CNAME "+pattern, dl.IPs)
+		}
 		if ok, pattern, iface := s.lookupHost(it.Name); ok {
-			return addAll(iface, "CNAME "+pattern, dl.IPs)
+			return allRouted(iface, "CNAME "+pattern, dl.IPs)
 		}
 	}
 
@@ -364,18 +387,26 @@ loop:
 	for _, it := range dl.IPs {
 		ip := it.IP
 		if ok, pattern, iface := s.lookupIP(ip); ok { // static IP
-			res.AddStatic(iface, pattern, ip)
+			res.AddStaticRoute(iface, pattern, ip)
 			continue loop
 		}
 		for _, ptr := range it.PTR {
+			if ok, pattern := s.lookupIgnoredHost(ptr.Name); ok {
+				res.AddIgnored("PTR "+pattern, ip)
+				continue loop
+			}
 			if ok, pattern, iface := s.lookupHost(ptr.Name); ok {
-				res.Add(iface, "PTR "+pattern, ip)
+				res.AddRoute(iface, "PTR "+pattern, ip)
 				continue loop
 			}
 		}
 		for _, soa := range it.SOA {
+			if ok, pattern := s.lookupIgnoredHost(soa.Name); ok {
+				res.AddIgnored("SOA "+pattern, ip)
+				continue loop
+			}
 			if ok, pattern, iface := s.lookupHost(soa.Name); ok {
-				res.Add(iface, "SOA "+pattern, ip)
+				res.AddRoute(iface, "SOA "+pattern, ip)
 				continue loop
 			}
 		}

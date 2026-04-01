@@ -107,11 +107,19 @@
 							<div title={ipTitle(ip)}>{ip.ip}</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm1">
-						{#each query.ips as ip (ip.ip)}
-							{@const route = query.routed_ips?.[ip.ip]}
+					<td class="fw-light text-sm1 text-nowrap">
+						{#each query.ips as it (it.ip)}
+							{@const route = query.ip_routings?.[it.ip]}
 							<div>
-								{route ? `${route.iface} (${route.reason})${route.added ? ' (added)' : ''}` : '-'}
+								{#if route}
+									{#if route.action === 'ignored'}
+										<span class="text-secondary italic">- ({route.reason})</span>
+									{:else}
+										{route.iface} ({route.reason}){route.added ? ' (added)' : ''}
+									{/if}
+								{:else}
+									-
+								{/if}
 							</div>
 						{/each}
 					</td>

@@ -24,7 +24,7 @@ export interface DNSQuery {
 	domain: string;
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];
-	routed_ips?: Record<string, RoutedIP>;
+	ip_routings?: Record<string, IPRouting>;
 }
 
 export interface ResolverInfo {
@@ -45,12 +45,13 @@ export interface DomainIP {
 	ptr_resolver: ResolverInfo;
 }
 
-export interface RoutedIP {
+export interface IPRouting {
 	ip: string;
+	action: 'routed' | 'ignored';
 	static: boolean;
-	iface: string;
+	iface?: string;
 	reason: string;
-	added: boolean;
+	added?: boolean;
 }
 
 export interface LogEntry {
