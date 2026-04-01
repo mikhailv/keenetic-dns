@@ -10,23 +10,39 @@ import (
 type Object map[string]any
 
 func (s Object) GetObject(prop string) Object {
-	v, _ := s.get(prop).(Object)
-	return v
+	v, ok := s.get(prop)
+	if !ok {
+		return nil
+	}
+	r, _ := v.(Object)
+	return r
 }
 
-func (s Object) GetString(prop string) string {
-	v, _ := s.get(prop).(string)
-	return v
+func (s Object) GetString(prop string) *string {
+	v, ok := s.get(prop)
+	if !ok {
+		return nil
+	}
+	r, _ := v.(string)
+	return &r
 }
 
-func (s Object) GetInt(prop string) int64 {
+func (s Object) GetInt(prop string) *int64 {
 	v := s.GetString(prop)
-	n, _ := strconv.ParseInt(v, 10, 64)
-	return n
+	if v == nil {
+		return nil
+	}
+	n, _ := strconv.ParseInt(*v, 10, 64)
+	return &n
 }
 
-func (s Object) GetBool(prop string) bool {
-	return s.GetString(prop) == "yes"
+func (s Object) GetBool(prop string) *bool {
+	v := s.GetString(prop)
+	if v == nil {
+		return nil
+	}
+	r := *v == "yes"
+	return &r
 }
 
 func (s Object) String() string {
@@ -40,15 +56,16 @@ func (s Object) String() string {
 	return sb.String()
 }
 
-func (s Object) get(prop string) any {
+func (s Object) get(prop string) (any, bool) {
 	before, after, ok := strings.Cut(prop, ".")
 	if !ok {
-		return s[prop]
+		v, ok := s[prop]
+		return v, ok
 	}
 	if v, ok := s[before]; ok {
 		if c, ok := v.(Object); ok {
 			return c.get(after)
 		}
 	}
-	return nil
+	return nil, false
 }

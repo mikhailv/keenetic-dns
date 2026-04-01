@@ -3,3 +3,4 @@
 *.a
 *.so
 *.exe
+*.gen.go

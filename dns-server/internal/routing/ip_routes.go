@@ -10,8 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikhailv/keenetic-dns/agent"
-	agentv1 "github.com/mikhailv/keenetic-dns/agent/rpc/v1"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/storage"
@@ -24,7 +23,7 @@ type IPRouteController struct {
 	cfg            *config.Dynamic[*config.Routing]
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
-	networkService agent.NetworkServiceClient
+	networkService agentclient.NetworkServiceClient
 	lookups        *storage.LookupIndex
 	routes         util.SyncMap[IPRoute, IPRouteInfo]
 	reconcileMu    sync.Mutex
@@ -35,7 +34,7 @@ func NewIPRouteController(
 	cfg *config.Dynamic[*config.Routing],
 	logger *slog.Logger,
 	dnsStore *storage.DNSStore,
-	networkService agent.NetworkServiceClient,
+	networkService agentclient.NetworkServiceClient,
 	routeTimeout time.Duration,
 ) *IPRouteController {
 	return &IPRouteController{
@@ -160,12 +159,10 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *config.Rout
 	defer log.Profile(s.logger, "reconcile rules")()
 
 	rule := IPRoutingRule(cfg.Rule)
-	res, err := s.networkService.HasRule(ctx, &agentv1.HasRuleReq{
-		Rule: mapToAgentRule(rule),
-	})
+	exists, err := s.networkService.HasRule(ctx, uint32(rule.Table), rule.Iif)
 	if err != nil {
 		s.logger.Error("failed to check if rule exists", "err", err, "", rule)
-	} else if !res.Exists {
+	} else if !exists {
 		s.addRule(ctx, rule)
 	}
 }
@@ -285,9 +282,7 @@ func (s *IPRouteController) AddRoutes(ctx context.Context, lookup *types.DomainL
 func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, info IPRouteInfo) bool {
 	defer metrics.TrackDuration("add_route")()
 
-	_, err := s.networkService.AddRoute(ctx, &agentv1.AddRouteReq{
-		Route: mapToAgentRoute(route),
-	})
+	err := s.networkService.AddRoute(ctx, mapToAgentRoute(route))
 	if err != nil {
 		s.logger.Error("failed to add route", "err", err, "", route)
 		return false
@@ -299,9 +294,7 @@ func (s *IPRouteController) addRoute(ctx context.Context, route IPRoute, info IP
 func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute, reason string) bool {
 	defer metrics.TrackDuration("delete_route")()
 
-	_, err := s.networkService.DeleteRoute(ctx, &agentv1.DeleteRouteReq{
-		Route: mapToAgentRoute(route),
-	})
+	err := s.networkService.DeleteRoute(ctx, mapToAgentRoute(route))
 	if err != nil {
 		s.logger.Error("failed to delete route", "err", err, "", route)
 		return false
@@ -317,9 +310,7 @@ func (s *IPRouteController) deleteRoute(ctx context.Context, route IPRoute, reas
 func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) bool {
 	defer metrics.TrackDuration("add_rule")()
 
-	_, err := s.networkService.AddRule(ctx, &agentv1.AddRuleReq{
-		Rule: mapToAgentRule(rule),
-	})
+	err := s.networkService.AddRule(ctx, mapToAgentRule(rule))
 	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "", rule)
 		return false
@@ -331,14 +322,14 @@ func (s *IPRouteController) addRule(ctx context.Context, rule IPRoutingRule) boo
 func (s *IPRouteController) loadRoutes(ctx context.Context, tableId int) util.Set[IPRoute] {
 	defer metrics.TrackDuration("load_routes")()
 
-	res, err := s.networkService.ListRoutes(ctx, &agentv1.ListRoutesReq{Table: uint32(tableId)})
+	res, err := s.networkService.ListRoutes(ctx, uint32(tableId))
 	if err != nil {
 		s.logger.Error("failed to load route table", "err", err, "table", tableId)
 		return nil
 	}
 
-	routes := make(util.Set[IPRoute], len(res.Routes))
-	for _, it := range res.Routes {
+	routes := make(util.Set[IPRoute], len(res))
+	for _, it := range res {
 		addr, err := types.ParseIPv4(it.Address)
 		if err != nil {
 			s.logger.Warn("unexpected route address", "addr", it.Address)
@@ -415,16 +406,16 @@ loop:
 	return res
 }
 
-func mapToAgentRule(rule IPRoutingRule) *agentv1.Rule {
-	return &agentv1.Rule{
+func mapToAgentRule(rule IPRoutingRule) agentclient.Rule {
+	return agentclient.Rule{
 		Table:    uint32(rule.Table),
 		Iif:      rule.Iif,
 		Priority: uint32(rule.Priority),
 	}
 }
 
-func mapToAgentRoute(route IPRoute) *agentv1.Route {
-	return &agentv1.Route{
+func mapToAgentRoute(route IPRoute) agentclient.Route {
+	return agentclient.Route{
 		Table:   uint32(route.Table),
 		Iface:   route.Iface,
 		Address: route.Addr.String(),

@@ -124,7 +124,3 @@ export interface HostMWS {
 	mcs?: number;
 	security?: string;
 }
-
-export interface ListHostsResponse {
-	hosts?: HostInfo[];
-}

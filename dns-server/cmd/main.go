@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mikhailv/keenetic-dns/agent"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:staticcheck //ignore
@@ -59,7 +59,10 @@ func main() { //nolint:funlen // ignore
 
 	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, dnsStoreSave)
 
-	networkService := agent.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
+	networkService, err := agentclient.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
+	if err != nil {
+		exitWithError(fmt.Errorf("failed to create agent client: %w", err))
+	}
 
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.Routing.RouteTimeout)
 	ipRoutes.Start(ctx)

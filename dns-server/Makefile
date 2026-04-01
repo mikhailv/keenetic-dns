@@ -1,12 +1,11 @@
-GOOS ?= linux
-GOARCH ?=
-GOMIPS ?=
+TARGET_OS ?= linux
+TARGET_ARCH ?=
 
 .PHONY: all
 all: build
 
 .PHONY: build
-build: build-web build-bin
+build: generate build-web build-bin
 
 .PHONY: build-web
 build-web:
@@ -20,4 +19,8 @@ lint:
 .PHONY: build-bin
 build-bin:
 	# flags to reduce binary size (affect on pprof results): -trimpath -ldflags="-s -w"
-	env GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o dns-server ./cmd
+	env GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) go build -o dns-server ./cmd
+
+.PHONY: generate
+generate:
+	go generate ./...

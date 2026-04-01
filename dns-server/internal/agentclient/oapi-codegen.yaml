@@ -1,0 +1,5 @@
+package: agentclient
+generate:
+  models: true
+  client: true
+output: client-openapi.gen.go

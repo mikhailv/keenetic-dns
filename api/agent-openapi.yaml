@@ -1,0 +1,293 @@
+openapi: "3.0.3"
+info:
+  title: Keenetic DNS Agent API
+  description: Network agent API for managing IP routes and rules on Keenetic routers
+  version: "1.0.0"
+
+paths:
+  /api/v1/rules:
+    head:
+      operationId: hasRule
+      summary: Check if a policy routing rule exists
+      parameters:
+        - name: table
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint32
+        - name: iif
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rule exists
+        "404":
+          description: Rule does not exist
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: addRule
+      summary: Add a policy routing rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Rule"
+      responses:
+        "204":
+          description: Rule added
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/routes:
+    get:
+      operationId: listRoutes
+      summary: List routes in a routing table
+      parameters:
+        - name: table
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: uint32
+      responses:
+        "200":
+          description: Route list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Route"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: addRoute
+      summary: Add a route to a routing table
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Route"
+      responses:
+        "204":
+          description: Route added
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteRoute
+      summary: Delete a route from a routing table
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Route"
+      responses:
+        "204":
+          description: Route deleted
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/hosts:
+    get:
+      operationId: listHosts
+      summary: List connected devices
+      responses:
+        "200":
+          description: Device list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HostInfo"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Route:
+      type: object
+      required: [table, iface, address]
+      properties:
+        table:
+          type: integer
+          format: uint32
+        iface:
+          type: string
+        address:
+          type: string
+
+    Rule:
+      type: object
+      required: [table, iif, priority]
+      properties:
+        table:
+          type: integer
+          format: uint32
+        iif:
+          type: string
+        priority:
+          type: integer
+          format: uint32
+
+    HostInfo:
+      type: object
+      properties:
+        mac:
+          type: string
+        via:
+          type: string
+        ip:
+          type: string
+        hostname:
+          type: string
+        name:
+          type: string
+        registered:
+          type: boolean
+        access:
+          type: string
+        priority:
+          type: integer
+          format: int64
+        active:
+          type: boolean
+        rx_bytes:
+          type: integer
+          format: int64
+        tx_bytes:
+          type: integer
+          format: int64
+        link:
+          type: string
+        uptime:
+          type: integer
+          format: int64
+        first_seen:
+          type: integer
+          format: int64
+        last_seen:
+          type: integer
+          format: int64
+        auto_negotiation:
+          type: boolean
+        speed:
+          type: integer
+          format: int64
+        duplex:
+          type: boolean
+        port:
+          type: integer
+          format: int64
+        system_mode:
+          type: string
+        http_port:
+          type: integer
+          format: int64
+        http_host:
+          type: string
+        region:
+          type: string
+        description:
+          type: string
+        firmware:
+          type: string
+        interface:
+          $ref: "#/components/schemas/HostInterface"
+        dhcp:
+          $ref: "#/components/schemas/HostDHCP"
+        mws:
+          $ref: "#/components/schemas/HostMWS"
+
+    HostInterface:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+
+    HostDHCP:
+      type: object
+      properties:
+        expires:
+          type: integer
+          format: int64
+
+    HostMWS:
+      type: object
+      description: Mesh Wi-Fi System info
+      properties:
+        cid:
+          type: string
+        ap:
+          type: string
+        psm:
+          type: boolean
+          description: Power Saving Mode
+        mld:
+          type: boolean
+          description: Multicast Listener Discovery
+        authenticated:
+          type: boolean
+        tx_rate:
+          type: integer
+          format: int64
+        uptime:
+          type: integer
+          format: int64
+        rssi:
+          type: integer
+          format: int64
+          description: Received Signal Strength Indicator
+        mcs:
+          type: integer
+          format: int64
+          description: Modulation and Coding Scheme
+        security:
+          type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        exit_code:
+          type: integer
+          format: int32
+        output:
+          type: string

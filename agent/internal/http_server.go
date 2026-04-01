@@ -11,16 +11,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	"github.com/mikhailv/keenetic-dns/agent/rpc/v1/agentv1connect"
+	"github.com/mikhailv/keenetic-dns/agent/internal/api"
 )
 
 type HTTPServer struct {
 	logger         *slog.Logger
 	server         http.Server
-	networkService agentv1connect.NetworkServiceHandler
+	networkService api.StrictServerInterface
 }
 
-func NewHTTPServer(addr string, logger *slog.Logger, networkService agentv1connect.NetworkServiceHandler) *HTTPServer {
+func NewHTTPServer(addr string, logger *slog.Logger, networkService api.StrictServerInterface) *HTTPServer {
 	return &HTTPServer{
 		logger: logger,
 		server: http.Server{
@@ -54,12 +54,8 @@ func (s *HTTPServer) Serve(ctx context.Context) error {
 func (s *HTTPServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", promhttp.Handler())
-	mux.Handle("/api/", http.StripPrefix("/api", s.createAPIHandler()))
-	return cors.Default().Handler(mux)
-}
 
-func (s *HTTPServer) createAPIHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.Handle(agentv1connect.NewNetworkServiceHandler(s.networkService))
-	return mux
+	apiServer := api.NewStrictHandler(s.networkService, nil)
+
+	return cors.Default().Handler(api.HandlerFromMux(apiServer, mux))
 }

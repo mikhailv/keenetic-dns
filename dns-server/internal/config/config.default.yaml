@@ -6,7 +6,7 @@ history:
   dns_query_size: 2000
 
 agent:
-  base_url: 'http://127.0.0.1:5332/api/'
+  base_url: 'http://127.0.0.1:5332/'
   timeout: 10s
 
 dns:

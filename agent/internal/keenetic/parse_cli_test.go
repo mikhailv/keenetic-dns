@@ -35,6 +35,7 @@ func TestParseOutput(t *testing.T) {
 		res, err := ParseOutput(`
              host: 
                region: EA
+                speed: 
           description: Keenetic Speedster (NDMS 4.03.C.6.0-5): KN-
                        3010
              firmware: 4.03.C.6.0-5
@@ -45,6 +46,7 @@ func TestParseOutput(t *testing.T) {
 		assert.Equal(t, []Object{
 			{"host": Object{
 				"region":      "EA",
+				"speed":       "",
 				"description": "Keenetic Speedster (NDMS 4.03.C.6.0-5): KN-3010",
 				"firmware":    "4.03.C.6.0-5",
 			}},

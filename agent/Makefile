@@ -1,25 +1,17 @@
-PWD = $(shell pwd)
-SHELL := env PATH=$(PATH):$(PWD)/tools bash
-
-GOOS ?= linux
-GOARCH ?=
+TARGET_OS ?= linux
+TARGET_ARCH ?=
 
 .PHONY: all
-all: tools generate-rpc build
+all: build
 
 .PHONY: build
-build:
-	env GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o agent ./cmd
+build: generate
+	env GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) go build -o agent ./cmd
 
 .PHONY: lint
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3 run -v
 
-.PHONY: generate-rpc
-generate-rpc:
-	buf lint
-	buf generate
-
-.PHONY: tools
-tools:
-	$(MAKE) -C tools
+.PHONY: generate
+generate:
+	go generate ./...

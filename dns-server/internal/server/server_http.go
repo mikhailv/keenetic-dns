@@ -15,7 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	"github.com/mikhailv/keenetic-dns/agent"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
@@ -33,7 +33,7 @@ type HTTPServer struct {
 	resolver       dnssvc.Resolver
 	server         http.Server
 	ipRoutes       *routing.IPRouteController
-	networkService agent.NetworkServiceClient
+	networkService agentclient.NetworkServiceClient
 	logStream      *stream.Buffered[log.Entry]
 	queryStream    *stream.Buffered[types.DNSQuery]
 	rawQueryStream *stream.Buffered[types.DNSRawQuery]
@@ -44,7 +44,7 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	resolver dnssvc.Resolver,
 	ipRoutes *routing.IPRouteController,
-	networkService agent.NetworkServiceClient,
+	networkService agentclient.NetworkServiceClient,
 	logStream *stream.Buffered[log.Entry],
 	queryStream *stream.Buffered[types.DNSQuery],
 	rawQueryStream *stream.Buffered[types.DNSRawQuery],

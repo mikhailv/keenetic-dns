@@ -1,4 +1,4 @@
-package agentv1
+package api
 
 import "log/slog"
 

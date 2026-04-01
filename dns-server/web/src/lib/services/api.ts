@@ -10,10 +10,6 @@ interface ListResponse<T> {
 	next_page_url: string;
 }
 
-interface HostsResponse {
-	hosts: HostInfo[];
-}
-
 export type ListResult<T> = {
 	items: T[];
 	error?: string;
@@ -42,9 +38,9 @@ export class APIService {
 	}
 
 	async getHosts(): Promise<ListResult<HostInfo>> {
-		const { data, error } = await requestData<HostsResponse>(`${this.baseUrl}/api/hosts`);
+		const { data, error } = await requestData<HostInfo[]>(`${this.baseUrl}/api/hosts`);
 		return {
-			items: data?.hosts ?? [],
+			items: data ?? [],
 			error
 		};
 	}
