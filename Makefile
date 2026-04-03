@@ -37,6 +37,10 @@ upload-config:
 upload-agent:
 	scp -pC -P $(SSH_PORT) agent/agent $(SSH_PATH_KEENETIC)/update/
 
+.PHONY: upload-agent-rs
+upload-agent-rs:
+	scp -pC -P $(SSH_PORT) agent-rs/target/aarch64-unknown-linux-musl/release/agent-rs $(SSH_PATH_KEENETIC)/update/
+
 .PHONY: upload-dns-server
 upload-dns-server:
 	scp -pC -P $(SSH_PORT) dns-server/dns-server $(SSH_PATH_KEENETIC)/update/
