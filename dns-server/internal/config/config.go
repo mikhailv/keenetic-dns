@@ -23,17 +23,28 @@ type Config struct {
 	Addr     string `yaml:"addr"`
 	HTTPAddr string `yaml:"http_addr"`
 
-	History History `yaml:"history"`
-	Agent   Agent   `yaml:"agent"`
-	DNS     DNS     `yaml:"dns"`
-	MDNS    MDNS    `yaml:"mdns"`
-	Storage Storage `yaml:"storage"`
-	Routing Routing `yaml:"routing"`
+	History   History   `yaml:"history"`
+	Agent     Agent     `yaml:"agent"`
+	DNS       DNS       `yaml:"dns"`
+	MDNS      MDNS      `yaml:"mdns"`
+	Storage   Storage   `yaml:"storage"`
+	Routing   Routing   `yaml:"routing"`
+	Conntrack Conntrack `yaml:"conntrack"`
+}
+
+type Conntrack struct {
+	PollInterval   time.Duration `yaml:"poll_interval"`
+	BucketInterval time.Duration `yaml:"bucket_interval"`
+	ChunkInterval  time.Duration `yaml:"chunk_interval"`
+	CacheDuration  time.Duration `yaml:"cache_duration"`
+	SaveInterval   time.Duration `yaml:"save_interval"`
+	DataDir        string        `yaml:"data_dir"`
 }
 
 type History struct {
-	LogSize      int `yaml:"log_size"`
-	DNSQuerySize int `yaml:"dns_query_size"`
+	LogSize       int `yaml:"log_size"`
+	DNSQuerySize  int `yaml:"dns_query_size"`
+	ConntrackSize int `yaml:"conntrack_size"`
 }
 
 type Agent struct {

@@ -33,7 +33,6 @@ func TestParseOutput(t *testing.T) {
 	t.Run("parse real ndmc output", func(t *testing.T) {
 		// Real ndmc "show device-list" output (reduced).
 		// Section headers have trailing space after ": " (e.g. "host: ").
-		//nolint:staticcheck // trailing spaces are intentional — real ndmc format
 		res, err := ParseOutput(`
              host: 
                   mac: dc:03:98:81:d1:04

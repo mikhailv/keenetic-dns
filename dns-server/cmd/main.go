@@ -16,6 +16,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
@@ -66,6 +67,20 @@ func main() { //nolint:funlen // ignore
 
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.Routing.RouteTimeout)
 	ipRoutes.Start(ctx)
+
+	conntrackStore := conntrack.NewFileStore(cfg.Conntrack.DataDir)
+	defer closeCloser(conntrackStore, "conntrack store", logger)
+
+	conntrackStream := stream.NewBufferedStream[conntrack.Bucket](cfg.History.ConntrackSize)
+
+	conntrackTracker := conntrack.NewTracker(conntrack.TrackerConfig{
+		PollInterval:   cfg.Conntrack.PollInterval,
+		BucketInterval: cfg.Conntrack.BucketInterval,
+		ChunkInterval:  cfg.Conntrack.ChunkInterval,
+		CacheDuration:  cfg.Conntrack.CacheDuration,
+		SaveInterval:   cfg.Conntrack.SaveInterval,
+	}, log.WithPrefix(logger, "conntrack"), networkService, conntrackStore, conntrackStream)
+	go conntrackTracker.Start(ctx)
 
 	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))
 	defer closeCloser(dnsCache, "dns cache", logger)
@@ -121,6 +136,7 @@ func main() { //nolint:funlen // ignore
 		logStream,
 		dnsQueryStream,
 		rawQueryStream,
+		conntrackStream,
 	)
 	go serve(ctx, httpServer)
 

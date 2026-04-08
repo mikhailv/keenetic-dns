@@ -134,6 +134,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/v1/conntrack:
+    get:
+      operationId: listConntrack
+      summary: List active connections from conntrack
+      responses:
+        "200":
+          description: Connection list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConntrackEntry"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   schemas:
     Route:
@@ -279,6 +299,48 @@ components:
           description: Modulation and Coding Scheme
         security:
           type: string
+
+    ConntrackEntry:
+      type: object
+      required: [protocol, src_ip, dst_ip, packets_orig, bytes_orig, packets_reply, bytes_reply]
+      properties:
+        protocol:
+          type: string
+          description: Protocol name (tcp, udp, icmp)
+        state:
+          type: string
+          description: Connection state (ESTABLISHED, TIME_WAIT, etc.)
+        ttl:
+          type: integer
+          description: Seconds remaining before entry expires
+        src_ip:
+          type: string
+        dst_ip:
+          type: string
+        src_port:
+          type: integer
+          format: uint16
+        dst_port:
+          type: integer
+          format: uint16
+        packets_orig:
+          type: integer
+          format: int64
+        bytes_orig:
+          type: integer
+          format: int64
+        packets_reply:
+          type: integer
+          format: int64
+        bytes_reply:
+          type: integer
+          format: int64
+        mac:
+          type: string
+        mark:
+          type: integer
+        assured:
+          type: boolean
 
     Error:
       type: object

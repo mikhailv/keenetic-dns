@@ -14,6 +14,7 @@ type NetworkServiceClient interface {
 	AddRoute(ctx context.Context, route Route) error
 	DeleteRoute(ctx context.Context, route Route) error
 	ListHosts(ctx context.Context) ([]HostInfo, error)
+	ListConntrack(ctx context.Context) ([]ConntrackEntry, error)
 }
 
 func NewNetworkServiceClient(baseURL string, timeout time.Duration) (NetworkServiceClient, error) {
@@ -97,6 +98,20 @@ func (c *networkServiceClient) ListHosts(ctx context.Context) ([]HostInfo, error
 	}
 	if resp.StatusCode() != http.StatusOK {
 		return nil, responseError("ListHosts", resp.StatusCode(), resp.JSON500)
+	}
+	if resp.JSON200 == nil {
+		return nil, nil
+	}
+	return *resp.JSON200, nil
+}
+
+func (c *networkServiceClient) ListConntrack(ctx context.Context) ([]ConntrackEntry, error) {
+	resp, err := c.c.ListConntrackWithResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusOK {
+		return nil, responseError("ListConntrack", resp.StatusCode(), resp.JSON500)
 	}
 	if resp.JSON200 == nil {
 		return nil, nil

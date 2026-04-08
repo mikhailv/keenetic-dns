@@ -16,6 +16,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
@@ -29,14 +30,15 @@ const dnsMessageMediaType = "application/dns-message"
 type FilterFunc[T any] func(val T) bool
 
 type HTTPServer struct {
-	logger         *slog.Logger
-	resolver       dnssvc.Resolver
-	server         http.Server
-	ipRoutes       *routing.IPRouteController
-	networkService agentclient.NetworkServiceClient
-	logStream      *stream.Buffered[log.Entry]
-	queryStream    *stream.Buffered[types.DNSQuery]
-	rawQueryStream *stream.Buffered[types.DNSRawQuery]
+	logger          *slog.Logger
+	resolver        dnssvc.Resolver
+	server          http.Server
+	ipRoutes        *routing.IPRouteController
+	networkService  agentclient.NetworkServiceClient
+	logStream       *stream.Buffered[log.Entry]
+	queryStream     *stream.Buffered[types.DNSQuery]
+	rawQueryStream  *stream.Buffered[types.DNSRawQuery]
+	conntrackStream *stream.Buffered[conntrack.Bucket]
 }
 
 func NewHTTPServer(
@@ -48,6 +50,7 @@ func NewHTTPServer(
 	logStream *stream.Buffered[log.Entry],
 	queryStream *stream.Buffered[types.DNSQuery],
 	rawQueryStream *stream.Buffered[types.DNSRawQuery],
+	conntrackStream *stream.Buffered[conntrack.Bucket],
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:   logger,
@@ -56,11 +59,12 @@ func NewHTTPServer(
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
-		ipRoutes:       ipRoutes,
-		networkService: networkService,
-		logStream:      logStream,
-		queryStream:    queryStream,
-		rawQueryStream: rawQueryStream,
+		ipRoutes:        ipRoutes,
+		networkService:  networkService,
+		logStream:       logStream,
+		queryStream:     queryStream,
+		rawQueryStream:  rawQueryStream,
+		conntrackStream: conntrackStream,
 	}
 }
 
@@ -103,6 +107,7 @@ func (s *HTTPServer) createHandler() (http.Handler, error) {
 	mux.Handle("GET /api/dns-queries/ws", createStreamHandler(s.queryStream, wsLogger, s.filterQueries))
 	mux.Handle("GET /api/dns-raw-queries", s.wrapHandler(createListHandler(s.rawQueryStream, s.filterRawQueries)))
 	mux.Handle("GET /api/dns-raw-queries/ws", createStreamHandler(s.rawQueryStream, wsLogger, s.filterRawQueries))
+	mux.Handle("GET /api/conntrack/ws", createStreamHandler(s.conntrackStream, wsLogger, s.filterConntrack))
 	mux.Handle("GET /static/", webBuildDirectoryHandler())
 	mux.Handle("GET /favicon.svg", webBuildFileHandler("favicon.svg"))
 	mux.Handle("GET /", webBuildFileHandler("index.html"))

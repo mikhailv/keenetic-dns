@@ -4,6 +4,7 @@ http_addr: '' # if empty the same value as `addr` will be used
 history:
   log_size: 2000
   dns_query_size: 2000
+  conntrack_size: 1000
 
 agent:
   base_url: 'http://127.0.0.1:5332/'
@@ -33,3 +34,11 @@ routing:
   route_timeout: 30m
   hosts: []
   static: []
+
+conntrack:
+  poll_interval: 5s
+  bucket_interval: 1m
+  chunk_interval: 1h
+  cache_duration: 3h
+  save_interval: 10m
+  data_dir: conntrack

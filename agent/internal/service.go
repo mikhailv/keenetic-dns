@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal/api"
+	"github.com/mikhailv/keenetic-dns/agent/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/agent/internal/keenetic"
 )
 
@@ -108,6 +110,16 @@ func (s *networkService) DeleteRoute(ctx context.Context, req api.DeleteRouteReq
 	}
 	s.logger.Info("route deleted", "route", route)
 	return api.DeleteRoute204Response{}, nil
+}
+
+func (s *networkService) ListConntrack(_ context.Context, _ api.ListConntrackRequestObject) (api.ListConntrackResponseObject, error) {
+	content, err := os.ReadFile("/proc/net/nf_conntrack")
+	if err != nil {
+		s.logger.Error("failed to read conntrack", "err", err)
+		return api.ListConntrack500JSONResponse(api.Error{Error: err.Error()}), nil
+	}
+	entries := conntrack.Parse(string(content))
+	return api.ListConntrack200JSONResponse(entries), nil
 }
 
 func (s *networkService) ListHosts(ctx context.Context, _ api.ListHostsRequestObject) (api.ListHostsResponseObject, error) {
