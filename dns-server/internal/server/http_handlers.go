@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	"github.com/goccy/go-json"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/web"
 	"github.com/mikhailv/keenetic-dns/internal/stream"

@@ -4,10 +4,11 @@ go 1.25.1
 
 require (
 	github.com/coder/websocket v1.8.14
-	github.com/fxamacker/cbor/v2 v2.9.0
-	github.com/klauspost/compress v1.18.4
+	github.com/fxamacker/cbor/v2 v2.9.1
+	github.com/goccy/go-json v0.10.6
+	github.com/klauspost/compress v1.18.5
 	github.com/miekg/dns v1.1.72
-	github.com/oapi-codegen/runtime v1.3.1
+	github.com/oapi-codegen/runtime v1.4.0
 	github.com/pion/mdns/v2 v2.1.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/cors v1.11.1
@@ -34,7 +35,7 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/mod v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )

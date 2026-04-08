@@ -1,8 +1,9 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/goccy/go-json"
 )
 
 func (s *HTTPServer) handleListHosts(w http.ResponseWriter, req *http.Request) (int, error) {
@@ -12,6 +13,6 @@ func (s *HTTPServer) handleListHosts(w http.ResponseWriter, req *http.Request) (
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(hosts) //nolint:errchkjson // ignore any error
+	_ = json.NewEncoder(w).Encode(hosts)
 	return http.StatusOK, nil
 }
