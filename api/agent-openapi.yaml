@@ -335,8 +335,6 @@ components:
         bytes_reply:
           type: integer
           format: int64
-        mac:
-          type: string
         mark:
           type: integer
         assured:

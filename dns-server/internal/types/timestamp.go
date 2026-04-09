@@ -30,7 +30,7 @@ func (t Timestamp) Add(d time.Duration) Timestamp {
 func (t Timestamp) MarshalText() (text []byte, err error) {
 	return timestampMarshalTextCache.GetOrCompute(t, func() []byte {
 		// 2026-03-19T10:08:13.653Z
-		return t.Time().UTC().AppendFormat(make([]byte, 0, 24), time.RFC3339Nano)
+		return t.Time().UTC().AppendFormat(make([]byte, 0, 30), time.RFC3339Nano)
 	}), nil
 }
 

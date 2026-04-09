@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/exec"
 	"slices"
 	"strconv"
@@ -112,13 +111,14 @@ func (s *networkService) DeleteRoute(ctx context.Context, req api.DeleteRouteReq
 	return api.DeleteRoute204Response{}, nil
 }
 
-func (s *networkService) ListConntrack(_ context.Context, _ api.ListConntrackRequestObject) (api.ListConntrackResponseObject, error) {
-	content, err := os.ReadFile("/proc/net/nf_conntrack")
+func (s *networkService) ListConntrack(ctx context.Context, _ api.ListConntrackRequestObject) (api.ListConntrackResponseObject, error) {
+	cmd := exec.CommandContext(ctx, "conntrack", "-L", "-f", "ipv4")
+	res, err := s.runCmd(cmd)
 	if err != nil {
-		s.logger.Error("failed to read conntrack", "err", err)
+		s.logger.Error("failed to list conntrack", "err", err, "output", res.ErrOutput)
 		return api.ListConntrack500JSONResponse(api.Error{Error: err.Error()}), nil
 	}
-	entries := conntrack.Parse(string(content))
+	entries := conntrack.Parse(res.Output)
 	return api.ListConntrack200JSONResponse(entries), nil
 }
 

@@ -1,10 +1,8 @@
 package conntrack
 
 import (
-	"encoding/hex"
 	"fmt"
-	"maps"
-	"net"
+	"slices"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -34,8 +32,12 @@ func (p Protocol) String() string {
 	}
 }
 
-// ParseProtocol converts a protocol name to Protocol.
-func ParseProtocol(s string) Protocol {
+func (p Protocol) MarshalText() ([]byte, error) {
+	return util.StringToBytes(p.String()), nil
+}
+
+// parseProtocol converts a protocol name to Protocol.
+func parseProtocol(s string) Protocol {
 	switch s {
 	case "tcp":
 		return ProtoTCP
@@ -48,77 +50,37 @@ func ParseProtocol(s string) Protocol {
 	}
 }
 
-// ParseIP parses an IP string into types.IPv4.
-func ParseIP(s string) types.IPv4 {
+// parseIP parses an IP string into types.IPv4.
+func parseIP(s string) types.IPv4 {
 	ip, _ := types.ParseIPv4(s)
 	return ip
-}
-
-// MAC is a 6-byte hardware address stored in binary form.
-type MAC [6]byte
-
-// ParseMAC parses a colon-separated MAC string like "aa:bb:cc:dd:ee:ff".
-func ParseMAC(s string) MAC {
-	var m MAC
-	if s == "" {
-		return m
-	}
-	hw, err := net.ParseMAC(s)
-	if err != nil || len(hw) != 6 {
-		return m
-	}
-	copy(m[:], hw)
-	return m
-}
-
-// IsZero returns true if the MAC is all zeros (unset).
-func (m MAC) IsZero() bool {
-	return m == MAC{}
-}
-
-func (m MAC) format() []byte {
-	var buf [18]byte
-	for i := range m {
-		p := i * 3
-		hex.Encode(buf[p:p+2], m[i:i+1])
-		buf[p+2] = ':'
-	}
-	return buf[:18]
-}
-
-func (m MAC) String() string {
-	return string(m.format())
-}
-
-// MarshalText implements encoding.TextMarshaler for JSON output.
-func (m MAC) MarshalText() ([]byte, error) {
-	return m.format(), nil
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (m *MAC) UnmarshalText(b []byte) error {
-	*m = ParseMAC(string(b))
-	return nil
 }
 
 // ConnKey identifies a logical connection group (without ephemeral src_port).
 type ConnKey struct {
 	_        struct{}   `cbor:",toarray"`
-	Protocol Protocol   // 1 byte
-	SrcIP    types.IPv4 // 5 bytes
-	DstIP    types.IPv4 // 5 bytes
-	DstPort  uint16     // 2 bytes
-	MAC      MAC        // 6 bytes
+	Protocol Protocol   `json:"protocol"` // 1 byte
+	SrcIP    types.IPv4 `json:"src_ip"`   // 5 bytes
+	DstIP    types.IPv4 `json:"dst_ip"`   // 5 bytes
+	DstPort  uint16     `json:"dst_port"` // 2 bytes
 }
 
 type Chunk struct {
-	TimeRange      TimeRange            `json:"time_range"`
-	BucketDuration uint                 `json:"bucket_duration"` // seconds
-	Buckets        map[Timestamp]Bucket `json:"buckets"`
+	TimeRange      TimeRange `json:"time_range"`
+	BucketDuration uint      `json:"bucket_duration"` // seconds
+	Buckets        []Bucket  `json:"buckets"`
 }
 
-func (c Chunk) Clone() Chunk {
-	c.Buckets = maps.Clone(c.Buckets)
+func (s *Chunk) IsValid() bool {
+	return !s.TimeRange.IsZero() && s.BucketDuration > 0
+}
+
+func (s *Chunk) Clone() Chunk {
+	c := *s
+	c.Buckets = make([]Bucket, len(s.Buckets))
+	for i, bucket := range s.Buckets {
+		c.Buckets[i] = bucket.Clone()
+	}
 	return c
 }
 
@@ -130,6 +92,15 @@ type Bucket struct {
 	Entries   []BucketEntry `json:"entries"`
 }
 
+func (s *Bucket) Clone() Bucket {
+	c := *s
+	c.Entries = make([]BucketEntry, len(s.Entries))
+	for i, entry := range s.Entries {
+		c.Entries[i] = entry.Clone()
+	}
+	return c
+}
+
 func (s *Bucket) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
@@ -138,56 +109,66 @@ func (s *Bucket) SetCursor(cursor stream.Cursor) {
 type BucketEntry struct {
 	_ struct{} `cbor:",toarray"`
 	ConnKey
-	BytesOrig    int64
-	BytesReply   int64
-	PacketsOrig  uint32
-	PacketsReply uint32
-	Connections  uint16
+	ConnStat
+	SrcPorts []uint16 `json:"src_ports"`
+}
+
+func (s *BucketEntry) Clone() BucketEntry {
+	c := *s
+	c.SrcPorts = slices.Clone(s.SrcPorts)
+	return c
+}
+
+type ConnStat struct {
+	BytesOrig    int64  `json:"bytes_orig"`
+	BytesReply   int64  `json:"bytes_reply"`
+	PacketsOrig  uint32 `json:"packets_orig"`
+	PacketsReply uint32 `json:"packets_reply"`
+}
+
+func (s *ConnStat) IsZero() bool {
+	return *s == (ConnStat{})
+}
+
+func (s *ConnStat) Add(other ConnStat) {
+	s.BytesOrig += other.BytesOrig
+	s.BytesReply += other.BytesReply
+	s.PacketsOrig += other.PacketsOrig
+	s.PacketsReply += other.PacketsReply
+}
+
+func (s *ConnStat) IsNextFor(prev ConnStat) bool {
+	return s.BytesOrig >= prev.BytesOrig &&
+		s.BytesReply >= prev.BytesReply &&
+		s.PacketsOrig >= prev.PacketsOrig &&
+		s.PacketsReply >= prev.PacketsReply
 }
 
 // snapshotKey is the full 5-tuple used to track individual connections between polls.
 type snapshotKey struct {
-	Protocol Protocol
-	SrcIP    types.IPv4
-	SrcPort  uint16
-	DstIP    types.IPv4
-	DstPort  uint16
-	MAC      MAC
+	ConnKey
+	SrcPort uint16
 }
 
 // snapshotEntry holds the counters from one poll for a single connection.
 type snapshotEntry struct {
-	BytesOrig    int64
-	BytesReply   int64
-	PacketsOrig  uint32
-	PacketsReply uint32
+	ConnStat
+	MissCount uint8
 }
 
-// bucketAccumulator accumulates deltas for a single ConnKey within the current bucket.
-type bucketAccumulator struct {
-	bytesOrig    int64
-	bytesReply   int64
-	packetsOrig  uint32
-	packetsReply uint32
-	srcPorts     util.Set[uint16]
+// bucketEntryAccumulator accumulates deltas for a single ConnKey within the current bucket.
+type bucketEntryAccumulator struct {
+	ConnStat
+	SrcPorts util.Set[uint16]
 }
 
-func (a *bucketAccumulator) addDelta(srcPort uint16, delta snapshotEntry) {
-	a.bytesOrig += delta.BytesOrig
-	a.bytesReply += delta.BytesReply
-	a.packetsOrig += delta.PacketsOrig
-	a.packetsReply += delta.PacketsReply
-	a.srcPorts.Add(srcPort)
-}
-
-func (a *bucketAccumulator) toBucketEntry(key ConnKey) BucketEntry {
+func (s *bucketEntryAccumulator) toBucketEntry(key ConnKey) BucketEntry {
+	srcPorts := s.SrcPorts.Values()
+	slices.Sort(srcPorts)
 	return BucketEntry{
-		ConnKey:      key,
-		BytesOrig:    a.bytesOrig,
-		BytesReply:   a.bytesReply,
-		PacketsOrig:  a.packetsOrig,
-		PacketsReply: a.packetsReply,
-		Connections:  uint16(len(a.srcPorts)),
+		ConnKey:  key,
+		ConnStat: s.ConnStat,
+		SrcPorts: srcPorts,
 	}
 }
 
@@ -201,6 +182,10 @@ type TimeRange struct {
 	_     struct{}  `cbor:",toarray"`
 	Start Timestamp `json:"start"`
 	End   Timestamp `json:"end"`
+}
+
+func (s TimeRange) IsZero() bool {
+	return s == (TimeRange{})
 }
 
 func (s TimeRange) StartTime() time.Time {

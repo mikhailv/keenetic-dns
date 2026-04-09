@@ -124,3 +124,32 @@ export interface HostMWS {
 	mcs?: number;
 	security?: string;
 }
+
+export interface ConntrackTimeRange {
+	start: number;
+	end: number;
+}
+
+export interface ConntrackEntry {
+	protocol: string;
+	src_ip: string;
+	dst_ip: string;
+	dst_port: number;
+	bytes_orig: number;
+	bytes_reply: number;
+	packets_orig: number;
+	packets_reply: number;
+	src_ports: number[];
+}
+
+export interface ConntrackBucket {
+	time_range: ConntrackTimeRange;
+	entries: ConntrackEntry[];
+}
+
+export interface ConntrackBucketsResponse {
+	time_range: ConntrackTimeRange;
+	interval: number;
+	requested_interval: number;
+	buckets: ConntrackBucket[];
+}

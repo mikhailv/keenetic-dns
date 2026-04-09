@@ -1,4 +1,4 @@
-import type { DNSQuery, HostInfo, IPRoute, LogEntry } from '$lib/types';
+import type { ConntrackBucketsResponse, DNSQuery, HostInfo, IPRoute, LogEntry } from '$lib/types';
 import { baseURL, createWebSocketStreamStore, type StreamStore } from '$lib/stores';
 
 interface ListResponse<T> {
@@ -15,10 +15,7 @@ export type ListResult<T> = {
 	error?: string;
 };
 
-export type DataResult<T> = {
-	data?: T;
-	error?: string;
-};
+export type DataResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
 type StreamResponse<T> = T[];
 
@@ -43,6 +40,16 @@ export class APIService {
 			items: data ?? [],
 			error
 		};
+	}
+
+	async getConntrackBuckets(
+		from: number,
+		to: number,
+		interval: number
+	): Promise<DataResult<ConntrackBucketsResponse>> {
+		return requestData<ConntrackBucketsResponse>(
+			`${this.baseUrl}/api/conntrack/buckets?from=${from}&to=${to}&interval=${interval}`
+		);
 	}
 
 	async getDNSQueries(backward: boolean, count: number): Promise<ListResult<DNSQuery>> {

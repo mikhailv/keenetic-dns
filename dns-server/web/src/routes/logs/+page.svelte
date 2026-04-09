@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
 	import type { LogEntry } from '$lib/types';
 	import type { StreamStore } from '$lib/stores/stream.store';
@@ -8,13 +8,7 @@
 
 	const stream: StreamStore<LogEntry> = api.createLogStreamStore(MAX_ITEMS);
 
-	onMount(() => {
-		stream.start();
-	});
-
-	onDestroy(() => {
-		stream.stop();
-	});
+	onMount(() => stream.start());
 
 	function formatTime(date: Date): string {
 		return date.toTimeString().split(' ')[0];

@@ -8,7 +8,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-// Parse parses the content of /proc/net/nf_conntrack into structured entries.
+// Parse parses the content of `conntrack -L` into structured entries.
 func Parse(content string) []api.ConntrackEntry {
 	lines := strings.Split(content, "\n")
 	entries := make([]api.ConntrackEntry, 0, len(lines))
@@ -30,27 +30,25 @@ func Parse(content string) []api.ConntrackEntry {
 // flags, and metadata.
 func parseLine(line string) (api.ConntrackEntry, bool) {
 	fields := strings.Fields(line)
-	if len(fields) < 8 || fields[0] != "ipv4" {
+	if len(fields) < 6 {
 		return api.ConntrackEntry{}, false
 	}
 
 	var entry api.ConntrackEntry
-	entry.Protocol = strings.TrimSpace(fields[2])
+	entry.Protocol = strings.TrimSpace(fields[0])
 
-	if ttl, err := strconv.Atoi(fields[4]); err == nil {
+	if ttl, err := strconv.Atoi(fields[2]); err == nil {
 		entry.Ttl = &ttl
 	}
 
 	// TCP has a state field (ESTABLISHED, TIME_WAIT, etc.);
 	// UDP/ICMP go straight to key=value pairs.
-	startIdx := 5
-	if entry.Protocol == "tcp" && len(fields) > 5 && !strings.Contains(fields[5], "=") {
-		state := fields[5]
-		entry.State = &state
-		startIdx = 6
+	if entry.Protocol == "tcp" && !strings.Contains(fields[3], "=") {
+		entry.State = &fields[3]
+		parseKeyValues(&entry, fields[4:])
+	} else {
+		parseKeyValues(&entry, fields[3:])
 	}
-
-	parseKeyValues(&entry, fields[startIdx:])
 
 	if entry.SrcIp == "" || entry.DstIp == "" {
 		return api.ConntrackEntry{}, false
@@ -125,8 +123,6 @@ func applyField(e *api.ConntrackEntry, k, v string, reply bool) {
 				e.BytesReply = n
 			}
 		}
-	case "mac":
-		e.Mac = &v
 	case "mark":
 		if n, err := strconv.Atoi(v); err == nil {
 			e.Mark = &n

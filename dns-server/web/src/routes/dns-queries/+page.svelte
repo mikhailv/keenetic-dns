@@ -1,26 +1,16 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
 	import type { DNSQuery, DomainIP } from '$lib/types';
 	import { type StreamStore, createHostStore } from '$lib/stores';
 
 	const MAX_ITEMS = 200;
-	const HOSTS_RELOAD_INTERVAL = 30_000;
 
 	const stream: StreamStore<DNSQuery> = api.createDNSQueryStreamStore(MAX_ITEMS);
 	const hosts = createHostStore();
-	let hostsReloadInterval: ReturnType<typeof setInterval>;
 
-	onMount(() => {
-		stream.start();
-		hosts.reload();
-		hostsReloadInterval = setInterval(() => hosts.reload(), HOSTS_RELOAD_INTERVAL);
-	});
-
-	onDestroy(() => {
-		stream.stop();
-		clearInterval(hostsReloadInterval);
-	});
+	onMount(() => hosts.autoreload());
+	onMount(() => stream.start());
 
 	function formatTime(date: Date): string {
 		return date.toTimeString().split(' ')[0];

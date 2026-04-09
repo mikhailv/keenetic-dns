@@ -73,6 +73,14 @@ func (s *SyncSet[T]) Iterator() iter.Seq[T] {
 
 type Set[T comparable] map[T]struct{}
 
+func NewSet[T comparable](values ...T) Set[T] {
+	s := make(Set[T], len(values))
+	for _, v := range values {
+		s.Add(v)
+	}
+	return s
+}
+
 func (s *Set[T]) Add(v T) bool {
 	if *s == nil {
 		*s = map[T]struct{}{}

@@ -1,8 +1,6 @@
 package conntrack
 
 import (
-	"bytes"
-	"cmp"
 	"context"
 	"iter"
 	"log/slog"
@@ -15,6 +13,8 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
+
+const keepTrackMissCount = 10
 
 // TrackerConfig holds configuration for the conntrack tracker.
 type TrackerConfig struct {
@@ -32,45 +32,61 @@ type Tracker struct {
 	logger *slog.Logger
 	agent  agentclient.NetworkServiceClient
 	store  Store
-	stream stream.Stream[Bucket]
+	stream *stream.Buffered[Bucket]
 
-	mu           sync.RWMutex
-	prevSnapshot map[snapshotKey]snapshotEntry
-	chunk        Chunk
-	bucketRange  TimeRange
-	bucketData   map[ConnKey]*bucketAccumulator
-	cached       []Chunk
+	mu            sync.RWMutex
+	prevSnapshot  map[snapshotKey]snapshotEntry
+	bucketRange   TimeRange
+	bucketEntries map[ConnKey]*bucketEntryAccumulator
+	chunkRange    TimeRange
+	chunkBuckets  map[Timestamp]Bucket
+	cached        []Chunk
 }
 
+// NewTracker creates a new Tracker with the given configuration.
 func NewTracker(
 	cfg TrackerConfig,
 	logger *slog.Logger,
 	agent agentclient.NetworkServiceClient,
 	store Store,
-	stream stream.Stream[Bucket],
+	stream *stream.Buffered[Bucket],
 ) *Tracker {
 	ensureDurationMinuteBounded(cfg.BucketInterval)
 	ensureDurationMinuteBounded(cfg.ChunkInterval)
 	now := time.Now()
 	return &Tracker{
-		cfg:          cfg,
-		logger:       logger,
-		agent:        agent,
-		store:        store,
-		stream:       stream,
-		prevSnapshot: map[snapshotKey]snapshotEntry{},
-		bucketRange:  makeRange(now, cfg.BucketInterval),
-		bucketData:   map[ConnKey]*bucketAccumulator{},
-		chunk: Chunk{
-			TimeRange:      makeRange(now, cfg.ChunkInterval),
-			BucketDuration: uint(cfg.BucketInterval.Seconds()),
-			Buckets:        map[Timestamp]Bucket{},
-		},
+		cfg:           cfg,
+		logger:        logger,
+		agent:         agent,
+		store:         store,
+		stream:        stream,
+		prevSnapshot:  map[snapshotKey]snapshotEntry{},
+		bucketRange:   makeRange(now, cfg.BucketInterval),
+		bucketEntries: map[ConnKey]*bucketEntryAccumulator{},
+		chunkRange:    makeRange(now, cfg.ChunkInterval),
+		chunkBuckets:  map[Timestamp]Bucket{},
 	}
 }
 
-// Start launches the polling loop. Blocks until ctx is cancelled.
-func (s *Tracker) Start(ctx context.Context) {
+// Stream returns the buffered stream of bucket updates for real-time subscribers.
+func (s *Tracker) Stream() *stream.Buffered[Bucket] {
+	return s.stream
+}
+
+// BucketDuration returns the native bucket size in seconds used by this tracker.
+func (s *Tracker) BucketDuration() uint {
+	return uint(s.cfg.BucketInterval.Seconds())
+}
+
+// Start launches the polling loop.
+func (s *Tracker) Start(ctx context.Context) util.Waiter {
+	waiter, stop := util.NewWaiter()
+	go s.start(ctx, stop)
+	return waiter
+}
+
+func (s *Tracker) start(ctx context.Context, onStop func()) {
+	defer onStop()
 	s.loadCurrent(ctx)
 	s.loadCached(ctx)
 
@@ -89,12 +105,16 @@ func (s *Tracker) Start(ctx context.Context) {
 			s.broadcastChangedEntries(s.poll(ctx, now))
 		case <-saveTicker.C:
 			s.mu.RLock()
-			s.saveChunk(ctx)
+			chunk := s.snapshotCurrentChunk()
 			s.mu.RUnlock()
+			s.saveChunk(ctx, chunk)
 		}
 	}
 }
 
+// IterateChunks returns an iterator over chunks that intersect the given time range,
+// combining in-memory cached chunks with persisted chunks from the store.
+// Chunks are yielded in chronological order.
 func (s *Tracker) IterateChunks(ctx context.Context, tr TimeRange) iter.Seq2[Chunk, error] {
 	return func(yield func(Chunk, error) bool) {
 		if !tr.Valid() {
@@ -103,17 +123,18 @@ func (s *Tracker) IterateChunks(ctx context.Context, tr TimeRange) iter.Seq2[Chu
 
 		s.mu.RLock()
 		var loaded []Chunk
-		if s.chunk.TimeRange.Intersects(tr) {
-			loaded = append(loaded, s.snapshotCurrentChunk())
-			tr.End = s.chunk.TimeRange.Start - 1
+		if s.chunkRange.Intersects(tr) {
+			chunk := s.snapshotCurrentChunk()
+			loaded = append(loaded, chunk)
+			tr.End = s.chunkRange.Start - 1
 		}
 		for i := len(s.cached) - 1; i >= 0; i-- {
 			if !tr.Valid() {
 				break
 			}
-			it := &s.cached[i]
+			it := s.cached[i]
 			if it.TimeRange.Intersects(tr) {
-				loaded = append(loaded, it.Clone())
+				loaded = append(loaded, it)
 				tr.End = it.TimeRange.Start - 1
 			}
 		}
@@ -147,7 +168,7 @@ func (s *Tracker) broadcastChangedEntries(changed util.Set[ConnKey]) {
 		Entries:   make([]BucketEntry, 0, len(changed)),
 	}
 	for ck := range changed {
-		if acc := s.bucketData[ck]; acc != nil {
+		if acc := s.bucketEntries[ck]; acc != nil {
 			bucket.Entries = append(bucket.Entries, acc.toBucketEntry(ck))
 		}
 	}
@@ -157,26 +178,27 @@ func (s *Tracker) broadcastChangedEntries(changed util.Set[ConnKey]) {
 }
 
 func (s *Tracker) snapshotCurrentChunk() Chunk {
-	chunk := s.chunk.Clone()
-	bucket := s.snapshotCurrentBucket()
-	chunk.Buckets[bucket.TimeRange.Start] = bucket
-	return chunk
+	buckets := make([]Bucket, 0, len(s.chunkBuckets)+1)
+	for _, bucket := range s.chunkBuckets {
+		buckets = append(buckets, bucket)
+	}
+	if len(s.bucketEntries) > 0 {
+		buckets = append(buckets, s.snapshotCurrentBucket())
+	}
+	SortBuckets(buckets)
+	return Chunk{
+		TimeRange:      s.chunkRange,
+		BucketDuration: s.BucketDuration(),
+		Buckets:        buckets,
+	}
 }
 
 func (s *Tracker) snapshotCurrentBucket() Bucket {
-	entries := make([]BucketEntry, 0, len(s.bucketData))
-	for key, acc := range s.bucketData {
+	entries := make([]BucketEntry, 0, len(s.bucketEntries))
+	for key, acc := range s.bucketEntries {
 		entries = append(entries, acc.toBucketEntry(key))
 	}
-	slices.SortFunc(entries, func(a, b BucketEntry) int {
-		return cmp.Or(
-			bytes.Compare(a.SrcIP[:], b.SrcIP[:]),
-			cmp.Compare(a.Protocol, b.Protocol),
-			bytes.Compare(a.DstIP[:], b.DstIP[:]),
-			cmp.Compare(a.DstPort, b.DstPort),
-			bytes.Compare(a.MAC[:], b.MAC[:]),
-		)
-	})
+	SortBucketEntries(entries)
 	return Bucket{
 		TimeRange: s.bucketRange,
 		Entries:   entries,
@@ -184,87 +206,99 @@ func (s *Tracker) snapshotCurrentBucket() Bucket {
 }
 
 func (s *Tracker) sealBucket() {
-	if len(s.bucketData) == 0 {
+	if len(s.bucketEntries) == 0 {
 		return
 	}
 	bucket := s.snapshotCurrentBucket()
-	s.chunk.Buckets[bucket.TimeRange.Start] = bucket
-	clear(s.bucketData)
+	s.chunkBuckets[bucket.TimeRange.Start] = bucket
+	clear(s.bucketEntries)
 }
 
-func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] {
+func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen // ignore
 	entries, err := s.agent.ListConntrack(ctx)
 	if err != nil {
 		s.logger.Error("failed to poll conntrack", "err", err)
 		return nil
 	}
 
+	var chunkToSave Chunk
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	nowTs := Timestamp(now.Unix())
-
 	if nowTs > s.bucketRange.End {
 		s.sealBucket()
 		s.bucketRange = makeRange(now, s.cfg.BucketInterval)
-		if nowTs > s.chunk.TimeRange.End {
-			s.saveChunk(ctx)
-			s.cached = append(s.cached, s.chunk.Clone())
+		if nowTs > s.chunkRange.End {
+			chunkToSave = s.snapshotCurrentChunk()
+			s.cached = append(s.cached, chunkToSave)
 			s.evictOldCachedChunks()
-			s.chunk.TimeRange = makeRange(now, s.cfg.ChunkInterval)
-			clear(s.chunk.Buckets)
+			s.chunkRange = makeRange(now, s.cfg.ChunkInterval)
+			clear(s.chunkBuckets)
 		}
 	}
+	s.mu.Unlock()
 
+	// save new chunk without holding lock
+	s.saveChunk(ctx, chunkToSave)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	firstPoll := len(s.prevSnapshot) == 0
 	changedKeys := make(util.Set[ConnKey], len(entries))
 
 	// Build new snapshot and compute deltas.
 	newSnapshot := make(map[snapshotKey]snapshotEntry, len(entries))
 	for _, e := range entries {
-		sk := snapshotKey{
-			Protocol: ParseProtocol(e.Protocol),
-			SrcIP:    ParseIP(e.SrcIp),
-			SrcPort:  util.Deref(e.SrcPort),
-			DstIP:    ParseIP(e.DstIp),
+		ck := ConnKey{
+			Protocol: parseProtocol(e.Protocol),
+			SrcIP:    parseIP(e.SrcIp),
+			DstIP:    parseIP(e.DstIp),
 			DstPort:  util.Deref(e.DstPort),
-			MAC:      ParseMAC(util.Deref(e.Mac)),
 		}
-		se := snapshotEntry{
+		cs := ConnStat{
 			BytesOrig:    e.BytesOrig,
 			BytesReply:   e.BytesReply,
 			PacketsOrig:  uint32(min(e.PacketsOrig, math.MaxUint32)),
 			PacketsReply: uint32(min(e.PacketsReply, math.MaxUint32)),
 		}
-		newSnapshot[sk] = se
+		sk := snapshotKey{
+			ConnKey: ck,
+			SrcPort: util.Deref(e.SrcPort),
+		}
+		newSnapshot[sk] = snapshotEntry{ConnStat: cs}
 
-		ck := ConnKey{
-			Protocol: sk.Protocol,
-			SrcIP:    sk.SrcIP,
-			DstIP:    sk.DstIP,
-			DstPort:  sk.DstPort,
-			MAC:      sk.MAC,
+		if firstPoll {
+			continue
 		}
 
-		var delta snapshotEntry
-		if prev, ok := s.prevSnapshot[sk]; ok {
-			delta = snapshotEntry{
-				BytesOrig:    max(0, se.BytesOrig-prev.BytesOrig),
-				BytesReply:   max(0, se.BytesReply-prev.BytesReply),
-				PacketsOrig:  saturatingSub(se.PacketsOrig, prev.PacketsOrig),
-				PacketsReply: saturatingSub(se.PacketsReply, prev.PacketsReply),
+		var delta ConnStat
+		if prev, ok := s.prevSnapshot[sk]; ok && (prev.MissCount == 0 || cs.IsNextFor(prev.ConnStat)) {
+			delta = ConnStat{
+				BytesOrig:    max(0, cs.BytesOrig-prev.BytesOrig),
+				BytesReply:   max(0, cs.BytesReply-prev.BytesReply),
+				PacketsOrig:  saturatingSub(cs.PacketsOrig, prev.PacketsOrig),
+				PacketsReply: saturatingSub(cs.PacketsReply, prev.PacketsReply),
 			}
-		} else {
-			// New connection — absolute counters as first delta.
-			delta = se
+		} else { // new connection
+			delta = cs
 		}
 
 		acc := s.getOrCreateAccumulator(ck)
-		if delta == (snapshotEntry{}) {
-			// Still register the src_port for connection counting.
-			acc.srcPorts.Add(sk.SrcPort)
-		} else {
-			acc.addDelta(sk.SrcPort, delta)
+		acc.SrcPorts.Add(sk.SrcPort)
+		acc.Add(delta)
+		if !delta.IsZero() {
 			changedKeys.Add(ck)
+		}
+	}
+
+	// keep tracking for missing entries
+	for sk, se := range s.prevSnapshot {
+		if _, ok := newSnapshot[sk]; !ok {
+			se.MissCount++
+			if se.MissCount <= keepTrackMissCount {
+				newSnapshot[sk] = se
+			}
 		}
 	}
 
@@ -272,20 +306,23 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] {
 	return changedKeys
 }
 
-func (s *Tracker) getOrCreateAccumulator(ck ConnKey) *bucketAccumulator {
-	acc, ok := s.bucketData[ck]
+func (s *Tracker) getOrCreateAccumulator(ck ConnKey) *bucketEntryAccumulator {
+	acc, ok := s.bucketEntries[ck]
 	if !ok {
-		acc = &bucketAccumulator{srcPorts: util.Set[uint16]{}}
-		s.bucketData[ck] = acc
+		acc = &bucketEntryAccumulator{}
+		s.bucketEntries[ck] = acc
 	}
 	return acc
 }
 
-func (s *Tracker) saveChunk(ctx context.Context) {
-	if err := s.store.Save(ctx, s.chunk); err != nil {
-		s.logger.Error("failed to save conntrack chunk", "err", err)
+func (s *Tracker) saveChunk(ctx context.Context, chunk Chunk) {
+	if !chunk.IsValid() {
+		return
+	}
+	if err := s.store.Save(ctx, chunk); err != nil {
+		s.logger.Error("failed to save chunk", "err", err)
 	} else {
-		s.logger.Info("saved conntrack chunk", "buckets", len(s.chunk.Buckets), "time_range", s.chunk.TimeRange)
+		s.logger.Info("chunk saved", "buckets", len(chunk.Buckets), "time_range", chunk.TimeRange)
 	}
 }
 
@@ -305,21 +342,32 @@ func (s *Tracker) flush(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sealBucket()
-	s.saveChunk(ctx)
+	s.saveChunk(ctx, s.snapshotCurrentChunk())
 }
 
 func (s *Tracker) loadCurrent(ctx context.Context) {
-	for chunk, err := range s.store.Load(ctx, s.chunk.TimeRange) {
+	for chunk, err := range s.store.Load(ctx, s.chunkRange) {
 		switch {
 		case err != nil:
 			s.logger.Error("failed to load current chunk", "err", err)
-		case chunk.TimeRange != s.chunk.TimeRange:
-			s.logger.Info("chunk time range incompatible", "time_range", chunk.TimeRange)
-		case chunk.BucketDuration != s.chunk.BucketDuration:
-			s.logger.Info("chunk bucket duration incompatible", "bucket_duration", chunk.BucketDuration)
+		case chunk.TimeRange != s.chunkRange:
+			s.logger.Info("chunk time range incompatible", "time_range", chunk.TimeRange, "expected_time_range", s.chunkRange)
+		case chunk.BucketDuration != s.BucketDuration():
+			s.logger.Info("chunk bucket duration incompatible", "bucket_duration", chunk.BucketDuration, "expected_bucket_duration", s.BucketDuration())
 		default:
 			s.mu.Lock()
-			s.chunk = chunk
+			for _, bucket := range chunk.Buckets {
+				if bucket.TimeRange == s.bucketRange {
+					for _, entry := range bucket.Entries {
+						s.bucketEntries[entry.ConnKey] = &bucketEntryAccumulator{
+							ConnStat: entry.ConnStat,
+							SrcPorts: util.NewSet(entry.SrcPorts...),
+						}
+					}
+				} else {
+					s.chunkBuckets[bucket.TimeRange.Start] = bucket
+				}
+			}
 			s.mu.Unlock()
 			s.logger.Info("current chunk loaded", "buckets", len(chunk.Buckets))
 		}
@@ -334,7 +382,7 @@ func (s *Tracker) loadCached(ctx context.Context) {
 	}
 	tr := TimeRange{
 		Start: Timestamp(time.Now().Add(-s.cfg.CacheDuration).Unix()),
-		End:   s.chunk.TimeRange.Start - 1,
+		End:   s.chunkRange.Start - 1,
 	}
 	if !tr.Valid() {
 		return
@@ -346,10 +394,10 @@ func (s *Tracker) loadCached(ctx context.Context) {
 			s.logger.Error("failed to load cached chunk", "err", err)
 			continue
 		}
-		s.logger.Info("loaded cached conntrack chunk", "buckets", len(chunk.Buckets), "time_range", chunk.TimeRange)
+		s.logger.Info("loaded cached chunk", "buckets", len(chunk.Buckets), "time_range", chunk.TimeRange)
 		s.cached = append(s.cached, chunk)
 	}
-	s.logger.Info("loaded cached conntrack chunks", "count", len(s.cached))
+	s.logger.Info("loaded cached chunks", "count", len(s.cached))
 }
 
 func saturatingSub(a, b uint32) uint32 {

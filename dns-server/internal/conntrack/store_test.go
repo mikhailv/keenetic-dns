@@ -20,8 +20,8 @@ func TestFileStore_SaveLoad(t *testing.T) {
 	chunk := Chunk{
 		TimeRange:      tr,
 		BucketDuration: 300,
-		Buckets: map[Timestamp]Bucket{
-			base: {
+		Buckets: []Bucket{
+			{
 				TimeRange: TimeRange{Start: base, End: base + 300},
 				Entries: []BucketEntry{
 					{
@@ -30,17 +30,18 @@ func TestFileStore_SaveLoad(t *testing.T) {
 							SrcIP:    types.MustParseIPv4("192.168.1.1"),
 							DstIP:    types.MustParseIPv4("10.0.0.1"),
 							DstPort:  443,
-							MAC:      ParseMAC("aa:bb:cc:dd:ee:ff"),
 						},
-						BytesOrig:    1234,
-						BytesReply:   5678,
-						PacketsOrig:  10,
-						PacketsReply: 20,
-						Connections:  3,
+						ConnStat: ConnStat{
+							BytesOrig:    1234,
+							BytesReply:   5678,
+							PacketsOrig:  10,
+							PacketsReply: 20,
+						},
+						SrcPorts: []uint16{123},
 					},
 				},
 			},
-			base + 300: {
+			{
 				TimeRange: TimeRange{Start: base + 300, End: base + 600},
 				Entries: []BucketEntry{
 					{
@@ -50,11 +51,13 @@ func TestFileStore_SaveLoad(t *testing.T) {
 							DstIP:    types.MustParseIPv4("8.8.8.8"),
 							DstPort:  53,
 						},
-						BytesOrig:    100,
-						BytesReply:   500,
-						PacketsOrig:  2,
-						PacketsReply: 2,
-						Connections:  1,
+						ConnStat: ConnStat{
+							BytesOrig:    100,
+							BytesReply:   500,
+							PacketsOrig:  2,
+							PacketsReply: 2,
+						},
+						SrcPorts: []uint16{123},
 					},
 				},
 			},

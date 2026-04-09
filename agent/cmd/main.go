@@ -30,7 +30,7 @@ func main() {
 	flag.Parse()
 
 	logger, logFlush := setupLogger(debug)
-	go util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush)
+	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 	defer logFlush()
 
 	setup.Pprof(ctx, pprofAddr, logger)

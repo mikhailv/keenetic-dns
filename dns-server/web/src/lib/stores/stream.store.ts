@@ -2,7 +2,7 @@ import { type Readable, writable } from 'svelte/store';
 import { mutator } from '$lib/stores/util';
 
 export interface StreamStore<T> extends Readable<Readonly<StreamStoreState<T>>> {
-	start(): void;
+	start(): () => void;
 	stop(): void;
 }
 
@@ -68,14 +68,19 @@ export function createWebSocketStreamStore<T extends { cursor: string }>(
 		ws = null;
 	}
 
+	function start() {
+		disconnect();
+		connect();
+		return stop;
+	}
+
+	function stop() {
+		disconnect();
+	}
+
 	return {
 		subscribe,
-		start: () => {
-			disconnect();
-			connect();
-		},
-		stop: () => {
-			disconnect();
-		}
+		start,
+		stop
 	};
 }

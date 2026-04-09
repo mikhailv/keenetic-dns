@@ -45,7 +45,7 @@ func main() { //nolint:funlen // ignore
 	}
 
 	logger, logStream, logFlush := setupLogger(*debug, cfg.History.LogSize)
-	go util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush)
+	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 	defer logFlush()
 
 	setup.Pprof(ctx, *pprofAddr, logger)
@@ -58,7 +58,7 @@ func main() { //nolint:funlen // ignore
 	dnsStore, dnsStoreSave := setupDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), cfg.Routing.RouteTimeout)
 	defer dnsStoreSave()
 
-	go util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, dnsStoreSave)
+	defer util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, dnsStoreSave).Wait()
 
 	networkService, err := agentclient.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 	if err != nil {
@@ -80,13 +80,13 @@ func main() { //nolint:funlen // ignore
 		CacheDuration:  cfg.Conntrack.CacheDuration,
 		SaveInterval:   cfg.Conntrack.SaveInterval,
 	}, log.WithPrefix(logger, "conntrack"), networkService, conntrackStore, conntrackStream)
-	go conntrackTracker.Start(ctx)
+	defer conntrackTracker.Start(ctx).Wait()
 
 	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))
 	defer closeCloser(dnsCache, "dns cache", logger)
 	defer dnsCacheSave()
 
-	go util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave)
+	defer util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave).Wait()
 
 	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.History.DNSQuerySize)
 	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.History.DNSQuerySize)
@@ -104,7 +104,7 @@ func main() { //nolint:funlen // ignore
 	settableResolver := NewSettableResolver(resolver)
 	defer closeCloser(settableResolver, "resolver", logger)
 
-	configWatcher := watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
+	defer watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
 		mdnsServicesCfg.Set(cfg.MDNS.Services)
 		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
@@ -112,8 +112,7 @@ func main() { //nolint:funlen // ignore
 		} else if err := settableResolver.SetResolver(newResolver); err != nil {
 			logger.Error("failed to close resolver", "err", err)
 		}
-	})
-	defer closeCloser(configWatcher, "config_watcher", logger)
+	}).Wait()
 
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
@@ -136,7 +135,7 @@ func main() { //nolint:funlen // ignore
 		logStream,
 		dnsQueryStream,
 		rawQueryStream,
-		conntrackStream,
+		conntrackTracker,
 	)
 	go serve(ctx, httpServer)
 
@@ -253,7 +252,7 @@ func watchConfigUpdate(
 	configFile string,
 	updateCheckInterval time.Duration,
 	onUpdate func(cfg config.Config),
-) io.Closer {
+) util.Waiter {
 	getModTime := func() (time.Time, bool) {
 		f, err := os.Stat(configFile)
 		if err != nil {
@@ -273,22 +272,13 @@ func watchConfigUpdate(
 		}
 	}
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		modTime, _ := getModTime()
-		util.RunPeriodically(ctx.Done(), updateCheckInterval, func() {
-			if t, ok := getModTime(); ok && t.After(modTime) {
-				if reloadConfig() {
-					modTime = t
-				}
+	modTime, _ := getModTime()
+	return util.RunPeriodically(ctx.Done(), updateCheckInterval, func() {
+		if t, ok := getModTime(); ok && t.After(modTime) {
+			if reloadConfig() {
+				modTime = t
 			}
-		})
-	}()
-
-	return util.CloserFunc(func() error {
-		<-done
-		return nil
+		}
 	})
 }
 
