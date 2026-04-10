@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,8 +16,10 @@ var (
 	errInvalidIPv4Address = errors.New("invalid IPv4 address")
 	errInvalidIPv4Prefix  = errors.New("prefix must be between 0 and 32")
 
-	ipv4MarshalTextCache util.WeakMapVal[IPv4, []byte]
+	ipv4MarshalJSONCache util.WeakMapVal[IPv4, []byte]
 )
+
+var _ encoding.TextAppender = IPv4{}
 
 type IPv4 [5]byte
 
@@ -75,22 +78,52 @@ func (ip IPv4) Mask() [4]byte {
 
 func (ip IPv4) String() string {
 	var buf [20]byte
-	return string(ip.AppendText(buf[:0]))
+	b, _ := ip.AppendText(buf[:0])
+	return string(b)
 }
 
-func (ip IPv4) AppendText(b []byte) []byte {
-	b, _ = net.IP(ip[:4]).AppendText(b)
+func (ip IPv4) AppendText(b []byte) ([]byte, error) {
+	b = appendDecimalByte(b, ip[0])
+	b = append(b, '.')
+	b = appendDecimalByte(b, ip[1])
+	b = append(b, '.')
+	b = appendDecimalByte(b, ip[2])
+	b = append(b, '.')
+	b = appendDecimalByte(b, ip[3])
 	if ip[4] < 32 {
 		b = append(b, '/')
-		b = strconv.AppendInt(b, int64(ip[4]), 10)
+		b = appendDecimalByte(b, ip[4])
 	}
-	return b
+	return b, nil
 }
 
 func (ip IPv4) MarshalText() ([]byte, error) {
-	return ipv4MarshalTextCache.GetOrCompute(ip, func() []byte {
-		return ip.AppendText(make([]byte, 0, 20))
+	return ip.AppendText(make([]byte, 0, 18))
+}
+
+func (ip IPv4) MarshalJSON() ([]byte, error) {
+	return ipv4MarshalJSONCache.GetOrCompute(ip, func() []byte {
+		// max: `"` + 18 (255.255.255.255/32) + `"` = 20
+		var buf [20]byte
+		buf[0] = '"'
+		b, _ := ip.AppendText(buf[:1])
+		b = append(b, '"')
+		return b
 	}), nil
+}
+
+func appendDecimalByte(b []byte, v byte) []byte {
+	switch {
+	case v >= 100:
+		b = append(b, '0'+v/100)
+		v %= 100
+		b = append(b, '0'+v/10, '0'+v%10)
+	case v >= 10:
+		b = append(b, '0'+v/10, '0'+v%10)
+	default:
+		b = append(b, '0'+v)
+	}
+	return b
 }
 
 func (ip *IPv4) UnmarshalText(b []byte) error {

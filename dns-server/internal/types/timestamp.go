@@ -2,13 +2,16 @@ package types
 
 import (
 	"bytes"
+	"encoding"
 	"strconv"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-var timestampMarshalTextCache util.WeakMapVal[Timestamp, []byte]
+var timestampMarshalJSONCache util.WeakMapVal[Timestamp, []byte]
+
+var _ encoding.TextAppender = Timestamp(0)
 
 type Timestamp int64
 
@@ -27,11 +30,57 @@ func (t Timestamp) Add(d time.Duration) Timestamp {
 	return TimestampFromTime(t.Time().Add(d))
 }
 
-func (t Timestamp) MarshalText() (text []byte, err error) {
-	return timestampMarshalTextCache.GetOrCompute(t, func() []byte {
-		// 2026-03-19T10:08:13.653Z
-		return t.Time().UTC().AppendFormat(make([]byte, 0, 30), time.RFC3339Nano)
+func (t Timestamp) AppendText(b []byte) ([]byte, error) {
+	if t == 0 {
+		return append(b, "0001-01-01T00:00:00Z"...), nil
+	}
+	tt := t.Time().UTC()
+	year, month, day := tt.Date()
+	hours, minutes, seconds := tt.Clock()
+	ms := tt.Nanosecond() / 1_000_000
+
+	b = appendInt(b, year, 4)
+	b = append(b, '-')
+	b = appendInt(b, int(month), 2)
+	b = append(b, '-')
+	b = appendInt(b, day, 2)
+	b = append(b, 'T')
+	b = appendInt(b, hours, 2)
+	b = append(b, ':')
+	b = appendInt(b, minutes, 2)
+	b = append(b, ':')
+	b = appendInt(b, seconds, 2)
+	if ms > 0 {
+		b = append(b, '.')
+		b = appendInt(b, ms, 3)
+	}
+	b = append(b, 'Z')
+	return b, nil
+}
+
+func (t Timestamp) MarshalText() ([]byte, error) {
+	return t.AppendText(make([]byte, 0, 24))
+}
+
+func (t Timestamp) MarshalJSON() ([]byte, error) {
+	return timestampMarshalJSONCache.GetOrCompute(t, func() []byte {
+		// `"` + max 24 (2006-01-02T15:04:05.000Z) + `"` = 26
+		var buf [26]byte
+		buf[0] = '"'
+		b, _ := t.AppendText(buf[:1])
+		b = append(b, '"')
+		return b
 	}), nil
+}
+
+// appendInt appends v zero-padded to width digits.
+func appendInt(b []byte, v int, width int) []byte {
+	var tmp [4]byte
+	for i := width - 1; i >= 0; i-- {
+		tmp[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return append(b, tmp[:width]...)
 }
 
 func (t *Timestamp) UnmarshalText(text []byte) error {
