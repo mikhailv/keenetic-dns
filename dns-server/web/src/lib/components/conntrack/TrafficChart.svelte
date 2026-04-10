@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { ConntrackBucket, ConntrackEntry } from '$lib/types';
 	import { formatBytes } from './util';
+	import { createHostStore } from '$lib/stores';
+	import { onMount } from 'svelte';
 
 	let { buckets }: { buckets: ConntrackBucket[] } = $props();
 
@@ -9,29 +11,38 @@
 	const HEIGHT = 240;
 	const PAD = { top: 10, right: 10, bottom: 24, left: 60 };
 
-	function entryKey(e: ConntrackEntry): string {
-		return `${e.protocol}|${e.src_ip}|${e.dst_ip}|${e.dst_port}`;
-	}
+	const hosts = createHostStore();
+
+	onMount(() => hosts.autoreload());
 
 	function entryBytes(e: ConntrackEntry): number {
 		return e.bytes_orig + e.bytes_reply;
 	}
 
 	const totals = $derived.by(() => {
-		const m: Record<string, { key: string; label: string; bytes: number }> = {};
+		const m: Record<string, { key: string; label: string; alias?: string; bytes: number }> = {};
 		for (const b of buckets) {
 			for (const e of b.entries) {
-				const k = entryKey(e);
+				const k = e.src_ip;
 				const cur = m[k];
 				const v = entryBytes(e);
-				if (cur) cur.bytes += v;
-				else m[k] = { key: k, label: `${e.src_ip}→${e.dst_ip}:${e.dst_port}`, bytes: v };
+				if (cur) {
+					cur.bytes += v;
+				} else {
+					m[k] = {
+						key: k,
+						label: e.src_ip,
+						alias: $hosts.byIP[e.src_ip]?.name ?? '?',
+						bytes: v
+					};
+				}
 			}
 		}
 		return Object.values(m).sort((a, b) => b.bytes - a.bytes);
 	});
 
 	const topKeys = $derived(new Set(totals.slice(0, TOP_N).map((t) => t.key)));
+
 	const legend = $derived([
 		...totals.slice(0, TOP_N),
 		...(totals.length > TOP_N ? [{ key: '__other', label: 'other', bytes: 0 }] : [])
@@ -42,7 +53,7 @@
 			const slices: Record<string, number> = {};
 			let total = 0;
 			for (const e of b.entries) {
-				const k = entryKey(e);
+				const k = e.src_ip;
 				const bucketKey = topKeys.has(k) ? k : '__other';
 				const v = entryBytes(e);
 				slices[bucketKey] = (slices[bucketKey] ?? 0) + v;
@@ -75,7 +86,7 @@
 	}
 
 	function fmtTime(unix: number): string {
-		return new Date(unix * 1000).toLocaleTimeString();
+		return new Date(unix * 1000).toLocaleString();
 	}
 </script>
 
@@ -99,19 +110,19 @@
 			{@const innerW = Math.max(barWidth - 1, 1)}
 			{@const segments = (() => {
 				let acc = 0;
-				const out: { y: number; h: number; key: string }[] = [];
+				const out: { y: number; h: number; key: string; label: string }[] = [];
 				for (const l of legend) {
 					const v = bar.slices[l.key] ?? 0;
 					if (v <= 0) continue;
 					const h = ((HEIGHT - PAD.top - PAD.bottom) * v) / maxTotal;
 					acc += h;
-					out.push({ y: HEIGHT - PAD.bottom - acc, h, key: l.key });
+					out.push({ y: HEIGHT - PAD.bottom - acc, h, key: l.key, label: `${l.label} (${l.alias})` });
 				}
 				return out;
 			})()}
 			{#each segments as seg (seg.key)}
 				<rect {x} y={seg.y} width={innerW} height={seg.h} fill={colorFor(seg.key)}>
-					<title>{fmtTime(bar.time)} — {formatBytes(bar.total)}</title>
+					<title>{`${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}</title>
 				</rect>
 			{/each}
 		{/each}
@@ -122,6 +133,9 @@
 			<span class="d-inline-flex align-items-center gap-1">
 				<span style="display:inline-block;width:10px;height:10px;background:{colorFor(l.key)}"></span>
 				{l.label}
+				{#if l.alias}
+					<span class="text-muted fw-light text-sm2">({l.alias})</span>
+				{/if}
 			</span>
 		{/each}
 	</div>
