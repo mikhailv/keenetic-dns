@@ -272,23 +272,21 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 			continue
 		}
 
-		var delta ConnStat
 		if prev, ok := s.prevSnapshot[sk]; ok && (prev.MissCount == 0 || cs.IsNextFor(prev.ConnStat)) {
-			delta = ConnStat{
+			delta := ConnStat{
 				BytesOrig:    max(0, cs.BytesOrig-prev.BytesOrig),
 				BytesReply:   max(0, cs.BytesReply-prev.BytesReply),
 				PacketsOrig:  saturatingSub(cs.PacketsOrig, prev.PacketsOrig),
 				PacketsReply: saturatingSub(cs.PacketsReply, prev.PacketsReply),
 			}
-		} else { // new connection
-			delta = cs
-		}
-
-		acc := s.getOrCreateAccumulator(ck)
-		acc.SrcPorts.Add(sk.SrcPort)
-		acc.Add(delta)
-		if !delta.IsZero() {
-			changedKeys.Add(ck)
+			acc := s.getOrCreateAccumulator(ck)
+			acc.SrcPorts.Add(sk.SrcPort)
+			acc.Add(delta)
+			if !delta.IsZero() {
+				changedKeys.Add(ck)
+			}
+		} else { //nolint:staticcheck // ignore
+			// new or flickering connection — record baseline only (zeroes), next poll computes real delta
 		}
 	}
 
