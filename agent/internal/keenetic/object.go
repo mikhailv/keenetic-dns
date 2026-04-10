@@ -1,11 +1,10 @@
 package keenetic
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/goccy/go-json"
 )
 
 type Object map[string]any

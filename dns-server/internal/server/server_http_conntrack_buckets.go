@@ -2,12 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"iter"
 	"net/http"
 	"slices"
 	"strconv"
-
-	"github.com/goccy/go-json"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/internal/util"
@@ -65,7 +64,7 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(resp) //nolint:errchkjson // ignore
 	return http.StatusOK, nil
 }
 
@@ -116,7 +115,9 @@ func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrac
 //nolint:gocognit // ignore
 func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uint) iter.Seq2[conntrack.Bucket, error] {
 	return func(yield func(conntrack.Bucket, error) bool) {
-		var agg *bucketAgg
+		agg := bucketAgg{
+			entries: map[conntrack.ConnKey]*conntrack.BucketEntry{},
+		}
 		for bucket, err := range bucketSeq {
 			if err != nil {
 				if !yield(bucket, err) {
@@ -126,16 +127,12 @@ func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uin
 			}
 
 			aggStart := conntrack.Timestamp(uint(bucket.TimeRange.Start) / interval * interval)
-			if agg == nil || agg.timeRange.Start != aggStart {
-				if agg != nil {
+			if agg.timeRange.Start != aggStart {
+				if !agg.timeRange.IsZero() {
 					if !yield(agg.toBucket(), nil) {
 						return
 					}
 					clear(agg.entries)
-				} else {
-					agg = &bucketAgg{
-						entries: map[conntrack.ConnKey]*conntrack.BucketEntry{},
-					}
 				}
 				agg.timeRange = conntrack.TimeRange{
 					Start: aggStart,
@@ -159,7 +156,7 @@ func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uin
 				}
 			}
 		}
-		if agg != nil {
+		if !agg.timeRange.IsZero() {
 			yield(agg.toBucket(), nil)
 		}
 	}

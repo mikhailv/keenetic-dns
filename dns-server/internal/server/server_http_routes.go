@@ -2,10 +2,9 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"slices"
-
-	"github.com/goccy/go-json"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
 )
@@ -23,6 +22,6 @@ func (s *HTTPServer) handleListRoutes(w http.ResponseWriter, req *http.Request) 
 		return bytes.Compare(a.Addr[:], b.Addr[:])
 	})
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(routes)
+	_ = json.NewEncoder(w).Encode(routes) //nolint:errchkjson // ignore
 	return http.StatusOK, nil
 }
