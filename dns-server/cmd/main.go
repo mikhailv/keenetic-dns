@@ -45,10 +45,12 @@ func main() { //nolint:funlen // ignore
 	}
 
 	logger, logStream, logFlush := setupLogger(*debug, cfg.History.LogSize)
-	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 	defer logFlush()
+	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 
-	setup.Pprof(ctx, *pprofAddr, logger)
+	// TODO: revert after deadlock investigation
+	// defer setup.Pprof(*pprofAddr, logger)()
+	setup.Pprof(*pprofAddr, logger)
 
 	routingCfg := config.NewDynamic(&cfg.Routing)
 	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
@@ -57,7 +59,6 @@ func main() { //nolint:funlen // ignore
 
 	dnsStore, dnsStoreSave := setupDNSStore(cfg.Storage.Local.File, log.WithPrefix(logger, "dns_store"), cfg.Routing.RouteTimeout)
 	defer dnsStoreSave()
-
 	defer util.RunPeriodically(ctx.Done(), cfg.Storage.Local.SaveInterval, dnsStoreSave).Wait()
 
 	networkService, err := agentclient.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)

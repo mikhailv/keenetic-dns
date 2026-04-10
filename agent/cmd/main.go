@@ -30,10 +30,10 @@ func main() {
 	flag.Parse()
 
 	logger, logFlush := setupLogger(debug)
-	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 	defer logFlush()
+	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 
-	setup.Pprof(ctx, pprofAddr, logger)
+	defer setup.Pprof(pprofAddr, logger)()
 
 	networkService := internal.NewNetworkService(log.WithPrefix(logger, "network_svc"))
 

@@ -9,7 +9,7 @@ type Waiter interface {
 }
 
 func NewWaiter() (waiter Waiter, signal func()) {
-	sw := stopWaiter{make(chan struct{}, 1)}
+	sw := stopWaiter{make(chan struct{})}
 	return sw, sw.signal
 }
 
@@ -36,7 +36,7 @@ type stopWaiter struct {
 }
 
 func (s stopWaiter) signal() {
-	s.ch <- struct{}{}
+	close(s.ch)
 }
 
 func (s stopWaiter) Wait() {

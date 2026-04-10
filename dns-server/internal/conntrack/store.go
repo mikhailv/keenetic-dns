@@ -2,17 +2,17 @@ package conntrack
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"iter"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/fxamacker/cbor/v2"
 	"github.com/klauspost/compress/gzip"
 )
 
@@ -23,7 +23,7 @@ type Store interface {
 }
 
 // NewFileStore creates a Store that persists chunks as gzip+CBOR files
-// in the given directory. Each chunk is stored as `{start}-{end}.dat`.
+// in the given directory. Each chunk is stored as `{start}-{end}.bin`.
 func NewFileStore(dir string) Store {
 	return &fileStore{dir: dir}
 }
@@ -34,18 +34,12 @@ type fileStore struct {
 	dir string
 }
 
-func (s *fileStore) chunkPath(tr TimeRange) string {
-	return filepath.Join(s.dir, fmt.Sprintf("%d-%d.dat", tr.Start, tr.End))
+func (s *fileStore) chunkPath(tr TimeRange, suffix string) string {
+	return filepath.Join(s.dir, fmt.Sprintf("%d-%d%s", tr.Start, tr.End, suffix))
 }
 
 func (s *fileStore) Save(_ context.Context, chunk Chunk) (err error) {
-	path := s.chunkPath(chunk.TimeRange)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer handleError(f.Close, &err)
-	return saveChunk(f, chunk)
+	return s.saveFile(s.chunkPath(chunk.TimeRange, ".bin"), chunk, encodeChunk)
 }
 
 func (s *fileStore) Load(ctx context.Context, tr TimeRange) iter.Seq2[Chunk, error] {
@@ -60,7 +54,7 @@ func (s *fileStore) Load(ctx context.Context, tr TimeRange) iter.Seq2[Chunk, err
 				yield(Chunk{}, err)
 				return
 			}
-			chunk, err := s.loadFile(filepath.Join(s.dir, fi.name))
+			chunk, err := s.loadFile(fi.path, decodeChunk)
 			if !yield(chunk, err) {
 				return
 			}
@@ -69,7 +63,7 @@ func (s *fileStore) Load(ctx context.Context, tr TimeRange) iter.Seq2[Chunk, err
 }
 
 type chunkFile struct {
-	name      string
+	path      string
 	timeRange TimeRange
 }
 
@@ -87,10 +81,10 @@ func (s *fileStore) listChunks(tr TimeRange) ([]chunkFile, error) {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(name, ".dat") {
+		if !strings.HasSuffix(name, ".bin") {
 			continue
 		}
-		before, after, ok := strings.Cut(strings.TrimSuffix(name, ".dat"), "-")
+		before, after, ok := strings.Cut(strings.TrimSuffix(name, ".bin"), "-")
 		if !ok {
 			continue
 		}
@@ -103,46 +97,60 @@ func (s *fileStore) listChunks(tr TimeRange) ([]chunkFile, error) {
 		if !ftr.Intersects(tr) {
 			continue
 		}
-		files = append(files, chunkFile{name: name, timeRange: ftr})
+		files = append(files, chunkFile{
+			path:      filepath.Join(s.dir, name),
+			timeRange: ftr,
+		})
 	}
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].timeRange.Start < files[j].timeRange.Start
+	slices.SortFunc(files, func(a, b chunkFile) int {
+		return cmp.Compare(a.timeRange.Start, b.timeRange.Start)
 	})
 	return files, nil
 }
 
-func (s *fileStore) loadFile(path string) (chunk Chunk, err error) {
+func (s *fileStore) saveFile(path string, chunk Chunk, encoder func(w io.Writer, chunk Chunk) error) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer handleError(f.Close, &err)
+	return encoder(f, chunk)
+}
+
+func (s *fileStore) loadFile(path string, decoder func(r io.Reader, chunk *Chunk) error) (chunk Chunk, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return Chunk{}, fmt.Errorf("open file: %w", err)
 	}
 	defer handleError(f.Close, &err)
-	err = loadChunk(f, &chunk)
+	err = decoder(f, &chunk)
 	return chunk, err
 }
 
 func (s *fileStore) Close() error { return nil }
 
-func loadChunk(r io.Reader, chunk *Chunk) error {
+func decodeChunk(r io.Reader, chunk *Chunk) error {
 	gz, err := gzip.NewReader(bufio.NewReader(r))
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
 	defer handleError(gz.Close, &err)
 
-	if err := cbor.NewDecoder(gz).Decode(chunk); err != nil {
+	decoder := chunkDecoder{r: newByteReader(gz)}
+	if err := decoder.Decode(chunk); err != nil {
 		return fmt.Errorf("decode chunk: %w", err)
 	}
 	return nil
 }
 
-func saveChunk(w io.Writer, chunk Chunk) (err error) {
+func encodeChunk(w io.Writer, chunk Chunk) (err error) {
 	bufWriter := bufio.NewWriter(w)
 	defer handleError(bufWriter.Flush, &err)
 	gz := gzip.NewWriter(bufWriter)
 	defer handleError(gz.Close, &err)
 
-	if err := cbor.NewEncoder(gz).Encode(&chunk); err != nil {
+	encoder := chunkEncoder{w: gz}
+	if err := encoder.Encode(&chunk); err != nil {
 		return fmt.Errorf("encode chunk: %w", err)
 	}
 	return nil

@@ -29,7 +29,7 @@ export const RANGE_OPTIONS = [
 	{ value: 604800, label: '7d' }
 ];
 
-export const MAX_BUCKETS = 200;
+export const MAX_BUCKETS = 100;
 
 /**
  * Returns the smallest INTERVAL_OPTIONS value ≥ requested that satisfies

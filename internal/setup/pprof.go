@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,9 +10,9 @@ import (
 	"time"
 )
 
-func Pprof(ctx context.Context, addr string, logger *slog.Logger) {
+func Pprof(addr string, logger *slog.Logger) func() {
 	if addr == "" {
-		return
+		return func() {}
 	}
 
 	runtime.MemProfileRate = 1
@@ -45,8 +44,8 @@ func Pprof(ctx context.Context, addr string, logger *slog.Logger) {
 		}
 	}()
 
-	context.AfterFunc(ctx, func() {
+	return func() {
 		_ = srv.Close()
 		logger.Info("pprof handler stopped")
-	})
+	}
 }
