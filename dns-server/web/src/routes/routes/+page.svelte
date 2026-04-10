@@ -1,27 +1,22 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { createRouteStore } from '$lib/stores';
 
 	const ROUTES_RELOAD_INTERVAL = 5000;
 
 	const routes = createRouteStore();
 	let loading = $state(false);
-	let deferredRefresh: ReturnType<typeof setTimeout>;
 
 	onMount(() => {
 		reload();
-	});
-
-	onDestroy(() => {
-		clearTimeout(deferredRefresh);
+		const interval = setInterval(reload, ROUTES_RELOAD_INTERVAL);
+		return () => clearInterval(interval);
 	});
 
 	async function reload() {
-		clearTimeout(deferredRefresh);
 		loading = true;
 		await routes.reload();
 		loading = false;
-		deferredRefresh = setTimeout(reload, ROUTES_RELOAD_INTERVAL);
 	}
 
 	function formatDuration(expires: Date): string {
