@@ -40,17 +40,15 @@
 	<title>Routes - Keenetic DNS</title>
 </svelte:head>
 
-<h1>Routes</h1>
-
-<div class="hstack gap-3 mb-3">
-	<button class="btn btn-outline-primary btn-refresh" onclick={reload} disabled={loading}>
+<div class="flex items-center gap-3 mb-3">
+	<button class="btn btn-outline btn-primary btn-refresh" onclick={reload} disabled={loading}>
 		{#if loading}
-			<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+			<span class="loading loading-spinner loading-sm" aria-hidden="true"></span>
 		{/if}
 		Refresh
 	</button>
 	<input
-		class="form-control me-auto"
+		class="input me-auto focus:outline-none"
 		type="text"
 		placeholder="Filter..."
 		aria-label="Filter"
@@ -58,47 +56,47 @@
 </div>
 
 {#if $routes.error}
-	<div class="alert alert-danger" role="alert">{$routes.error}</div>
+	<div class="alert alert-error" role="alert">{$routes.error}</div>
 {:else if loading && $routes.total === 0}
-	<p class="text-body-secondary pt-1">Loading data...</p>
+	<p class="text-base-content/50 pt-1">Loading data...</p>
 {:else}
-	<table class="table table-sm table-hover caption-top">
-		<caption class="text-end pb-0">Routes: {$routes.total}</caption>
+	<table class="table caption-top table-md">
+		<caption class="text-right pb-0">Routes: {$routes.total}</caption>
 		<thead>
 			<tr>
-				<th scope="col" style="width: 1%">#</th>
-				<th scope="col" style="width: 10%">Address</th>
-				<th scope="col" style="width: 10%">Interface</th>
-				<th scope="col">DNS Records</th>
-				<th scope="col" style="width: 15%" class="d-none d-lg-table-cell">TTL</th>
-				<th scope="col" style="width: 20%" class="d-none d-lg-table-cell">Info</th>
+				<th style="width: 1%">#</th>
+				<th style="width: 10%">Address</th>
+				<th style="width: 10%">Interface</th>
+				<th>DNS Records</th>
+				<th style="width: 15%" class="hidden lg:table-cell">TTL</th>
+				<th style="width: 20%" class="hidden lg:table-cell">Info</th>
 			</tr>
 		</thead>
-		<tbody class="table-group-divider">
+		<tbody class="border-t border-base-300">
 			{#each $routes.items as route, i (route.addr + route.iface)}
-				<tr>
-					<th scope="row">{i + 1}</th>
+				<tr class="hover">
+					<td class="text-base-content/50">{i + 1}</td>
 					<td>{route.addr}</td>
-					<td style="font-size: 0.9rem">{route.iface}</td>
-					<td class="fw-light text-sm1">
+					<td>{route.iface}</td>
+					<td class="font-light text-sm1">
 						{#each route.dns_records ?? [] as rec (rec.domain)}
 							<div>{rec.domain}</div>
 						{/each}
 					</td>
-					<td class="d-none d-lg-table-cell text-sm1">
+					<td class="hidden lg:table-cell text-sm1">
 						{#each route.dns_records ?? [] as rec (rec.domain)}
 							<div>
 								{#if rec.expires > new Date()}
 									{formatDuration(rec.expires)}
 								{:else}
-									<span class="fw-light text-body-secondary">
+									<span class="font-light text-base-content/50">
 										expired {formatDuration(rec.expires)}
 									</span>
 								{/if}
 							</div>
 						{/each}
 					</td>
-					<td class="d-none d-lg-table-cell fw-light text-body-secondary text-sm1">
+					<td class="hidden lg:table-cell font-light text-base-content/75 text-sm1">
 						<div>added {formatDuration(route.added_at)}</div>
 						<div>reason: <strong>{route.reason}</strong></div>
 					</td>
@@ -117,7 +115,7 @@
 		justify-content: center;
 	}
 
-	.btn-refresh .spinner-border {
+	.btn-refresh .loading {
 		flex-shrink: 0;
 	}
 </style>

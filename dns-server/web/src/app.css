@@ -1,17 +1,28 @@
-@import 'bootstrap/dist/css/bootstrap.min.css';
+@import 'tailwindcss';
+@plugin 'daisyui' {
+	themes: light, dark;
+}
 
-[data-bs-theme='light'] {
+[data-theme='light'] {
 	--anim-highlight-bg: #eff5ff;
 }
 
-[data-bs-theme='dark'] {
+[data-theme='dark'] {
 	--anim-highlight-bg: #292b2f;
 }
 
-.table-sticky-header thead th {
-	position: sticky;
-	top: 0;
-	z-index: 10;
+table.table th {
+	color: var(--color-base-content);
+	border-bottom: 1px solid #888;
+}
+
+table.table td {
+	vertical-align: top;
+}
+
+table :where(td, th) {
+	padding-inline: calc(0.25rem * 3);
+	padding-block: calc(0.25rem * 2);
 }
 
 .animate-new-row {
@@ -53,4 +64,8 @@
 
 .text-sm3 {
 	font-size: 0.7rem;
+}
+
+.caption-top {
+	caption-side: top;
 }

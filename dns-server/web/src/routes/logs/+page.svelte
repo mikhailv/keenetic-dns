@@ -17,14 +17,14 @@
 	function getLevelClass(level: string): string {
 		switch (level.toLowerCase()) {
 			case 'error':
-				return 'text-danger fw-semibold';
+				return 'text-error font-semibold';
 			case 'warn':
 			case 'warning':
-				return 'text-warning fw-semibold';
+				return 'text-warning font-semibold';
 			case 'info':
-				return 'text-info fw-semibold';
+				return 'text-info font-semibold';
 			case 'debug':
-				return 'text-muted';
+				return 'text-base-content/60';
 			default:
 				return '';
 		}
@@ -44,29 +44,27 @@
 	<title>Logs - Keenetic DNS</title>
 </svelte:head>
 
-<h1>Logs</h1>
-
 {#if $stream.error}
-	<div class="alert alert-danger" role="alert">{$stream.error}</div>
+	<div class="alert alert-error" role="alert">{$stream.error}</div>
 {/if}
 
-<div class="table-responsive">
-	<table class="table table-sm table-hover table-sticky-header">
+<div class="overflow-x-auto">
+	<table class="table">
 		<thead>
 			<tr>
-				<th scope="col">Time</th>
-				<th scope="col">Level</th>
-				<th scope="col">Message</th>
-				<th scope="col">Attributes</th>
+				<th>Time</th>
+				<th>Level</th>
+				<th>Message</th>
+				<th>Attributes</th>
 			</tr>
 		</thead>
-		<tbody class="table-group-divider">
+		<tbody class="border-t border-base-300">
 			{#each $stream.items as entry (entry.cursor)}
-				<tr class="animate-new-row">
-					<td title={entry.time.toLocaleString()} class="fw-light text-sm1">{formatTime(entry.time)}</td>
+				<tr class="hover animate-new-row">
+					<td title={entry.time.toLocaleString()} class="font-light text-sm1">{formatTime(entry.time)}</td>
 					<td class="{getLevelClass(entry.level)} text-sm2">{entry.level}</td>
 					<td class="text-sm1">{entry.msg}</td>
-					<td class="fw-light text-sm2" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td>
+					<td class="font-light text-sm2" style="white-space: pre-wrap">{formatAttrs(entry.attrs)}</td>
 				</tr>
 			{/each}
 		</tbody>

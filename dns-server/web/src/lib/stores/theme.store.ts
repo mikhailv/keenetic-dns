@@ -3,8 +3,6 @@ import { browser } from '$app/environment';
 
 export type Theme = 'light' | 'dark' | 'system';
 
-type BSTheme = 'light' | 'dark';
-
 const STORAGE_KEY = 'theme';
 
 function getStoredTheme(): Theme {
@@ -14,7 +12,7 @@ function getStoredTheme(): Theme {
 	return 'system';
 }
 
-function resolveBootstrapTheme(theme: Theme): BSTheme {
+function resolveTheme(theme: Theme): 'light' | 'dark' {
 	if (theme === 'system') {
 		if (browser) {
 			return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -26,7 +24,7 @@ function resolveBootstrapTheme(theme: Theme): BSTheme {
 
 function applyTheme(theme: Theme) {
 	if (browser) {
-		document.documentElement.setAttribute('data-bs-theme', resolveBootstrapTheme(theme));
+		document.documentElement.setAttribute('data-theme', resolveTheme(theme));
 		localStorage.setItem(STORAGE_KEY, theme);
 	}
 }

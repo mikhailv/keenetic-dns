@@ -16,13 +16,13 @@
 	const showHint = $derived(display !== interval);
 </script>
 
-<div class="d-flex align-items-center gap-2">
-	<select class="form-select form-select-sm w-auto" bind:value={interval}>
+<div class="flex items-center gap-2">
+	<select class="select select-bordered select-sm w-auto" bind:value={interval}>
 		{#each INTERVAL_OPTIONS as opt (opt.value)}
 			<option value={opt.value}>{opt.label}</option>
 		{/each}
 	</select>
 	{#if showHint}
-		<small class="text-muted">auto-adjusted to {intervalLabel(display)}</small>
+		<small class="text-base-content/60">auto-adjusted to {intervalLabel(display)}</small>
 	{/if}
 </div>

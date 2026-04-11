@@ -45,13 +45,13 @@
 	}
 </script>
 
-<div class="d-flex flex-wrap align-items-center gap-2">
-	<div class="btn-group btn-group-sm" role="group" aria-label="Range">
+<div class="flex flex-wrap items-center gap-2">
+	<div class="join" role="group" aria-label="Range">
 		{#each RANGE_OPTIONS as opt (opt.value)}
 			<button
 				type="button"
-				class="btn btn-outline-secondary"
-				class:active={mode === 'preset' && presetSeconds === opt.value}
+				class="btn btn-sm join-item"
+				class:btn-active={mode === 'preset' && presetSeconds === opt.value}
 				onclick={() => {
 					mode = 'preset';
 					applyPreset(opt.value);
@@ -61,22 +61,21 @@
 		{/each}
 		<button
 			type="button"
-			class="btn btn-outline-secondary"
-			class:active={mode === 'custom'}
+			class="btn btn-sm join-item"
+			class:btn-active={mode === 'custom'}
 			onclick={() => (mode = 'custom')}>
 			Custom…
 		</button>
 	</div>
 
 	{#if mode === 'custom'}
-		<input type="datetime-local" class="form-control form-control-sm w-auto" bind:value={customFrom} />
-		<span>—</span>
-		<input type="datetime-local" class="form-control form-control-sm w-auto" bind:value={customTo} />
+		<input type="datetime-local" class="input input-sm w-auto focus:outline-none" bind:value={customFrom} />
+		<input type="datetime-local" class="input input-sm w-auto focus:outline-none" bind:value={customTo} />
 		<button type="button" class="btn btn-sm btn-primary" onclick={applyCustom}>Apply</button>
 	{/if}
 
-	<label class="form-check form-switch ms-2 mb-0">
-		<input class="form-check-input" type="checkbox" bind:checked={autoRefresh} disabled={!anchored} />
-		<span class="form-check-label">Auto-refresh</span>
+	<label class="flex items-center gap-2 ms-2 mb-0 cursor-pointer">
+		<input type="checkbox" class="toggle toggle-sm" bind:checked={autoRefresh} disabled={!anchored} />
+		<span class="text-sm2">Auto-refresh</span>
 	</label>
 </div>

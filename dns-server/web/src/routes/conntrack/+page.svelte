@@ -60,14 +60,14 @@
 	});
 </script>
 
-<div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+<div class="flex flex-wrap gap-3 items-center mb-3">
 	<RangeSelector bind:from bind:to bind:anchored bind:autoRefresh />
 	<IntervalSelector bind:interval {rangeSeconds} {appliedHint} />
-	{#if loading}<small class="text-muted">loading…</small>{/if}
+	{#if loading}<small class="text-base-content/60">loading…</small>{/if}
 </div>
 
 {#if error}
-	<div class="alert alert-danger">{error}</div>
+	<div class="alert alert-error">{error}</div>
 {/if}
 
 {#if resp}

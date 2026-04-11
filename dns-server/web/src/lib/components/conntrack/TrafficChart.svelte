@@ -7,7 +7,7 @@
 	let { buckets }: { buckets: ConntrackBucket[] } = $props();
 
 	const TOP_N = 10;
-	const WIDTH = 800;
+	const WIDTH = 1150;
 	const HEIGHT = 240;
 	const PAD = { top: 10, right: 10, bottom: 24, left: 60 };
 
@@ -91,9 +91,9 @@
 </script>
 
 {#if buckets.length === 0}
-	<div class="text-muted">No data</div>
+	<div class="text-base-content/60">No data</div>
 {:else}
-	<svg viewBox="0 0 {WIDTH} {HEIGHT}" class="w-100" style="max-height:240px;">
+	<svg viewBox="0 0 {WIDTH} {HEIGHT}" class="w-full" style="max-height:240px;">
 		<line
 			x1={PAD.left}
 			y1={HEIGHT - PAD.bottom}
@@ -110,31 +110,31 @@
 			{@const innerW = Math.max(barWidth - 1, 1)}
 			{@const segments = (() => {
 				let acc = 0;
-				const out: { y: number; h: number; key: string; label: string }[] = [];
+				const out: { y: number; h: number; total: number; key: string; label: string }[] = [];
 				for (const l of legend) {
 					const v = bar.slices[l.key] ?? 0;
 					if (v <= 0) continue;
 					const h = ((HEIGHT - PAD.top - PAD.bottom) * v) / maxTotal;
 					acc += h;
-					out.push({ y: HEIGHT - PAD.bottom - acc, h, key: l.key, label: `${l.label} (${l.alias})` });
+					out.push({ y: HEIGHT - PAD.bottom - acc, h, total: v, key: l.key, label: `${l.label} (${l.alias})` });
 				}
 				return out;
 			})()}
 			{#each segments as seg (seg.key)}
 				<rect {x} y={seg.y} width={innerW} height={seg.h} fill={colorFor(seg.key)}>
-					<title>{`${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}</title>
+					<title>{`${formatBytes(seg.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}</title>
 				</rect>
 			{/each}
 		{/each}
 	</svg>
 
-	<div class="d-flex flex-wrap gap-2 mt-2 small">
+	<div class="flex flex-wrap gap-2 mt-2 text-sm">
 		{#each legend as l (l.key)}
-			<span class="d-inline-flex align-items-center gap-1">
+			<span class="inline-flex items-center gap-1">
 				<span style="display:inline-block;width:10px;height:10px;background:{colorFor(l.key)}"></span>
 				{l.label}
 				{#if l.alias}
-					<span class="text-muted fw-light text-sm2">({l.alias})</span>
+					<span class="text-base-content/60 font-light text-sm2">({l.alias})</span>
 				{/if}
 			</span>
 		{/each}

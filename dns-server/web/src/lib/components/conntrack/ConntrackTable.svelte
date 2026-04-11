@@ -92,49 +92,49 @@
 	}
 </script>
 
-<table class="table table-sm align-middle">
+<table class="table">
 	<thead>
 		<tr>
 			<th></th>
 			<th>Source IP</th>
-			<th class="text-end">Dsts</th>
-			<th class="text-end">Bytes ↑</th>
-			<th class="text-end">Bytes ↓</th>
-			<th class="text-end">Pkts ↑</th>
-			<th class="text-end">Pkts ↓</th>
-			<th class="text-end">Conns</th>
+			<th class="text-right">Dsts</th>
+			<th class="text-right">Bytes ↑</th>
+			<th class="text-right">Bytes ↓</th>
+			<th class="text-right">Pkts ↑</th>
+			<th class="text-right">Pkts ↓</th>
+			<th class="text-right">Conns</th>
 		</tr>
 	</thead>
 	<tbody>
 		{#each groups as g (g.src_ip)}
-			<tr style="cursor:pointer" onclick={() => toggle(g.src_ip)}>
+			<tr class="hover cursor-pointer" onclick={() => toggle(g.src_ip)}>
 				<td>{expanded[g.src_ip] ? '▼' : '▶'}</td>
 				<td>
 					{g.src_ip}
-					<span class="text-muted fw-light text-sm2">/ {$hosts.byIP[g.src_ip]?.name ?? '?'}</span>
+					<span class="text-base-content/60 font-light text-sm2">/ {$hosts.byIP[g.src_ip]?.name ?? '?'}</span>
 				</td>
-				<td class="text-end">{g.items.length}</td>
-				<td class="text-end">{formatBytes(g.bytes_orig)}</td>
-				<td class="text-end">{formatBytes(g.bytes_reply)}</td>
-				<td class="text-end">{g.packets_orig}</td>
-				<td class="text-end">{g.packets_reply}</td>
-				<td class="text-end">{g.src_ports.size}</td>
+				<td class="text-right">{g.items.length}</td>
+				<td class="text-right">{formatBytes(g.bytes_orig)}</td>
+				<td class="text-right">{formatBytes(g.bytes_reply)}</td>
+				<td class="text-right">{g.packets_orig}</td>
+				<td class="text-right">{g.packets_reply}</td>
+				<td class="text-right">{g.src_ports.size}</td>
 			</tr>
 			{#if expanded[g.src_ip]}
 				<tr>
 					<td></td>
-					<td colspan="7">
-						<table class="table table-sm mb-0">
+					<td colspan="7" class="p-0">
+						<table class="table mb-0">
 							<thead>
 								<tr>
 									<th>Proto</th>
 									<th>Dst IP</th>
 									<th>Dst Port</th>
-									<th class="text-end">Bytes ↑</th>
-									<th class="text-end">Bytes ↓</th>
-									<th class="text-end">Pkts ↑</th>
-									<th class="text-end">Pkts ↓</th>
-									<th class="text-end">Conns</th>
+									<th class="text-right">Bytes ↑</th>
+									<th class="text-right">Bytes ↓</th>
+									<th class="text-right">Pkts ↑</th>
+									<th class="text-right">Pkts ↓</th>
+									<th class="text-right">Conns</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -143,14 +143,15 @@
 										<td>{d.protocol}</td>
 										<td>
 											{d.dst_ip}
-											<span class="text-muted fw-light text-sm2">/ {$hosts.byIP[d.dst_ip]?.name ?? '?'}</span>
+											<span class="text-base-content/60 font-light text-sm2"
+												>/ {$hosts.byIP[d.dst_ip]?.name ?? '?'}</span>
 										</td>
 										<td>{d.dst_port}</td>
-										<td class="text-end">{formatBytes(d.bytes_orig)}</td>
-										<td class="text-end">{formatBytes(d.bytes_reply)}</td>
-										<td class="text-end">{d.packets_orig}</td>
-										<td class="text-end">{d.packets_reply}</td>
-										<td class="text-end">{d.src_ports.size}</td>
+										<td class="text-right">{formatBytes(d.bytes_orig)}</td>
+										<td class="text-right">{formatBytes(d.bytes_reply)}</td>
+										<td class="text-right">{d.packets_orig}</td>
+										<td class="text-right">{d.packets_reply}</td>
+										<td class="text-right">{d.src_ports.size}</td>
 									</tr>
 								{/each}
 							</tbody>

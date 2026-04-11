@@ -7,8 +7,6 @@
 	});
 </script>
 
-<div class="d-flex justify-content-center align-items-center" style="height: 50vh">
-	<div class="spinner-border text-primary" role="status">
-		<span class="visually-hidden">Loading...</span>
-	</div>
+<div class="flex justify-center items-center" style="height: 50vh">
+	<span class="loading loading-spinner text-primary"></span>
 </div>

@@ -47,34 +47,32 @@
 	<title>DNS Queries - Keenetic DNS</title>
 </svelte:head>
 
-<h1>DNS Queries</h1>
-
 {#if $stream.error}
-	<div class="alert alert-danger" role="alert">{$stream.error}</div>
+	<div class="alert alert-error" role="alert">{$stream.error}</div>
 {/if}
 
-<div class="table-responsive">
-	<table class="table table-sm table-hover table-sticky-header">
+<div class="overflow-x-auto">
+	<table class="table">
 		<thead>
 			<tr>
-				<th scope="col">Time</th>
-				<th scope="col">Client</th>
-				<th scope="col">Domain</th>
-				<th scope="col">TTL</th>
-				<th scope="col">IP</th>
-				<th scope="col">Routed</th>
-				<th scope="col">Duration</th>
+				<th>Time</th>
+				<th>Client</th>
+				<th>Domain</th>
+				<th>TTL</th>
+				<th>IP</th>
+				<th>Routed</th>
+				<th>Duration</th>
 			</tr>
 		</thead>
-		<tbody class="table-group-divider">
+		<tbody class="border-t border-base-300">
 			{#each $stream.items as query (query.cursor)}
 				{@const host = $hosts.byIP[query.client_ip]}
-				<tr class="animate-new-row">
-					<td title={query.time.toLocaleString()} class="fw-light text-sm1">{formatTime(query.time)}</td>
+				<tr class="hover animate-new-row">
+					<td title={query.time.toLocaleString()} class="font-light text-sm1">{formatTime(query.time)}</td>
 					<td class="text-sm1">
 						{#if host}
 							{host.name}
-							<div class="fw-light text-sm2">{query.client_ip}</div>
+							<div class="font-light text-sm2">{query.client_ip}</div>
 						{:else}
 							{query.client_ip}
 						{/if}
@@ -83,27 +81,27 @@
 						<div title={query.domain}>
 							{shortenDomain(query.domain)}
 						</div>
-						<div class="fw-light text-sm2" title="resolver">
+						<div class="font-light text-sm2" title="resolver">
 							{query.resolver.name} / {formatMilli(query.resolver.duration)} ms
 						</div>
 					</td>
-					<td class="fw-light text-sm1">
+					<td class="font-light text-sm1">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ttl}</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm1">
+					<td class="font-light text-sm1">
 						{#each query.ips as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ip}</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm1 text-nowrap">
+					<td class="font-light text-sm1 whitespace-nowrap">
 						{#each query.ips as it (it.ip)}
 							{@const route = query.ip_routings?.[it.ip]}
 							<div>
 								{#if route}
 									{#if route.action === 'ignored'}
-										<span class="text-secondary italic">- ({route.reason})</span>
+										<span class="text-base-content/60 italic">- ({route.reason})</span>
 									{:else}
 										{route.iface} ({route.reason}){route.added ? ' (added)' : ''}
 									{/if}
@@ -113,7 +111,7 @@
 							</div>
 						{/each}
 					</td>
-					<td class="fw-light text-sm3">{formatMilli(query.duration)} ms</td>
+					<td class="font-light text-sm3">{formatMilli(query.duration)} ms</td>
 				</tr>
 			{/each}
 		</tbody>

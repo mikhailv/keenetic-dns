@@ -14,7 +14,7 @@ build-web:
 .PHONY: lint
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3 run -v
-	$(MAKE) -C web lint
+	$(MAKE) -C web format lint
 
 .PHONY: build-bin
 build-bin:
