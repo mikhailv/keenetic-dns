@@ -72,6 +72,7 @@ func (s *mdnsClient) Resolve(ctx context.Context, msg *dns.Msg) (*dns.Msg, error
 func (s *mdnsClient) connection() (*mdns.Conn, error) {
 	s.conn.RLock()
 	if s.conn.Conn != nil {
+		s.conn.RUnlock()
 		return s.conn.Conn, nil
 	}
 	s.conn.RUnlock()
