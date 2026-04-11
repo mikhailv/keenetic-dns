@@ -122,7 +122,9 @@
 			})()}
 			{#each segments as seg (seg.key)}
 				<rect {x} y={seg.y} width={innerW} height={seg.h} fill={colorFor(seg.key)}>
-					<title>{`${formatBytes(seg.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}</title>
+					<title>
+						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}
+					</title>
 				</rect>
 			{/each}
 		{/each}
