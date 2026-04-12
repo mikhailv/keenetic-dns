@@ -2,6 +2,7 @@ package conntrack
 
 import (
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -138,10 +139,16 @@ func (s *ConnStat) Add(other ConnStat) {
 }
 
 func (s *ConnStat) IsNextFor(prev ConnStat) bool {
-	return s.BytesOrig >= prev.BytesOrig &&
-		s.BytesReply >= prev.BytesReply &&
-		s.PacketsOrig >= prev.PacketsOrig &&
-		s.PacketsReply >= prev.PacketsReply
+	sameOrig := s.BytesOrig == prev.BytesOrig && s.PacketsOrig == prev.PacketsOrig
+	sameReply := s.BytesReply == prev.BytesReply && s.PacketsReply == prev.PacketsReply
+	biggerOrig := s.BytesOrig > prev.BytesOrig && s.PacketsOrig > prev.PacketsOrig
+	biggerReply := s.BytesReply > prev.BytesReply && s.PacketsReply > prev.PacketsReply
+	return (sameOrig || biggerOrig) && (sameReply || biggerReply)
+}
+
+func (s *ConnStat) IsLikelyNew() bool {
+	const bytesThreshold = 128 * 1024
+	return s.BytesOrig+s.BytesReply <= bytesThreshold
 }
 
 // snapshotKey is the full 5-tuple used to track individual connections between polls.
@@ -150,10 +157,32 @@ type snapshotKey struct {
 	SrcPort uint16
 }
 
+func (s snapshotKey) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("proto", s.Protocol.String()),
+		slog.String("src", s.SrcIP.String()),
+		slog.Int("sport", int(s.SrcPort)),
+		slog.String("dst", s.DstIP.String()),
+		slog.Int("dport", int(s.DstPort)),
+	)
+}
+
 // snapshotEntry holds the counters from one poll for a single connection.
 type snapshotEntry struct {
 	ConnStat
+	State     string
 	MissCount uint8
+}
+
+func (s snapshotEntry) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Int64("bytes_orig", s.BytesOrig),
+		slog.Int64("bytes_reply", s.BytesReply),
+		slog.Int64("packets_orig", int64(s.PacketsOrig)),
+		slog.Int64("packets_reply", int64(s.PacketsReply)),
+		slog.String("state", s.State),
+		slog.Int("miss_count", int(s.MissCount)),
+	)
 }
 
 // bucketEntryAccumulator accumulates deltas for a single ConnKey within the current bucket.

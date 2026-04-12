@@ -1,10 +1,9 @@
 addr: '0.0.0.0:5333'
 http_addr: '' # if empty the same value as `addr` will be used
 
-history:
-  log_size: 2000
-  dns_query_size: 2000
-  conntrack_size: 1000
+logging:
+  debug: false
+  history_size: 2000
 
 agent:
   base_url: 'http://127.0.0.1:5332/'
@@ -13,6 +12,7 @@ agent:
 dns:
   ttl_override: 60s
   drop_ech: false
+  query_history_size: 2000
   providers: {}
 
 mdns:
@@ -42,3 +42,4 @@ conntrack:
   cache_duration: 3h
   save_interval: 10m
   data_dir: conntrack
+  history_size: 1000

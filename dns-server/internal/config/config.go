@@ -23,7 +23,7 @@ type Config struct {
 	Addr     string `yaml:"addr"`
 	HTTPAddr string `yaml:"http_addr"`
 
-	History   History   `yaml:"history"`
+	Logging   Logging   `yaml:"logging"`
 	Agent     Agent     `yaml:"agent"`
 	DNS       DNS       `yaml:"dns"`
 	MDNS      MDNS      `yaml:"mdns"`
@@ -32,19 +32,9 @@ type Config struct {
 	Conntrack Conntrack `yaml:"conntrack"`
 }
 
-type Conntrack struct {
-	PollInterval   time.Duration `yaml:"poll_interval"`
-	BucketInterval time.Duration `yaml:"bucket_interval"`
-	ChunkInterval  time.Duration `yaml:"chunk_interval"`
-	CacheDuration  time.Duration `yaml:"cache_duration"`
-	SaveInterval   time.Duration `yaml:"save_interval"`
-	DataDir        string        `yaml:"data_dir"`
-}
-
-type History struct {
-	LogSize       int `yaml:"log_size"`
-	DNSQuerySize  int `yaml:"dns_query_size"`
-	ConntrackSize int `yaml:"conntrack_size"`
+type Logging struct {
+	Debug       bool `yaml:"debug"`
+	HistorySize int  `yaml:"history_size"`
 }
 
 type Agent struct {
@@ -53,9 +43,10 @@ type Agent struct {
 }
 
 type DNS struct {
-	TTLOverride time.Duration          `yaml:"ttl_override"`
-	DropECH     bool                   `yaml:"drop_ech"`
-	Providers   map[string]DNSProvider `yaml:"providers"`
+	TTLOverride      time.Duration          `yaml:"ttl_override"`
+	DropECH          bool                   `yaml:"drop_ech"`
+	QueryHistorySize int                    `yaml:"query_history_size"`
+	Providers        map[string]DNSProvider `yaml:"providers"`
 }
 
 type MDNS struct {
@@ -114,6 +105,16 @@ type RoutingRule struct {
 type RoutingReconcile struct {
 	Interval time.Duration `yaml:"interval"`
 	Timeout  time.Duration `yaml:"timeout"`
+}
+
+type Conntrack struct {
+	PollInterval   time.Duration `yaml:"poll_interval"`
+	BucketInterval time.Duration `yaml:"bucket_interval"`
+	ChunkInterval  time.Duration `yaml:"chunk_interval"`
+	CacheDuration  time.Duration `yaml:"cache_duration"`
+	SaveInterval   time.Duration `yaml:"save_interval"`
+	DataDir        string        `yaml:"data_dir"`
+	HistorySize    int           `yaml:"history_size"`
 }
 
 func (c *Routing) LookupHost(host string) (pattern string) {

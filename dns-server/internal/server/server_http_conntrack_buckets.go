@@ -46,6 +46,7 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 
 	nativeInterval := s.conntrackTracker.BucketDuration()
 	interval := effectiveInterval(uint(intervalReq), nativeInterval)
+	tr = adjustTimeRange(tr, interval)
 
 	resp := conntrackBucketsResponse{
 		TimeRange:         tr,
@@ -53,7 +54,7 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 		RequestedInterval: uint(intervalReq),
 	}
 
-	bucketSeq := iterateBuckets(req.Context(), s.conntrackTracker, tr)
+	bucketSeq := iterateBuckets(req.Context(), s.conntrackTracker, tr, nativeInterval)
 	if interval != nativeInterval {
 		bucketSeq = aggregateBuckets(bucketSeq, interval)
 	}
@@ -66,6 +67,13 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp) //nolint:errchkjson // ignore
 	return http.StatusOK, nil
+}
+
+func adjustTimeRange(tr conntrack.TimeRange, interval uint) conntrack.TimeRange {
+	intervalTs := conntrack.Timestamp(interval)
+	tr.Start -= tr.Start % intervalTs
+	tr.End -= tr.End%intervalTs + intervalTs - 1
+	return tr
 }
 
 // effectiveInterval clamps and rounds the requested interval (in seconds)
@@ -91,8 +99,9 @@ func (s *bucketAgg) toBucket() conntrack.Bucket {
 	}
 }
 
-func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrack.TimeRange) iter.Seq2[conntrack.Bucket, error] {
+func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrack.TimeRange, interval uint) iter.Seq2[conntrack.Bucket, error] {
 	return func(yield func(conntrack.Bucket, error) bool) {
+		startTime := tr.Start
 		for chunk, err := range tracker.IterateChunks(ctx, tr) {
 			if err != nil {
 				if !yield(conntrack.Bucket{}, err) {
@@ -101,12 +110,26 @@ func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrac
 				continue
 			}
 			for _, bucket := range chunk.Buckets {
-				if !bucket.TimeRange.Intersects(tr) {
+				if bucket.TimeRange.End < startTime {
 					continue
+				}
+				for bucket.TimeRange.Start > startTime {
+					emptyBucket := conntrack.Bucket{
+						TimeRange: conntrack.TimeRange{
+							Start: startTime,
+							End:   startTime + conntrack.Timestamp(interval) - 1,
+						},
+						Entries: []conntrack.BucketEntry{},
+					}
+					if !yield(emptyBucket, nil) {
+						return
+					}
+					startTime += conntrack.Timestamp(interval)
 				}
 				if !yield(bucket, nil) {
 					return
 				}
+				startTime += conntrack.Timestamp(interval)
 			}
 		}
 	}

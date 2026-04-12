@@ -11,7 +11,7 @@ interface StreamStoreState<T> {
 	error?: string;
 }
 
-export function createWebSocketStreamStore<T extends { cursor: string }>(
+export function createWebSocketStreamStore<T extends { cursor?: string }>(
 	url: URL,
 	limit: number,
 	parser: (data: typeof MessageEvent.prototype.data) => T[]
@@ -49,7 +49,7 @@ export function createWebSocketStreamStore<T extends { cursor: string }>(
 			try {
 				const data: T[] = parser(ev.data);
 				if (data.length) {
-					cursor = data[data.length - 1].cursor;
+					cursor = data[data.length - 1].cursor ?? '';
 				}
 				mutate((v) => {
 					// Add new entries to the beginning, maintaining max items limit

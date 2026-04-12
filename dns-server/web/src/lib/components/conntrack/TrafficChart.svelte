@@ -1,19 +1,20 @@
 <script lang="ts">
-	import type { ConntrackBucket, ConntrackEntry } from '$lib/types';
+	import type { ConntrackBucket, ConntrackEntry, ConntrackTimeRange } from '$lib/types';
 	import { formatBytes } from './util';
-	import { createHostStore } from '$lib/stores';
-	import { onMount } from 'svelte';
+	import { type HostStore } from '$lib/stores';
 
-	let { buckets }: { buckets: ConntrackBucket[] } = $props();
+	let {
+		buckets,
+		hosts
+	}: {
+		buckets: ConntrackBucket[];
+		hosts: HostStore;
+	} = $props();
 
 	const TOP_N = 10;
 	const WIDTH = 1150;
 	const HEIGHT = 240;
 	const PAD = { top: 10, right: 10, bottom: 24, left: 60 };
-
-	const hosts = createHostStore();
-
-	onMount(() => hosts.autoreload());
 
 	function entryBytes(e: ConntrackEntry): number {
 		return e.bytes_orig + e.bytes_reply;
@@ -59,7 +60,11 @@
 				slices[bucketKey] = (slices[bucketKey] ?? 0) + v;
 				total += v;
 			}
-			return { time: b.time_range.start, slices, total };
+			return {
+				range: b.time_range,
+				slices,
+				total
+			};
 		});
 	});
 
@@ -85,8 +90,8 @@
 		return palette[idx >= 0 ? idx % palette.length : palette.length - 1];
 	}
 
-	function fmtTime(unix: number): string {
-		return new Date(unix * 1000).toLocaleString();
+	function fmtTimeRange(range: ConntrackTimeRange): string {
+		return new Date(range.start * 1000).toLocaleString() + ' - ' + new Date(range.end * 1000).toLocaleTimeString();
 	}
 </script>
 
@@ -105,7 +110,7 @@
 			{formatBytes(maxTotal)}
 		</text>
 		<text x={PAD.left - 4} y={HEIGHT - PAD.bottom} text-anchor="end" font-size="10" fill="currentColor"> 0 </text>
-		{#each stacked as bar, i (bar.time)}
+		{#each stacked as bar, i (bar.range.start)}
 			{@const x = PAD.left + i * barWidth}
 			{@const innerW = Math.max(barWidth - 1, 1)}
 			{@const segments = (() => {
@@ -123,7 +128,7 @@
 			{#each segments as seg (seg.key)}
 				<rect {x} y={seg.y} width={innerW} height={seg.h} fill={colorFor(seg.key)}>
 					<title>
-						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTime(bar.time)}`}
+						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTimeRange(bar.range)}`}
 					</title>
 				</rect>
 			{/each}

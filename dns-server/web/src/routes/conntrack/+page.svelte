@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/services/api';
-	import type { ConntrackBucketsResponse } from '$lib/types';
+	import type { ConntrackBucket, ConntrackBucketsResponse } from '$lib/types';
 	import RangeSelector from '$lib/components/conntrack/RangeSelector.svelte';
 	import IntervalSelector from '$lib/components/conntrack/IntervalSelector.svelte';
 	import TrafficChart from '$lib/components/conntrack/TrafficChart.svelte';
 	import ConntrackTable from '$lib/components/conntrack/ConntrackTable.svelte';
 	import { autoBumpInterval } from '$lib/components/conntrack/util';
+	import { createHostStore, type StreamStore } from '$lib/stores';
 
 	const AUTO_REFRESH_INTERVAL = 10_000;
 
@@ -24,6 +25,12 @@
 	const rangeSeconds = $derived(Math.max(1, to - from));
 	const effectiveInterval = $derived(autoBumpInterval(interval, rangeSeconds));
 	const appliedHint = $derived(resp?.interval ?? null);
+
+	const hosts = createHostStore();
+	onMount(() => hosts.autoreload());
+
+	const stream: StreamStore<ConntrackBucket> = api.createConntrackStreamStore(0);
+	onMount(() => stream.start());
 
 	async function load() {
 		loading = true;
@@ -71,8 +78,8 @@
 {/if}
 
 {#if resp}
-	<TrafficChart buckets={resp.buckets} />
+	<TrafficChart buckets={resp.buckets} {hosts} />
 	<div class="mt-3">
-		<ConntrackTable buckets={resp.buckets} />
+		<ConntrackTable buckets={resp.buckets} {hosts} />
 	</div>
 {/if}

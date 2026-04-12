@@ -214,7 +214,7 @@ func (s *Tracker) sealBucket() {
 	clear(s.bucketEntries)
 }
 
-func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen // ignore
+func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen,gocognit // ignore
 	entries, err := s.agent.ListConntrack(ctx)
 	if err != nil {
 		s.logger.Error("failed to poll conntrack", "err", err)
@@ -266,36 +266,59 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 			ConnKey: ck,
 			SrcPort: util.Deref(e.SrcPort),
 		}
-		newSnapshot[sk] = snapshotEntry{ConnStat: cs}
+		se := snapshotEntry{
+			ConnStat: cs,
+			State:    util.Deref(e.State),
+		}
+		newSnapshot[sk] = se
 
 		if firstPoll {
 			continue
 		}
 
-		if prev, ok := s.prevSnapshot[sk]; ok && (prev.MissCount == 0 || cs.IsNextFor(prev.ConnStat)) {
-			delta := ConnStat{
+		prev, hasPrev := s.prevSnapshot[sk]
+
+		var delta ConnStat
+		switch {
+		case !hasPrev && cs.IsLikelyNew():
+			delta = cs
+		case hasPrev && (prev.MissCount == 0 || cs.IsNextFor(prev.ConnStat)):
+			if prev.MissCount > 0 {
+				s.logger.Debug("restored entry", "", sk, "", se, "miss_count", prev.MissCount)
+			}
+			delta = ConnStat{
 				BytesOrig:    max(0, cs.BytesOrig-prev.BytesOrig),
 				BytesReply:   max(0, cs.BytesReply-prev.BytesReply),
 				PacketsOrig:  saturatingSub(cs.PacketsOrig, prev.PacketsOrig),
 				PacketsReply: saturatingSub(cs.PacketsReply, prev.PacketsReply),
 			}
-			acc := s.getOrCreateAccumulator(ck)
-			acc.SrcPorts.Add(sk.SrcPort)
-			acc.Add(delta)
-			if !delta.IsZero() {
-				changedKeys.Add(ck)
+		default:
+			if hasPrev {
+				s.logger.Debug("replace entry", "", sk, "", se)
+			} else {
+				s.logger.Debug("new entry", "", sk, "", se)
 			}
-		} else { //nolint:staticcheck // ignore
-			// new or flickering connection — record baseline only (zeroes), next poll computes real delta
+		}
+
+		acc := s.getOrCreateAccumulator(ck)
+		acc.SrcPorts.Add(sk.SrcPort)
+		acc.Add(delta)
+		if !delta.IsZero() {
+			changedKeys.Add(ck)
 		}
 	}
 
 	// keep tracking for missing entries
 	for sk, se := range s.prevSnapshot {
+		if se.State == "TIME_WAIT" || se.State == "CLOSE" {
+			continue
+		}
 		if _, ok := newSnapshot[sk]; !ok {
 			se.MissCount++
 			if se.MissCount <= keepTrackMissCount {
 				newSnapshot[sk] = se
+			} else {
+				s.logger.Debug("expired entry", "", sk, "", se)
 			}
 		}
 	}

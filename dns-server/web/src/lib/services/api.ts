@@ -1,4 +1,11 @@
-import type { ConntrackBucketsResponse, DNSQuery, HostInfo, IPRoute, LogEntry } from '$lib/types';
+import type {
+	ConntrackBucket,
+	ConntrackBucketsResponse,
+	DNSQuery,
+	HostInfo,
+	IPRoute,
+	LogEntry
+} from '$lib/types';
 import { baseURL, createWebSocketStreamStore, type StreamStore } from '$lib/stores';
 
 interface ListResponse<T> {
@@ -73,6 +80,14 @@ export class APIService {
 	createLogStreamStore(limit: number): StreamStore<LogEntry> {
 		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/logs/ws`), limit, (data) =>
 			(JSON.parse(data) as StreamResponse<LogEntry>).map(parseLogEntry)
+		);
+	}
+
+	createConntrackStreamStore(limit: number): StreamStore<ConntrackBucket> {
+		return createWebSocketStreamStore(
+			new URL(`${this.baseUrl}/api/conntrack/ws`),
+			limit,
+			(data) => JSON.parse(data) as StreamResponse<ConntrackBucket>
 		);
 	}
 }

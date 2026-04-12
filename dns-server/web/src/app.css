@@ -11,16 +11,16 @@
 	--anim-highlight-bg: #292b2f;
 }
 
-table.table th {
+.table th {
 	color: var(--color-base-content);
 	border-bottom: 1px solid #888;
 }
 
-table.table td {
+.table td {
 	vertical-align: top;
 }
 
-table :where(td, th) {
+.table :where(td, th) {
 	padding-inline: calc(0.25rem * 3);
 	padding-block: calc(0.25rem * 2);
 }

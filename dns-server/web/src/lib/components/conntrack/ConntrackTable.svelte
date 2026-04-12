@@ -2,14 +2,15 @@
 	import type { ConntrackBucket, ConntrackEntry } from '$lib/types';
 	import { formatBytes } from './util';
 	import { SvelteMap } from 'svelte/reactivity';
-	import { createHostStore } from '$lib/stores';
-	import { onMount } from 'svelte';
+	import { type HostStore } from '$lib/stores';
 
-	let { buckets }: { buckets: ConntrackBucket[] } = $props();
-
-	const hosts = createHostStore();
-
-	onMount(() => hosts.autoreload());
+	let {
+		buckets,
+		hosts
+	}: {
+		buckets: ConntrackBucket[];
+		hosts: HostStore;
+	} = $props();
 
 	interface GroupRow extends Omit<ConntrackEntry, 'dst_ip' | 'dst_port' | 'protocol' | 'src_ports'> {
 		items: GroupItemRow[];
@@ -95,7 +96,7 @@
 <table class="table">
 	<thead>
 		<tr>
-			<th></th>
+			<th style="width: 1px"></th>
 			<th>Source IP</th>
 			<th class="text-right">Dsts</th>
 			<th class="text-right">Bytes ↑</th>
@@ -123,7 +124,7 @@
 			{#if expanded[g.src_ip]}
 				<tr>
 					<td></td>
-					<td colspan="7" class="p-0">
+					<td colspan="7" style="padding: 0">
 						<table class="table mb-0">
 							<thead>
 								<tr>

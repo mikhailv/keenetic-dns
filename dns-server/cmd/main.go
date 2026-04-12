@@ -36,7 +36,6 @@ func main() { //nolint:funlen // ignore
 
 	configFile := flag.String("config", "./config.yaml", "config file path")
 	pprofAddr := flag.String("pprof", "", "pprof handler address")
-	debug := flag.Bool("debug", false, "enable debug logging")
 	flag.Parse()
 
 	cfg, err := config.LoadConfig(*configFile)
@@ -44,7 +43,7 @@ func main() { //nolint:funlen // ignore
 		exitWithError(fmt.Errorf("failed to load config: %w", err))
 	}
 
-	logger, logStream, logFlush := setupLogger(*debug, cfg.History.LogSize)
+	logger, logStream, logFlush := setupLogger(cfg.Logging.Debug, cfg.Logging.HistorySize)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 
@@ -72,7 +71,7 @@ func main() { //nolint:funlen // ignore
 	conntrackStore := conntrack.NewFileStore(cfg.Conntrack.DataDir)
 	defer closeCloser(conntrackStore, "conntrack store", logger)
 
-	conntrackStream := stream.NewBufferedStream[conntrack.Bucket](cfg.History.ConntrackSize)
+	conntrackStream := stream.NewBufferedStream[conntrack.Bucket](cfg.Conntrack.HistorySize)
 
 	conntrackTracker := conntrack.NewTracker(conntrack.TrackerConfig{
 		PollInterval:   cfg.Conntrack.PollInterval,
@@ -89,8 +88,8 @@ func main() { //nolint:funlen // ignore
 
 	defer util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave).Wait()
 
-	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.History.DNSQuerySize)
-	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.History.DNSQuerySize)
+	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.DNS.QueryHistorySize)
+	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.DNS.QueryHistorySize)
 
 	dnsLogger := log.WithPrefix(logger, "dns")
 	dnsQueryStream.Listen(func(cursor stream.Cursor, query types.DNSQuery) {
@@ -190,7 +189,11 @@ func setupDNSStore(file string, logger *slog.Logger, retentionTime time.Duration
 		if len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
 				for _, r := range removed {
-					logger.Debug("dns record expired", "domain", r.Domain, "ips", r.IPs, "resolved", r.Time)
+					ips := make([]types.IPv4, 0, len(r.IPs))
+					for _, v := range r.IPs {
+						ips = append(ips, v.IP)
+					}
+					logger.Debug("dns record expired", "domain", r.Domain, "ips", ips, "resolved", r.Time)
 				}
 			}
 			logger.Info("removed expired records", "removed", len(removed), "duration", dur)

@@ -143,6 +143,7 @@ export interface ConntrackEntry {
 }
 
 export interface ConntrackBucket {
+	cursor?: string;
 	time_range: ConntrackTimeRange;
 	entries: ConntrackEntry[];
 }
