@@ -339,6 +339,10 @@ components:
           type: integer
         assured:
           type: boolean
+        id:
+          type: integer
+          format: uint32
+          description: Conntrack entry ID (unique handle for the lifetime of the entry)
 
     Error:
       type: object

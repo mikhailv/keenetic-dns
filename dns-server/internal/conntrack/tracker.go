@@ -265,6 +265,7 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 		sk := snapshotKey{
 			ConnKey: ck,
 			SrcPort: util.Deref(e.SrcPort),
+			ID:      util.Deref(e.Id),
 		}
 		se := snapshotEntry{
 			ConnStat: cs,

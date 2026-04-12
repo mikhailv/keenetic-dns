@@ -112,7 +112,7 @@ func (s *networkService) DeleteRoute(ctx context.Context, req api.DeleteRouteReq
 }
 
 func (s *networkService) ListConntrack(ctx context.Context, _ api.ListConntrackRequestObject) (api.ListConntrackResponseObject, error) {
-	cmd := exec.CommandContext(ctx, "conntrack", "-L", "-f", "ipv4")
+	cmd := exec.CommandContext(ctx, "conntrack", "-L", "-f", "ipv4", "-o", "id")
 	res, err := s.runCmd(cmd)
 	if err != nil {
 		s.logger.Error("failed to list conntrack", "err", err, "output", res.ErrOutput)

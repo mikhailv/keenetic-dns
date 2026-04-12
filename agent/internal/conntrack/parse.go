@@ -53,6 +53,7 @@ func parseLine(line string) (api.ConntrackEntry, bool) {
 	if entry.SrcIp == "" || entry.DstIp == "" {
 		return api.ConntrackEntry{}, false
 	}
+
 	return entry, true
 }
 
@@ -126,6 +127,11 @@ func applyField(e *api.ConntrackEntry, k, v string, reply bool) {
 	case "mark":
 		if n, err := strconv.Atoi(v); err == nil {
 			e.Mark = &n
+		}
+	case "id":
+		if n, err := strconv.ParseUint(v, 10, 32); err == nil {
+			id := uint32(n)
+			e.Id = &id
 		}
 	}
 }

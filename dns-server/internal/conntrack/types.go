@@ -151,14 +151,18 @@ func (s *ConnStat) IsLikelyNew() bool {
 	return s.BytesOrig+s.BytesReply <= bytesThreshold
 }
 
-// snapshotKey is the full 5-tuple used to track individual connections between polls.
+// snapshotKey is used to track individual connections between polls.
+// When a conntrack ID is available, it uniquely identifies the entry;
+// otherwise we fall back to the 5-tuple.
 type snapshotKey struct {
 	ConnKey
 	SrcPort uint16
+	ID      uint32 // conntrack entry ID (0 if unavailable)
 }
 
 func (s snapshotKey) LogValue() slog.Value {
 	return slog.GroupValue(
+		slog.Int("id", int(s.ID)),
 		slog.String("proto", s.Protocol.String()),
 		slog.String("src", s.SrcIP.String()),
 		slog.Int("sport", int(s.SrcPort)),

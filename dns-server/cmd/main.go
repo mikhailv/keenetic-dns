@@ -189,9 +189,9 @@ func setupDNSStore(file string, logger *slog.Logger, retentionTime time.Duration
 		if len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
 				for _, r := range removed {
-					ips := make([]types.IPv4, 0, len(r.IPs))
-					for _, v := range r.IPs {
-						ips = append(ips, v.IP)
+					ips := make([]types.IPv4, len(r.IPs))
+					for i, v := range r.IPs {
+						ips[i] = v.IP
 					}
 					logger.Debug("dns record expired", "domain", r.Domain, "ips", ips, "resolved", r.Time)
 				}
