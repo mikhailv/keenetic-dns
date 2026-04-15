@@ -19,13 +19,6 @@ import (
 	"github.com/klauspost/compress/gzip"
 )
 
-type Store interface {
-	Init(ctx context.Context) error
-	Load(ctx context.Context, timeRange TimeRange) iter.Seq2[Chunk, error]
-	Save(ctx context.Context, chunk Chunk) error
-	Close() error
-}
-
 // NewFileStore creates a Store that persists chunks as gzip-compressed binary
 // files in the given directory. Files are organized into date-based
 // subdirectories (yyyy-mm-dd) with each chunk stored as `{start}-{end}.bin`.
