@@ -68,7 +68,10 @@ func main() { //nolint:funlen // ignore
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.Routing.RouteTimeout)
 	ipRoutes.Start(ctx)
 
-	conntrackStore := conntrack.NewFileStore(cfg.Conntrack.DataDir)
+	conntrackStore := conntrack.NewFileStore(cfg.Conntrack.DataDir, log.WithPrefix(logger, "conntrack.filestore"))
+	if err = conntrackStore.Init(ctx); err != nil {
+		exitWithError(fmt.Errorf("failed to init conntrack store: %w", err))
+	}
 	defer closeCloser(conntrackStore, "conntrack store", logger)
 
 	conntrackStream := stream.NewBufferedStream[conntrack.Bucket](cfg.Conntrack.HistorySize)

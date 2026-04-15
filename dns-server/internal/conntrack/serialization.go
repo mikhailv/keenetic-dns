@@ -155,10 +155,13 @@ func newChunkDecoder(r io.Reader) chunkDecoder {
 	}
 }
 
-func (d *chunkDecoder) Decode(chunk *Chunk) error {
+func (d *chunkDecoder) Decode(chunk *Chunk, onlyVersion bool) error {
 	d.version = d.readByte()
 	if d.version == 0 || d.version > encodingVersion {
 		return errUnexpectedEncodingVersion
+	}
+	if onlyVersion {
+		return nil
 	}
 	d.entryPool = make([]BucketEntry, d.readUVarint())
 	d.connIDPool = make([]uint32, d.readUVarint())

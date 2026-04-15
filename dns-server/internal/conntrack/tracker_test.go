@@ -25,7 +25,7 @@ func (m *mockAgent) ListConntrack(_ context.Context) ([]agentclient.ConntrackEnt
 
 func newTestTracker(t *testing.T) (*Tracker, *mockAgent) {
 	t.Helper()
-	store := NewFileStore(t.TempDir())
+	store := NewFileStore(t.TempDir(), slog.Default())
 	agent := &mockAgent{}
 	tr := NewTracker(TrackerConfig{
 		PollInterval:   time.Second,
