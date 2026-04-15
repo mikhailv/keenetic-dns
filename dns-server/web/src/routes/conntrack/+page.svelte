@@ -22,9 +22,28 @@
 	let error = $state<string | null>(null);
 	let loading = $state(false);
 
+	let filterIP = $state<string | null>(null);
+	let filterBucketIdx = $state<number | null>(null);
+
 	const rangeSeconds = $derived(Math.max(1, to - from));
 	const effectiveInterval = $derived(autoBumpInterval(interval, rangeSeconds));
 	const appliedHint = $derived(resp?.interval ?? null);
+
+	const tableBuckets = $derived.by(() => {
+		if (!resp) return [];
+		let b = resp.buckets;
+		if (filterBucketIdx !== null && filterBucketIdx >= 0 && filterBucketIdx < b.length) {
+			b = [b[filterBucketIdx]];
+		}
+		if (filterIP) {
+			const ip = filterIP;
+			b = b.map((bucket) => ({
+				...bucket,
+				entries: bucket.entries.filter((e) => e.src_ip === ip)
+			}));
+		}
+		return b;
+	});
 
 	const hosts = createHostStore();
 	onMount(() => hosts.autoreload());
@@ -78,8 +97,37 @@
 {/if}
 
 {#if resp}
-	<TrafficChart buckets={resp.buckets} {hosts} />
+	<TrafficChart
+		buckets={resp.buckets}
+		{hosts}
+		{filterIP}
+		{filterBucketIdx}
+		onfilterip={(ip: string) => (filterIP = filterIP === ip ? null : ip)}
+		onselectbar={(idx: number) => (filterBucketIdx = filterBucketIdx === idx ? null : idx)} />
+	{#if filterIP || filterBucketIdx !== null}
+		<div class="flex items-center gap-2 mt-2 text-sm text-base-content/70">
+			<span>Filtered by:</span>
+			{#if filterIP}
+				<button class="badge badge-outline gap-1" onclick={() => (filterIP = null)}>
+					IP: {filterIP} ✕
+				</button>
+			{/if}
+			{#if filterBucketIdx !== null}
+				<button class="badge badge-outline gap-1" onclick={() => (filterBucketIdx = null)}>
+					Bar #{filterBucketIdx + 1} ✕
+				</button>
+			{/if}
+			<button
+				class="link link-hover text-xs"
+				onclick={() => {
+					filterIP = null;
+					filterBucketIdx = null;
+				}}>
+				Clear all
+			</button>
+		</div>
+	{/if}
 	<div class="mt-3">
-		<ConntrackTable buckets={resp.buckets} {hosts} />
+		<ConntrackTable buckets={tableBuckets} {hosts} />
 	</div>
 {/if}

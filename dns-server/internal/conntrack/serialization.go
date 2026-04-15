@@ -14,7 +14,12 @@ var (
 	errUnexpectedEncodingVersion = errors.New("unexpected encoding version")
 )
 
-const encodingVersion = 1
+const (
+	// version 1: SrcPorts []uint16 per entry.
+	// version 2: ConnIDs []uvarint per entry.
+	// version 3: ConnIDs []uint32 per entry.
+	encodingVersion = 3
+)
 
 type chunkEncoder struct {
 	w   io.Writer
@@ -22,24 +27,28 @@ type chunkEncoder struct {
 	buf []byte
 }
 
-func (e *chunkEncoder) Encode(chunk *Chunk) error {
-	if e.buf == nil {
-		e.buf = make([]byte, 10)
+func newChunkEncoder(w io.Writer) chunkEncoder {
+	return chunkEncoder{
+		w:   w,
+		buf: make([]byte, 10),
 	}
+}
+
+func (e *chunkEncoder) Encode(chunk *Chunk) error {
 	entryCount := 0
-	srcPortCount := 0
+	connIDCount := 0
 	for _, bucket := range chunk.Buckets {
 		entryCount += len(bucket.Entries)
 		for _, entry := range bucket.Entries {
-			srcPortCount += len(entry.SrcPorts)
+			connIDCount += len(entry.ConnIDs)
 		}
 	}
 	e.writeByte(encodingVersion)
-	e.writeUint32(uint32(entryCount))
-	e.writeUint32(uint32(srcPortCount))
+	e.writeUVarint(uint64(entryCount))
+	e.writeUVarint(uint64(connIDCount))
 	e.writeTimeRange(chunk.TimeRange)
-	e.writeUint16(uint16(chunk.BucketDuration))
-	e.writeUint16(uint16(len(chunk.Buckets)))
+	e.writeUVarint(uint64(chunk.BucketDuration))
+	e.writeUVarint(uint64(len(chunk.Buckets)))
 	for i := range chunk.Buckets {
 		buf := e.encodeToBuf(func() {
 			e.encodeBucket(&chunk.Buckets[i])
@@ -63,13 +72,13 @@ func (e *chunkEncoder) encodeEntry(entry *BucketEntry) {
 	e.writeIP(entry.SrcIP)
 	e.writeIP(entry.DstIP)
 	e.writeUint16(entry.DstPort)
-	e.writeUint64(uint64(entry.BytesOrig))
-	e.writeUint64(uint64(entry.BytesReply))
-	e.writeUint32(entry.PacketsOrig)
-	e.writeUint32(entry.PacketsReply)
-	e.writeUVarint(uint64(len(entry.SrcPorts)))
-	for _, port := range entry.SrcPorts {
-		e.writeUint16(port)
+	e.writeUVarint(uint64(entry.BytesOrig))
+	e.writeUVarint(uint64(entry.BytesReply))
+	e.writeUVarint(uint64(entry.PacketsOrig))
+	e.writeUVarint(uint64(entry.PacketsReply))
+	e.writeUVarint(uint64(len(entry.ConnIDs)))
+	for _, id := range entry.ConnIDs {
+		e.writeUint32(id)
 	}
 }
 
@@ -102,11 +111,11 @@ func (e *chunkEncoder) writeUint16(v uint16) {
 }
 
 func (e *chunkEncoder) writeUint32(v uint32) {
-	e.writeUVarint(uint64(v))
+	e.write(binary.LittleEndian.AppendUint32(e.buf[:0], v))
 }
 
-func (e *chunkEncoder) writeUint64(v uint64) {
-	e.writeUVarint(v)
+func (e *chunkEncoder) writeUint64(v uint64) { //nolint:unused // ignore
+	e.write(binary.LittleEndian.AppendUint64(e.buf[:0], v))
 }
 
 func (e *chunkEncoder) writeUVarint(v uint64) {
@@ -131,26 +140,36 @@ func (e *chunkEncoder) writeIP(ip types.IPv4) {
 }
 
 type chunkDecoder struct {
-	r           byteReader
-	err         error
-	buf         []byte
-	entryPool   []BucketEntry
-	srcPortPool []uint16
+	r          byteReader
+	err        error
+	buf        []byte
+	version    byte
+	entryPool  []BucketEntry
+	connIDPool []uint32
+}
+
+func newChunkDecoder(r io.Reader) chunkDecoder {
+	return chunkDecoder{
+		r:   newByteReader(r),
+		buf: make([]byte, 10),
+	}
 }
 
 func (d *chunkDecoder) Decode(chunk *Chunk) error {
-	if d.buf == nil {
-		d.buf = make([]byte, 10)
-	}
-	version := d.readByte()
-	if version != encodingVersion {
+	d.version = d.readByte()
+	if d.version == 0 || d.version > encodingVersion {
 		return errUnexpectedEncodingVersion
 	}
-	d.entryPool = make([]BucketEntry, d.readUint32())
-	d.srcPortPool = make([]uint16, d.readUint32())
+	d.entryPool = make([]BucketEntry, d.readUVarint())
+	d.connIDPool = make([]uint32, d.readUVarint())
 	chunk.TimeRange = d.readTimeRange()
-	chunk.BucketDuration = uint(d.readUint16())
-	chunk.Buckets = make([]Bucket, d.readUint16())
+	if d.version == 1 || d.version == 2 {
+		chunk.BucketDuration = uint(d.readUint16())
+		chunk.Buckets = make([]Bucket, d.readUint16())
+	} else {
+		chunk.BucketDuration = uint(d.readUVarint())
+		chunk.Buckets = make([]Bucket, d.readUVarint())
+	}
 	for i := range chunk.Buckets {
 		_ = d.readUVarint() // encoded bucket size, ignore for now
 		d.decodeBucket(&chunk.Buckets[i])
@@ -172,15 +191,23 @@ func (d *chunkDecoder) decodeEntry(entry *BucketEntry) {
 	entry.SrcIP = d.readIP()
 	entry.DstIP = d.readIP()
 	entry.DstPort = d.readUint16()
-	entry.BytesOrig = int64(d.readUint64())
-	entry.BytesReply = int64(d.readUint64())
-	entry.PacketsOrig = d.readUint32()
-	entry.PacketsReply = d.readUint32()
-	entry.SrcPorts = d.srcPortPool[:d.readUVarint()]
-	for i := range entry.SrcPorts {
-		entry.SrcPorts[i] = d.readUint16()
+	entry.BytesOrig = int64(d.readUVarint())
+	entry.BytesReply = int64(d.readUVarint())
+	entry.PacketsOrig = uint32(d.readUVarint())
+	entry.PacketsReply = uint32(d.readUVarint())
+	entry.ConnIDs = d.connIDPool[:d.readUVarint()]
+	for i := range entry.ConnIDs {
+		switch d.version {
+		case 1:
+			srcPort := d.readUint16()
+			entry.ConnIDs[i] = (uint32(entry.DstPort) << 16) | uint32(srcPort)
+		case 2:
+			entry.ConnIDs[i] = uint32(d.readUVarint())
+		default:
+			entry.ConnIDs[i] = d.readUint32()
+		}
 	}
-	d.srcPortPool = d.srcPortPool[len(entry.SrcPorts):]
+	d.connIDPool = d.connIDPool[len(entry.ConnIDs):]
 }
 
 func (d *chunkDecoder) read(b []byte) {
@@ -202,11 +229,15 @@ func (d *chunkDecoder) readUint16() uint16 {
 }
 
 func (d *chunkDecoder) readUint32() uint32 {
-	return uint32(d.readUVarint())
+	b := d.buf[:4]
+	d.read(b)
+	return binary.LittleEndian.Uint32(b)
 }
 
-func (d *chunkDecoder) readUint64() uint64 {
-	return d.readUVarint()
+func (d *chunkDecoder) readUint64() uint64 { //nolint:unused // ignore
+	b := d.buf[:8]
+	d.read(b)
+	return binary.LittleEndian.Uint64(b)
 }
 
 func (d *chunkDecoder) readUVarint() uint64 {

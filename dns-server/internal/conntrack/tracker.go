@@ -214,7 +214,7 @@ func (s *Tracker) sealBucket() {
 	clear(s.bucketEntries)
 }
 
-func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen,gocognit // ignore
+func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen,gocognit,cyclop // ignore
 	entries, err := s.agent.ListConntrack(ctx)
 	if err != nil {
 		s.logger.Error("failed to poll conntrack", "err", err)
@@ -265,7 +265,11 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 		sk := snapshotKey{
 			ConnKey: ck,
 			SrcPort: util.Deref(e.SrcPort),
-			ID:      util.Deref(e.Id),
+		}
+		if e.Id != nil {
+			sk.ID = *e.Id
+		} else {
+			sk.ID = (uint32(sk.DstPort) << 16) | uint32(sk.SrcPort)
 		}
 		se := snapshotEntry{
 			ConnStat: cs,
@@ -302,7 +306,7 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 		}
 
 		acc := s.getOrCreateAccumulator(ck)
-		acc.SrcPorts.Add(sk.SrcPort)
+		acc.ConnIDs.Add(sk.ID)
 		acc.Add(delta)
 		if !delta.IsZero() {
 			changedKeys.Add(ck)
@@ -383,7 +387,7 @@ func (s *Tracker) loadCurrent(ctx context.Context) {
 					for _, entry := range bucket.Entries {
 						s.bucketEntries[entry.ConnKey] = &bucketEntryAccumulator{
 							ConnStat: entry.ConnStat,
-							SrcPorts: util.NewSet(entry.SrcPorts...),
+							ConnIDs:  util.NewSet(entry.ConnIDs...),
 						}
 					}
 				} else {

@@ -12,14 +12,14 @@
 		hosts: HostStore;
 	} = $props();
 
-	interface GroupRow extends Omit<ConntrackEntry, 'dst_ip' | 'dst_port' | 'protocol' | 'src_ports'> {
+	interface GroupRow extends Omit<ConntrackEntry, 'dst_ip' | 'dst_port' | 'protocol' | 'conn_ids'> {
 		items: GroupItemRow[];
-		src_ports: Set<number>;
+		conn_ids: Set<number>;
 	}
 
-	interface GroupItemRow extends Omit<ConntrackEntry, 'src_ip' | 'src_ports'> {
+	interface GroupItemRow extends Omit<ConntrackEntry, 'src_ip' | 'conn_ids'> {
 		key: string;
-		src_ports: Set<number>;
+		conn_ids: Set<number>;
 	}
 
 	function detailKey(e: ConntrackEntry): string {
@@ -39,7 +39,7 @@
 						bytes_reply: 0,
 						packets_orig: 0,
 						packets_reply: 0,
-						src_ports: new Set<number>(),
+						conn_ids: new Set<number>(),
 						items: []
 					};
 					groupMap.set(e.src_ip, g);
@@ -49,7 +49,7 @@
 				g.bytes_reply += e.bytes_reply;
 				g.packets_orig += e.packets_orig;
 				g.packets_reply += e.packets_reply;
-				e.src_ports.forEach((p) => g.src_ports.add(p));
+				e.conn_ids.forEach((p) => g.conn_ids.add(p));
 
 				const dmap = itemsMap.get(e.src_ip)!;
 				const dk = detailKey(e);
@@ -64,7 +64,7 @@
 						bytes_reply: 0,
 						packets_orig: 0,
 						packets_reply: 0,
-						src_ports: new Set<number>()
+						conn_ids: new Set<number>()
 					};
 					dmap.set(dk, d);
 				}
@@ -72,7 +72,7 @@
 				d.bytes_reply += e.bytes_reply;
 				d.packets_orig += e.packets_orig;
 				d.packets_reply += e.packets_reply;
-				e.src_ports.forEach((p) => d.src_ports.add(p));
+				e.conn_ids.forEach((p) => d.conn_ids.add(p));
 			}
 		}
 		const out: GroupRow[] = [];
@@ -119,7 +119,7 @@
 				<td class="text-right">{formatBytes(g.bytes_reply)}</td>
 				<td class="text-right">{g.packets_orig}</td>
 				<td class="text-right">{g.packets_reply}</td>
-				<td class="text-right">{g.src_ports.size}</td>
+				<td class="text-right">{g.conn_ids.size}</td>
 			</tr>
 			{#if expanded[g.src_ip]}
 				<tr>
@@ -152,7 +152,7 @@
 										<td class="text-right">{formatBytes(d.bytes_reply)}</td>
 										<td class="text-right">{d.packets_orig}</td>
 										<td class="text-right">{d.packets_reply}</td>
-										<td class="text-right">{d.src_ports.size}</td>
+										<td class="text-right">{d.conn_ids.size}</td>
 									</tr>
 								{/each}
 							</tbody>

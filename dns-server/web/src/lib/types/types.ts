@@ -139,7 +139,7 @@ export interface ConntrackEntry {
 	bytes_reply: number;
 	packets_orig: number;
 	packets_reply: number;
-	src_ports: number[];
+	conn_ids: number[];
 }
 
 export interface ConntrackBucket {

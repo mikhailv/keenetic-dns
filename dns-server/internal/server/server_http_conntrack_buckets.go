@@ -171,9 +171,9 @@ func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uin
 			for _, entry := range bucket.Entries {
 				if ae, ok := agg.entries[entry.ConnKey]; ok {
 					ae.Add(entry.ConnStat)
-					ae.SrcPorts = append(ae.SrcPorts, entry.SrcPorts...)
-					slices.Sort(ae.SrcPorts)
-					ae.SrcPorts = slices.Compact(ae.SrcPorts) // remove duplicates
+					ae.ConnIDs = append(ae.ConnIDs, entry.ConnIDs...)
+					slices.Sort(ae.ConnIDs)
+					ae.ConnIDs = slices.Compact(ae.ConnIDs) // remove duplicates
 				} else {
 					agg.entries[entry.ConnKey] = util.Ptr(entry.Clone())
 				}

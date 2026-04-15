@@ -5,10 +5,18 @@
 
 	let {
 		buckets,
-		hosts
+		hosts,
+		filterIP = null,
+		filterBucketIdx = null,
+		onfilterip,
+		onselectbar
 	}: {
 		buckets: ConntrackBucket[];
 		hosts: HostStore;
+		filterIP?: string | null;
+		filterBucketIdx?: number | null;
+		onfilterip?: (ip: string) => void;
+		onselectbar?: (idx: number) => void;
 	} = $props();
 
 	const TOP_N = 10;
@@ -113,6 +121,8 @@
 		{#each stacked as bar, i (bar.range.start)}
 			{@const x = PAD.left + i * barWidth}
 			{@const innerW = Math.max(barWidth - 1, 1)}
+			{@const barSelected = filterBucketIdx === i}
+			{@const barDimmed = filterBucketIdx !== null && !barSelected}
 			{@const segments = (() => {
 				let acc = 0;
 				const out: { y: number; h: number; total: number; key: string; label: string }[] = [];
@@ -125,25 +135,65 @@
 				}
 				return out;
 			})()}
+			{#if barSelected}
+				<rect
+					{x}
+					y={PAD.top}
+					width={innerW}
+					height={HEIGHT - PAD.top - PAD.bottom}
+					fill="currentColor"
+					fill-opacity="0.07" />
+			{/if}
 			{#each segments as seg (seg.key)}
-				<rect {x} y={seg.y} width={innerW} height={seg.h} fill={colorFor(seg.key)}>
+				{@const dimmed = barDimmed || (filterIP !== null && seg.key !== filterIP)}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<rect
+					{x}
+					y={seg.y}
+					width={innerW}
+					height={seg.h}
+					fill={colorFor(seg.key)}
+					opacity={dimmed ? 0.2 : 1}
+					class="cursor-pointer"
+					onclick={() => onfilterip?.(seg.key)}>
 					<title>
 						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTimeRange(bar.range)}`}
 					</title>
 				</rect>
 			{/each}
+			<!-- clickable axis strip for bar selection -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<rect
+				{x}
+				y={HEIGHT - PAD.bottom}
+				width={innerW}
+				height={PAD.bottom}
+				fill={barSelected ? 'currentColor' : 'transparent'}
+				fill-opacity={barSelected ? 0.15 : 0}
+				class="cursor-pointer"
+				onclick={() => onselectbar?.(i)}>
+				<title>{fmtTimeRange(bar.range)}</title>
+			</rect>
 		{/each}
 	</svg>
 
 	<div class="flex flex-wrap gap-2 mt-2 text-sm">
 		{#each legend as l (l.key)}
-			<span class="inline-flex items-center gap-1">
+			<button
+				class="inline-flex items-center gap-1 cursor-pointer hover:underline rounded px-1 -mx-1"
+				class:opacity-30={filterIP !== null && filterIP !== l.key}
+				style:outline={filterIP === l.key ? '1.5px solid oklch(0.7 0 0 / 0.5)' : 'none'}
+				style:outline-offset="2px"
+				style:border-radius="4px"
+				onclick={() => onfilterip?.(l.key)}>
 				<span style="display:inline-block;width:10px;height:10px;background:{colorFor(l.key)}"></span>
 				{l.label}
 				{#if l.alias}
 					<span class="text-base-content/60 font-light text-sm2">({l.alias})</span>
 				{/if}
-			</span>
+			</button>
 		{/each}
 	</div>
 {/if}

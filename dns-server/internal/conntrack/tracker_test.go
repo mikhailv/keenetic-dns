@@ -49,6 +49,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 			DstIp:    "8.8.8.8",
 			SrcPort:  util.Ptr(uint16(12345)),
 			DstPort:  util.Ptr(uint16(443)),
+			Id:       util.Ptr(uint32(92345)),
 		},
 	}
 	tracker.poll(ctx, now.Add(time.Second))
@@ -64,17 +65,19 @@ func TestTracker_PollAndBucket(t *testing.T) {
 			BytesReply:   5000,
 			PacketsOrig:  10,
 			PacketsReply: 20,
+			Id:           util.Ptr(uint32(92345)),
 		},
 		{
 			Protocol:     "tcp",
 			SrcIp:        "192.168.1.10",
 			DstIp:        "8.8.8.8",
-			SrcPort:      util.Ptr(uint16(12346)), // different src_port, same ConnKey
+			SrcPort:      util.Ptr(uint16(12346)),
 			DstPort:      util.Ptr(uint16(443)),
 			BytesOrig:    500,
 			BytesReply:   2000,
 			PacketsOrig:  5,
 			PacketsReply: 8,
+			Id:           util.Ptr(uint32(92346)),
 		},
 	}
 
@@ -94,7 +97,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 				PacketsOrig:  15,
 				PacketsReply: 28,
 			},
-			SrcPorts: map[uint16]struct{}{12345: {}, 12346: {}},
+			ConnIDs: map[uint32]struct{}{92345: {}, 92346: {}},
 		},
 	}, tracker.bucketEntries)
 
@@ -109,6 +112,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 			BytesReply:   8000, // +3000
 			PacketsOrig:  15,
 			PacketsReply: 30,
+			Id:           util.Ptr(uint32(92345)),
 		},
 	}
 
@@ -122,7 +126,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 				PacketsOrig:  20,
 				PacketsReply: 38,
 			},
-			SrcPorts: map[uint16]struct{}{12345: {}, 12346: {}},
+			ConnIDs: map[uint32]struct{}{92345: {}, 92346: {}},
 		},
 	}, tracker.bucketEntries)
 }
@@ -140,6 +144,7 @@ func TestTracker_BucketSeal(t *testing.T) {
 			DstIp:    "1.1.1.1",
 			SrcPort:  util.Ptr(uint16(5000)),
 			DstPort:  util.Ptr(uint16(53)),
+			Id:       util.Ptr(uint32(100500)),
 		},
 	}
 	tracker.poll(ctx, now.Add(time.Second))
@@ -155,6 +160,7 @@ func TestTracker_BucketSeal(t *testing.T) {
 			BytesReply:   200,
 			PacketsOrig:  1,
 			PacketsReply: 1,
+			Id:           util.Ptr(uint32(100500)),
 		},
 	}
 	tracker.poll(ctx, now.Add(time.Second))
@@ -183,7 +189,7 @@ func TestTracker_BucketSeal(t *testing.T) {
 						PacketsOrig:  1,
 						PacketsReply: 1,
 					},
-					SrcPorts: []uint16{5000},
+					ConnIDs: []uint32{100500},
 				},
 			},
 		},

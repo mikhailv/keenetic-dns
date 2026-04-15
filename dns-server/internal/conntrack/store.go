@@ -175,7 +175,7 @@ func decodeChunk(r io.Reader, chunk *Chunk) (resErr error) {
 	}
 	defer handleError(gz.Close, &resErr)
 
-	decoder := chunkDecoder{r: newByteReader(gz)}
+	decoder := newChunkDecoder(gz)
 	if err := decoder.Decode(chunk); err != nil {
 		return fmt.Errorf("decode chunk: %w", err)
 	}
@@ -188,7 +188,7 @@ func encodeChunk(w io.Writer, chunk Chunk) (resErr error) {
 	gz := gzip.NewWriter(bufWriter)
 	defer handleError(gz.Close, &resErr)
 
-	encoder := chunkEncoder{w: gz}
+	encoder := newChunkEncoder(gz)
 	if err := encoder.Encode(&chunk); err != nil {
 		return fmt.Errorf("encode chunk: %w", err)
 	}

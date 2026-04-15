@@ -111,12 +111,12 @@ type BucketEntry struct {
 	_ struct{} `cbor:",toarray"`
 	ConnKey
 	ConnStat
-	SrcPorts []uint16 `json:"src_ports"`
+	ConnIDs []uint32 `json:"conn_ids"`
 }
 
 func (s *BucketEntry) Clone() BucketEntry {
 	c := *s
-	c.SrcPorts = slices.Clone(s.SrcPorts)
+	c.ConnIDs = slices.Clone(s.ConnIDs)
 	return c
 }
 
@@ -192,16 +192,16 @@ func (s snapshotEntry) LogValue() slog.Value {
 // bucketEntryAccumulator accumulates deltas for a single ConnKey within the current bucket.
 type bucketEntryAccumulator struct {
 	ConnStat
-	SrcPorts util.Set[uint16]
+	ConnIDs util.Set[uint32]
 }
 
 func (s *bucketEntryAccumulator) toBucketEntry(key ConnKey) BucketEntry {
-	srcPorts := s.SrcPorts.Values()
-	slices.Sort(srcPorts)
+	connIDs := s.ConnIDs.Values()
+	slices.Sort(connIDs)
 	return BucketEntry{
 		ConnKey:  key,
 		ConnStat: s.ConnStat,
-		SrcPorts: srcPorts,
+		ConnIDs:  connIDs,
 	}
 }
 
