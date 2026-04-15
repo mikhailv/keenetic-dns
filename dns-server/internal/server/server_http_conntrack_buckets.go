@@ -54,10 +54,11 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 		RequestedInterval: uint(intervalReq),
 	}
 
-	bucketSeq := iterateBuckets(req.Context(), s.conntrackTracker, tr, nativeInterval)
+	bucketSeq := iterateBuckets(req.Context(), s.conntrackTracker, tr)
 	if interval != nativeInterval {
 		bucketSeq = aggregateBuckets(bucketSeq, interval)
 	}
+	bucketSeq = fillGapsInBucketSeq(bucketSeq, tr, interval)
 
 	resp.Buckets, err = util.Seq2ToSlice(int(1+uint(tr.End-tr.Start+1)/interval), bucketSeq)
 	if err != nil {
@@ -99,9 +100,8 @@ func (s *bucketAgg) toBucket() conntrack.Bucket {
 	}
 }
 
-func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrack.TimeRange, interval uint) iter.Seq2[conntrack.Bucket, error] {
+func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrack.TimeRange) iter.Seq2[conntrack.Bucket, error] {
 	return func(yield func(conntrack.Bucket, error) bool) {
-		startTime := tr.Start
 		for chunk, err := range tracker.IterateChunks(ctx, tr) {
 			if err != nil {
 				if !yield(conntrack.Bucket{}, err) {
@@ -110,26 +110,9 @@ func iterateBuckets(ctx context.Context, tracker *conntrack.Tracker, tr conntrac
 				continue
 			}
 			for _, bucket := range chunk.Buckets {
-				if bucket.TimeRange.End < startTime {
-					continue
-				}
-				for bucket.TimeRange.Start > startTime {
-					emptyBucket := conntrack.Bucket{
-						TimeRange: conntrack.TimeRange{
-							Start: startTime,
-							End:   startTime + conntrack.Timestamp(interval) - 1,
-						},
-						Entries: []conntrack.BucketEntry{},
-					}
-					if !yield(emptyBucket, nil) {
-						return
-					}
-					startTime += conntrack.Timestamp(interval)
-				}
-				if !yield(bucket, nil) {
+				if bucket.TimeRange.Intersects(tr) && !yield(bucket, nil) {
 					return
 				}
-				startTime += conntrack.Timestamp(interval)
 			}
 		}
 	}
@@ -181,6 +164,50 @@ func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uin
 		}
 		if !agg.timeRange.IsZero() {
 			yield(agg.toBucket(), nil)
+		}
+	}
+}
+
+func fillGapsInBucketSeq(bucketSeq iter.Seq2[conntrack.Bucket, error], tr conntrack.TimeRange, interval uint) iter.Seq2[conntrack.Bucket, error] {
+	return func(yield func(conntrack.Bucket, error) bool) {
+		startTime := tr.Start
+
+		yieldEmptyBucket := func() bool {
+			emptyBucket := conntrack.Bucket{
+				TimeRange: conntrack.TimeRange{
+					Start: startTime,
+					End:   startTime + conntrack.Timestamp(interval) - 1,
+				},
+				Entries: []conntrack.BucketEntry{},
+			}
+			startTime += conntrack.Timestamp(interval)
+			return yield(emptyBucket, nil)
+		}
+
+		for bucket, err := range bucketSeq {
+			if err != nil {
+				if !yield(bucket, err) {
+					return
+				}
+				continue
+			}
+			// fill gap before bucket
+			for bucket.TimeRange.Start > startTime {
+				if !yieldEmptyBucket() {
+					return
+				}
+			}
+			if !yield(bucket, nil) {
+				return
+			}
+			startTime += conntrack.Timestamp(interval)
+		}
+
+		// fill gap after last bucket
+		for startTime <= tr.End {
+			if !yieldEmptyBucket() {
+				return
+			}
 		}
 	}
 }
