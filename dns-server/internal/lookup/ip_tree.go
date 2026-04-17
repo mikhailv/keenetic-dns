@@ -1,57 +1,44 @@
 package lookup
 
 import (
+	"encoding/binary"
 	"slices"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
-// IPTree is an immutable stride-4 (nibble) trie for longest-prefix IPv4 matching.
-// Each level corresponds to one nibble (4 bits), giving at most 8 lookups per query.
+// IPTree is an immutable structure for longest-prefix IPv4 matching.
+// It decomposes the IP space into sorted non-overlapping intervals,
+// each annotated with the longest matching prefix value.
+// Lookup is a single binary search: O(log N).
 type IPTree[V any] struct {
-	root *ipNode[V]
+	bounds []uint32 // sorted interval start points
+	values []ipValue[V]
 }
 
-type ipNode[V any] struct {
-	entries [16]ipEntry[V]
-}
-
-type ipEntry[V any] struct {
-	child    *ipNode[V]
+type ipValue[V any] struct {
 	value    V
 	hasValue bool
 }
 
-// ipNibble returns the i-th nibble (4 bits) of an IPv4 address (0 = most significant).
-func ipNibble(ip types.IPv4, i int) byte {
-	b := ip[i/2]
-	if i%2 == 0 {
-		return b >> 4
-	}
-	return b & 0x0F
-}
-
 // Get returns the value associated with the longest matching prefix.
 func (t *IPTree[V]) Get(ip types.IPv4) (V, bool) {
-	if t.root == nil {
+	if len(t.bounds) == 0 {
 		var zero V
 		return zero, false
 	}
-	var bestValue V
-	var found bool
-	node := t.root
-	for i := range 8 {
-		entry := &node.entries[ipNibble(ip, i)]
-		if entry.hasValue {
-			bestValue = entry.value
-			found = true
-		}
-		if entry.child == nil {
-			break
-		}
-		node = entry.child
+	addr := ipToUint32(ip)
+	// Find the rightmost bound <= addr.
+	i, ok := slices.BinarySearch(t.bounds, addr)
+	if !ok {
+		i-- // addr < bounds[i], so the interval is i-1
 	}
-	return bestValue, found
+	if i < 0 {
+		var zero V
+		return zero, false
+	}
+	v := &t.values[i]
+	return v.value, v.hasValue
 }
 
 // Has reports whether ip matches any prefix in the tree.
@@ -75,70 +62,67 @@ func NewIPTreeBuilder[V any]() *IPTreeBuilder[V] {
 }
 
 // Add inserts an IPv4 prefix with an associated value.
-// The IPv4 may include a prefix length (e.g. "10.0.0.0/8"); /32 hosts work too.
 func (b *IPTreeBuilder[V]) Add(prefix types.IPv4, value V) {
 	b.items = append(b.items, ipBuildItem[V]{prefix: prefix, value: value})
 }
 
 // Build creates an immutable IPTree from the builder's contents.
-// Prefixes are sorted by length (shortest first) so that longer (more specific)
-// prefixes overwrite shorter ones during expansion.
 func (b *IPTreeBuilder[V]) Build() *IPTree[V] {
 	if len(b.items) == 0 {
 		return &IPTree[V]{}
 	}
+
+	// Sort prefixes by length descending so the first match in a scan is the longest.
 	slices.SortStableFunc(b.items, func(a, b ipBuildItem[V]) int {
-		return a.prefix.Prefix() - b.prefix.Prefix()
+		return b.prefix.Prefix() - a.prefix.Prefix()
 	})
-	root := &ipNode[V]{}
+
+	// Collect all interval boundary points.
+	boundSet := make(map[uint32]struct{}, len(b.items)*2)
+	boundSet[0] = struct{}{} // start of IP space
 	for _, item := range b.items {
-		insertIPPrefix(root, item.prefix, item.value)
+		start, end := prefixRange(item.prefix)
+		boundSet[start] = struct{}{}
+		if end < 0xFFFFFFFF {
+			boundSet[end+1] = struct{}{}
+		}
 	}
-	return &IPTree[V]{root: root}
+
+	bounds := make([]uint32, 0, len(boundSet))
+	for bp := range boundSet {
+		bounds = append(bounds, bp)
+	}
+	slices.Sort(bounds)
+
+	// For each interval, find the longest matching prefix.
+	values := make([]ipValue[V], len(bounds))
+	for i, bp := range bounds {
+		for _, item := range b.items {
+			start, end := prefixRange(item.prefix)
+			if start <= bp && bp <= end {
+				// First match is longest prefix (sorted by length desc).
+				values[i] = ipValue[V]{value: item.value, hasValue: true}
+				break
+			}
+		}
+	}
+
+	return &IPTree[V]{bounds: bounds, values: values}
 }
 
-func insertIPPrefix[V any](root *ipNode[V], prefix types.IPv4, value V) {
-	prefixLen := prefix.Prefix()
-	fullNibbles := prefixLen / 4
-	remainBits := prefixLen % 4
-
-	// Number of child hops before setting values.
-	walkDepth := fullNibbles
-	if remainBits == 0 && fullNibbles > 0 {
-		walkDepth = fullNibbles - 1
+// prefixRange returns the start and end (inclusive) uint32 addresses for a CIDR prefix.
+func prefixRange(prefix types.IPv4) (start, end uint32) {
+	addr := ipToUint32(prefix)
+	bits := uint(prefix.Prefix())
+	if bits == 0 {
+		return 0, 0xFFFFFFFF
 	}
+	mask := uint32(0xFFFFFFFF) << (32 - bits)
+	start = addr & mask
+	end = start | ^mask
+	return start, end
+}
 
-	node := root
-	for i := range walkDepth {
-		entry := &node.entries[ipNibble(prefix, i)]
-		if entry.child == nil {
-			entry.child = &ipNode[V]{}
-		}
-		node = entry.child
-	}
-
-	if remainBits == 0 {
-		if fullNibbles == 0 {
-			// /0: default route — match all entries at root.
-			for i := range node.entries {
-				node.entries[i].value = value
-				node.entries[i].hasValue = true
-			}
-		} else {
-			// Exact nibble boundary: single entry.
-			nib := ipNibble(prefix, fullNibbles-1)
-			node.entries[nib].value = value
-			node.entries[nib].hasValue = true
-		}
-	} else {
-		// Mid-nibble prefix: expand to all matching nibble values.
-		shift := uint(4 - remainBits)
-		nib := ipNibble(prefix, fullNibbles)
-		base := (nib >> shift) << shift
-		count := byte(1) << shift
-		for j := range count {
-			node.entries[base|j].value = value
-			node.entries[base|j].hasValue = true
-		}
-	}
+func ipToUint32(ip types.IPv4) uint32 {
+	return binary.BigEndian.Uint32(ip[:4])
 }
