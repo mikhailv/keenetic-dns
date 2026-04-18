@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 func (s *fileStore) migrate(ctx context.Context, dir string, files map[TimeRange]string) error {
@@ -109,4 +110,24 @@ func copyFile(src, dst string) (resErr error) {
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
+}
+
+func (s *fileStore) deleteEntriesFromChunkFile(path string, del func(BucketEntry) bool) error { //nolint:unused //ignore
+	chunk, _, err := s.loadFile(path, false)
+	if err != nil {
+		return err
+	}
+	deleted := false
+	for i, bucket := range chunk.Buckets {
+		entries := bucket.Entries
+		bucket.Entries = slices.DeleteFunc(entries, del)
+		if len(bucket.Entries) != len(entries) {
+			chunk.Buckets[i] = bucket
+			deleted = true
+		}
+	}
+	if deleted {
+		return s.saveFile(path, chunk)
+	}
+	return nil
 }
