@@ -76,6 +76,10 @@ func (ip IPv4) Mask() [4]byte {
 	return m
 }
 
+func (ip IPv4) Uint32() uint32 {
+	return binary.BigEndian.Uint32(ip[:4])
+}
+
 func (ip IPv4) String() string {
 	var buf [20]byte
 	b, _ := ip.AppendText(buf[:0])

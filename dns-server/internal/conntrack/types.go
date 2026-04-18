@@ -87,7 +87,7 @@ func (s *Chunk) Clone() Chunk {
 
 // Bucket holds all entries for a single time bucket.
 type Bucket struct {
-	Cursor    stream.Cursor `cbor:"-" json:"cursor"`
+	Cursor    stream.Cursor `cbor:"-" json:"cursor,omitempty"`
 	_         struct{}      `cbor:",toarray"`
 	TimeRange TimeRange     `json:"time_range"`
 	Entries   []BucketEntry `json:"entries"`

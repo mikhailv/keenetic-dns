@@ -1,6 +1,7 @@
 import type {
 	ConntrackBucket,
 	ConntrackBucketsResponse,
+	ConntrackEntry,
 	DNSQuery,
 	HostInfo,
 	IPRoute,
@@ -25,6 +26,12 @@ export type ListResult<T> = {
 export type DataResult<T> = { data: T; error?: undefined } | { data?: undefined; error: string };
 
 type StreamResponse<T> = T[];
+
+type conntrackBucketsResult = Omit<ConntrackBucketsResponse, 'buckets'> & {
+	buckets: conntrackBucketResult[];
+};
+
+type conntrackBucketResult = Omit<ConntrackBucket, 'entries'> & { entries: number[][] };
 
 export class APIService {
 	private readonly baseUrl: string;
@@ -54,9 +61,13 @@ export class APIService {
 		to: number,
 		interval: number
 	): Promise<DataResult<ConntrackBucketsResponse>> {
-		return requestData<ConntrackBucketsResponse>(
+		const { data, error } = await requestData<conntrackBucketsResult>(
 			`${this.baseUrl}/api/conntrack/buckets?from=${from}&to=${to}&interval=${interval}`
 		);
+		if (data) {
+			return { data: { ...data, buckets: data.buckets.map(decodeConntrackBucket) } };
+		}
+		return { error };
 	}
 
 	async getDNSQueries(backward: boolean, count: number): Promise<ListResult<DNSQuery>> {
@@ -84,10 +95,8 @@ export class APIService {
 	}
 
 	createConntrackStreamStore(limit: number): StreamStore<ConntrackBucket> {
-		return createWebSocketStreamStore(
-			new URL(`${this.baseUrl}/api/conntrack/ws`),
-			limit,
-			(data) => JSON.parse(data) as StreamResponse<ConntrackBucket>
+		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/conntrack/ws`), limit, (data) =>
+			(JSON.parse(data) as StreamResponse<conntrackBucketResult>).map(decodeConntrackBucket)
 		);
 	}
 }
@@ -124,4 +133,39 @@ async function requestData<T>(url: URL | string, opts?: RequestInit): Promise<Da
 	} catch (e) {
 		return { error: `Failed to load data: ${e}` };
 	}
+}
+
+function decodeConntrackBucket(v: conntrackBucketResult): ConntrackBucket {
+	return {
+		...v,
+		entries: v.entries.map(decodeConntrackBucketEntry)
+	};
+}
+
+function decodeConntrackBucketEntry(v: number[]): ConntrackEntry {
+	return {
+		protocol: decodeProtocol(v[0]),
+		src_ip: decodeIP(v[1]),
+		dst_ip: decodeIP(v[2]),
+		dst_port: v[3],
+		bytes_orig: v[4],
+		bytes_reply: v[5],
+		packets_orig: v[6],
+		packets_reply: v[7],
+		conn_count: v[8]
+	};
+}
+
+function decodeIP(v: number): string {
+	return `${(v >> 24) & 0xff}.${(v >> 16) & 0xff}.${(v >> 8) & 0xff}.${v & 0xff}`;
+}
+
+const protocolNames: Record<number, string> = {
+	1: 'icmp',
+	6: 'tcp',
+	17: 'udp'
+};
+
+function decodeProtocol(v: number): string {
+	return protocolNames[v] ?? 'unknown';
 }

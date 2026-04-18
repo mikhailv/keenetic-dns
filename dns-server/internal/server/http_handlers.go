@@ -77,6 +77,10 @@ func createListHandler[T any](st *stream.Buffered[T], filterFactory requestFilte
 }
 
 func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, filterFactory requestFilterFactory[T]) http.Handler {
+	return createStreamHandlerMapped[T, T](st, logger, filterFactory, nil)
+}
+
+func createStreamHandlerMapped[T, R any](st *stream.Buffered[T], logger *slog.Logger, filterFactory requestFilterFactory[T], mapper func(T) R) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
 		filter := filterFactory(req, query)
@@ -116,12 +120,21 @@ func createStreamHandler[T any](st *stream.Buffered[T], logger *slog.Logger, fil
 		defer stopListen()
 
 		processNextDataChunk := func() {
-			res := st.Query(cursor, 1000, filter)
-			if len(res.Items) > 0 {
-				if err := wsjson.Write(ctx, conn, res.Items); err != nil {
+			qr := st.Query(cursor, 1000, filter)
+			var items []R
+			if mapper != nil {
+				items = make([]R, len(qr.Items))
+				for i, item := range qr.Items {
+					items[i] = mapper(item)
+				}
+			} else {
+				items = any(qr.Items).([]R) //nolint:errcheck,forcetypeassert // ignore
+			}
+			if len(items) > 0 {
+				if err := wsjson.Write(ctx, conn, items); err != nil {
 					logger.Error("failed to send data", "err", err, "cursor", cursor)
 				} else {
-					cursor = res.LastCursor
+					cursor = qr.LastCursor
 				}
 			}
 		}
