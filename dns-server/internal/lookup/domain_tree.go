@@ -27,7 +27,7 @@ func (n *domainNode[V]) child(label string) *domainNode[V] {
 }
 
 // Get returns the value associated with the longest matching domain suffix.
-func (t *DomainTree[V]) Get(domain string) (V, bool) {
+func (t DomainTree[V]) Get(domain string) (V, bool) {
 	labels := splitDomainReversed(domain)
 	var bestValue V
 	var found bool
@@ -50,7 +50,7 @@ func (t *DomainTree[V]) Get(domain string) (V, bool) {
 }
 
 // Has reports whether domain matches any suffix in the tree.
-func (t *DomainTree[V]) Has(domain string) bool {
+func (t DomainTree[V]) Has(domain string) bool {
 	_, ok := t.Get(domain)
 	return ok
 }
@@ -66,8 +66,8 @@ type domainBuildNode[V any] struct {
 	hasValue bool
 }
 
-func NewDomainTreeBuilder[V any]() *DomainTreeBuilder[V] {
-	return &DomainTreeBuilder[V]{}
+func NewDomainTreeBuilder[V any]() DomainTreeBuilder[V] {
+	return DomainTreeBuilder[V]{}
 }
 
 // Add inserts a domain pattern with an associated value.
@@ -91,8 +91,8 @@ func (b *DomainTreeBuilder[V]) Add(domain string, value V) {
 }
 
 // Build creates an immutable DomainTree from the builder's contents.
-func (b *DomainTreeBuilder[V]) Build() *DomainTree[V] {
-	return &DomainTree[V]{root: freezeDomainNode(&b.root)}
+func (b DomainTreeBuilder[V]) Build() DomainTree[V] {
+	return DomainTree[V]{root: freezeDomainNode(&b.root)}
 }
 
 func freezeDomainNode[V any](bn *domainBuildNode[V]) domainNode[V] {
