@@ -2,6 +2,7 @@
 	import type { ConntrackBucket, ConntrackEntry, ConntrackTimeRange } from '$lib/types';
 	import { formatBytes } from './util';
 	import { type HostStore } from '$lib/stores';
+	import { fromTimestamp } from '$lib/util';
 
 	let {
 		buckets,
@@ -98,8 +99,8 @@
 		return palette[idx >= 0 ? idx % palette.length : palette.length - 1];
 	}
 
-	function fmtTimeRange(range: ConntrackTimeRange): string {
-		return new Date(range.start * 1000).toLocaleString() + ' - ' + new Date(range.end * 1000).toLocaleTimeString();
+	function formatTimeRange(range: ConntrackTimeRange): string {
+		return `${fromTimestamp(range.start).toLocaleString()} - ${fromTimestamp(range.end).toLocaleTimeString()}`;
 	}
 </script>
 
@@ -158,7 +159,7 @@
 					class="cursor-pointer"
 					onclick={() => onfilterip?.(seg.key)}>
 					<title>
-						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${fmtTimeRange(bar.range)}`}
+						{`${formatBytes(seg.total)} / ${formatBytes(bar.total)}\n\n${seg.label}\n\n${formatTimeRange(bar.range)}`}
 					</title>
 				</rect>
 			{/each}
@@ -174,7 +175,7 @@
 				fill-opacity={barSelected ? 0.15 : 0}
 				class="cursor-pointer"
 				onclick={() => onselectbar?.(i)}>
-				<title>{fmtTimeRange(bar.range)}</title>
+				<title>{formatTimeRange(bar.range)}</title>
 			</rect>
 		{/each}
 	</svg>

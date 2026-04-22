@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createRouteStore } from '$lib/stores';
+	import { toTimestamp } from '$lib/util';
 
 	const ROUTES_RELOAD_INTERVAL = 5000;
 
@@ -20,7 +21,7 @@
 	}
 
 	function formatDuration(expires: Date): string {
-		const seconds = Math.floor((expires.getTime() - Date.now()) / 1000);
+		const seconds = toTimestamp(expires.getTime() - Date.now());
 		const duration = durationString(Math.abs(seconds));
 		if (seconds >= 0) {
 			return duration;

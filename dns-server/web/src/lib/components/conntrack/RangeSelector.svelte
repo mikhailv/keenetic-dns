@@ -1,47 +1,45 @@
 <script lang="ts">
 	import { RANGE_OPTIONS } from './util';
-
-	type Mode = 'preset' | 'custom';
+	import { fromLocalInput, fromTimestamp, toLocalInput, toTimestamp } from '$lib/util';
+	import { onMount } from 'svelte';
 
 	let {
-		from = $bindable(),
-		to = $bindable(),
-		anchored = $bindable(true),
-		autoRefresh = $bindable(false)
+		from = $bindable<number>(),
+		to = $bindable<number>(),
+		span = $bindable<number | null>(),
+		autoRefresh = $bindable()
 	}: {
 		from: number;
 		to: number;
-		anchored: boolean;
+		span: number | null;
 		autoRefresh: boolean;
 	} = $props();
 
-	let mode: Mode = $state('preset');
-	let presetSeconds = $state(3600);
-	let customFrom = $state(toLocalInput(from));
-	let customTo = $state(toLocalInput(to));
+	let customFrom = $state<string>('');
+	let customTo = $state<string>('');
+	let mounted = $state<boolean>(false);
 
-	function toLocalInput(unix: number): string {
-		const d = new Date(unix * 1000);
-		const pad = (n: number) => String(n).padStart(2, '0');
-		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-	}
+	onMount(() => (mounted = true));
 
-	function fromLocalInput(s: string): number {
-		return Math.floor(new Date(s).getTime() / 1000);
-	}
+	updateCustom();
 
-	function applyPreset(seconds: number) {
-		presetSeconds = seconds;
-		const now = Math.floor(Date.now() / 1000);
-		from = now - seconds;
-		to = now;
-		anchored = true;
+	$effect(() => {
+		if (span) {
+			const now = toTimestamp(Date.now());
+			from = now - span;
+			to = now;
+			updateCustom();
+		}
+	});
+
+	function updateCustom() {
+		customFrom = toLocalInput(fromTimestamp(from));
+		customTo = toLocalInput(fromTimestamp(to));
 	}
 
 	function applyCustom() {
-		from = fromLocalInput(customFrom);
-		to = fromLocalInput(customTo);
-		anchored = false;
+		from = toTimestamp(fromLocalInput(customFrom));
+		to = toTimestamp(fromLocalInput(customTo));
 	}
 </script>
 
@@ -51,31 +49,24 @@
 			<button
 				type="button"
 				class="btn btn-sm join-item"
-				class:btn-active={mode === 'preset' && presetSeconds === opt.value}
-				onclick={() => {
-					mode = 'preset';
-					applyPreset(opt.value);
-				}}>
+				class:btn-active={span && span === opt.value}
+				onclick={() => (span = opt.value)}>
 				{opt.label}
 			</button>
 		{/each}
-		<button
-			type="button"
-			class="btn btn-sm join-item"
-			class:btn-active={mode === 'custom'}
-			onclick={() => (mode = 'custom')}>
+		<button type="button" class="btn btn-sm join-item" class:btn-active={!span} onclick={() => (span = null)}>
 			Custom…
 		</button>
 	</div>
 
-	{#if mode === 'custom'}
+	{#if mounted && !span}
 		<input type="datetime-local" class="input input-sm w-auto focus:outline-none" bind:value={customFrom} />
 		<input type="datetime-local" class="input input-sm w-auto focus:outline-none" bind:value={customTo} />
 		<button type="button" class="btn btn-sm btn-primary" onclick={applyCustom}>Apply</button>
 	{/if}
 
 	<label class="flex items-center gap-2 ms-2 mb-0 cursor-pointer">
-		<input type="checkbox" class="toggle toggle-sm" bind:checked={autoRefresh} disabled={!anchored} />
+		<input type="checkbox" class="toggle toggle-sm" bind:checked={autoRefresh} disabled={!span} />
 		<span class="text-sm2">Auto-refresh</span>
 	</label>
 </div>
