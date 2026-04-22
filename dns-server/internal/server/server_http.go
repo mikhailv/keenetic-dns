@@ -23,6 +23,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 const dnsMessageMediaType = "application/dns-message"
@@ -69,11 +70,7 @@ func NewHTTPServer(
 }
 
 func (s *HTTPServer) Serve(ctx context.Context) error {
-	var err error
-	s.server.Handler, err = s.createHandler()
-	if err != nil {
-		return err
-	}
+	s.server.Handler = s.createHandler()
 
 	context.AfterFunc(ctx, func() {
 		s.logger.Info("shutting down server...")
@@ -92,7 +89,7 @@ func (s *HTTPServer) Serve(ctx context.Context) error {
 	return nil
 }
 
-func (s *HTTPServer) createHandler() (http.Handler, error) {
+func (s *HTTPServer) createHandler() http.Handler {
 	wsLogger := log.WithPrefix(s.logger, "ws")
 
 	mux := http.NewServeMux()
@@ -116,13 +113,8 @@ func (s *HTTPServer) createHandler() (http.Handler, error) {
 
 	var handler http.Handler = mux
 	handler = cors.Default().Handler(handler)
-	if wrapper, err := gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)); err != nil {
-		return nil, err
-	} else {
-		handler = wrapper(handler)
-	}
-
-	return handler, nil
+	gzWrapper := util.UnwrapResult(gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)))
+	return gzWrapper(handler)
 }
 
 type errorHandler func(w http.ResponseWriter, req *http.Request) (statusCode int, err error)

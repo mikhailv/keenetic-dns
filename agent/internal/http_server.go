@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/klauspost/compress/gzhttp"
+	"github.com/klauspost/compress/gzip"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal/api"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type HTTPServer struct {
@@ -57,5 +60,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 
 	apiServer := api.NewStrictHandler(s.networkService, nil)
 
-	return cors.Default().Handler(api.HandlerFromMux(apiServer, mux))
+	handler := cors.Default().Handler(api.HandlerFromMux(apiServer, mux))
+	gzWrapper := util.UnwrapResult(gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)))
+	return gzWrapper(handler)
 }
