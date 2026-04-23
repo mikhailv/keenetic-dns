@@ -3,16 +3,13 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
-	"log/slog"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/mikhailv/keenetic-dns/agent/internal"
+	. "github.com/mikhailv/keenetic-dns/agent/internal" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/internal/log"
-	"github.com/mikhailv/keenetic-dns/internal/setup"
+	. "github.com/mikhailv/keenetic-dns/internal/setup" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -29,36 +26,19 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger, logFlush := setupLogger(debug)
+	logger, logFlush := Logger(debug, 300)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 
-	defer setup.Pprof(pprofAddr, logger)()
+	defer Pprof(pprofAddr, logger)()
 
-	networkService := internal.NewNetworkService(log.WithPrefix(logger, "network_svc"))
+	networkService := NewNetworkService(log.WithPrefix(logger, "network_svc"))
 
-	httpServer := internal.NewHTTPServer(httpServerAddr, log.WithPrefix(logger, "http"), networkService)
-	go serve(ctx, httpServer)
+	httpServer := NewHTTPServer(httpServerAddr, log.WithPrefix(logger, "http"), networkService)
+	go Serve(ctx, httpServer)
+
+	logFlush()
 
 	<-ctx.Done()
-}
-
-func serve(ctx context.Context, server interface{ Serve(context.Context) error }) {
-	exitIfError(server.Serve(ctx))
-}
-
-func exitIfError(err error) {
-	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
-
-func setupLogger(debug bool) (logger *slog.Logger, flush func()) {
-	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		buffered := log.NewBufferedHandler(handler, 300)
-		flush = buffered.Flush
-		return log.NewPrefixHandler(buffered)
-	})
-	return logger, flush
+	logger.Info("shutting down...")
 }

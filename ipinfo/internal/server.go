@@ -1,26 +1,49 @@
 package internal
 
 import (
+	"compress/gzip"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/klauspost/compress/gzhttp"
+	"github.com/rs/cors"
+
+	"github.com/mikhailv/keenetic-dns/internal/srv"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-type Server struct {
+type HTTPServer struct {
+	server   srv.HTTP
 	resolver Resolver
 }
 
-func NewServer(resolver Resolver) *Server {
-	return &Server{resolver: resolver}
+func NewHTTPServer(addr string, logger *slog.Logger, resolver Resolver) *HTTPServer {
+	return &HTTPServer{
+		server:   srv.NewHTTPServer(addr, logger, nil),
+		resolver: resolver,
+	}
 }
 
-func (s *Server) Register(mux *http.ServeMux) {
+func (s *HTTPServer) Serve(ctx context.Context) error {
+	s.server.Handler = s.createHandler()
+	return s.server.Serve(ctx)
+}
+
+func (s *HTTPServer) createHandler() http.Handler {
+	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ip", s.handleClientIP)
 	mux.HandleFunc("GET /ip/{ip}", s.handleIP)
+
+	handler := cors.Default().Handler(mux)
+	gzWrapper := util.UnwrapResult(gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)))
+	return gzWrapper(handler)
 }
 
-func (s *Server) handleClientIP(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleClientIP(w http.ResponseWriter, r *http.Request) {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -31,11 +54,11 @@ func (s *Server) handleClientIP(w http.ResponseWriter, r *http.Request) {
 	s.lookupAndRespond(w, host)
 }
 
-func (s *Server) handleIP(w http.ResponseWriter, r *http.Request) {
+func (s *HTTPServer) handleIP(w http.ResponseWriter, r *http.Request) {
 	s.lookupAndRespond(w, r.PathValue("ip"))
 }
 
-func (s *Server) lookupAndRespond(w http.ResponseWriter, ipStr string) {
+func (s *HTTPServer) lookupAndRespond(w http.ResponseWriter, ipStr string) {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		http.Error(w, "invalid IP address", http.StatusBadRequest)
@@ -45,9 +68,11 @@ func (s *Server) lookupAndRespond(w http.ResponseWriter, ipStr string) {
 		http.Error(w, "only IPv4 is supported", http.StatusBadRequest)
 		return
 	}
+
 	st := time.Now()
-	info, err := s.resolver.Lookup(ip)
-	if err != nil {
+
+	var info IPInfo
+	if err := s.resolver.Lookup(ip, &info); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -56,5 +81,5 @@ func (s *Server) lookupAndRespond(w http.ResponseWriter, ipStr string) {
 	info.Debug.Resolver = s.resolver.Name()
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(info)
+	_ = json.NewEncoder(w).Encode(info) //nolint:errchkjson // ignore
 }

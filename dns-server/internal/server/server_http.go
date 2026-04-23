@@ -4,12 +4,10 @@ import (
 	"compress/gzip"
 	"context"
 	_ "embed"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -22,6 +20,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
+	"github.com/mikhailv/keenetic-dns/internal/srv"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
@@ -32,8 +31,8 @@ type FilterFunc[T any] func(val T) bool
 
 type HTTPServer struct {
 	logger           *slog.Logger
+	server           srv.HTTP
 	resolver         dnssvc.Resolver
-	server           http.Server
 	ipRoutes         *routing.IPRouteController
 	networkService   agentclient.NetworkServiceClient
 	logStream        *stream.Buffered[log.Entry]
@@ -54,12 +53,9 @@ func NewHTTPServer(
 	conntrackTracker *conntrack.Tracker,
 ) *HTTPServer {
 	return &HTTPServer{
-		logger:   logger,
-		resolver: resolver,
-		server: http.Server{
-			Addr:              addr,
-			ReadHeaderTimeout: 10 * time.Second,
-		},
+		logger:           logger,
+		server:           srv.NewHTTPServer(addr, logger, nil),
+		resolver:         resolver,
 		ipRoutes:         ipRoutes,
 		networkService:   networkService,
 		logStream:        logStream,
@@ -71,22 +67,7 @@ func NewHTTPServer(
 
 func (s *HTTPServer) Serve(ctx context.Context) error {
 	s.server.Handler = s.createHandler()
-
-	context.AfterFunc(ctx, func() {
-		s.logger.Info("shutting down server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := s.server.Shutdown(shutdownCtx); err != nil {
-			s.logger.Error("failed to shutdown server", "err", err)
-		}
-	})
-
-	s.logger.Info("server starting...", "addr", s.server.Addr)
-	if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("failed to start server: %w", err)
-	}
-
-	return nil
+	return s.server.Serve(ctx)
 }
 
 func (s *HTTPServer) createHandler() http.Handler {

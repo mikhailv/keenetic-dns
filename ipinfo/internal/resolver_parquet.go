@@ -5,22 +5,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
+	"sort"
 
 	"github.com/parquet-go/parquet-go"
 )
 
+var errMissingColumns = errors.New("parquet file missing start_int/end_int columns")
+
 var _ Resolver = (*ParquetResolver)(nil)
 
 type ParquetResolver struct {
+	logger   *slog.Logger
 	file     *os.File
 	pf       *parquet.File
 	startIdx int // column index of start_int
 	endIdx   int // column index of end_int
+	sorted   bool
 }
 
-func NewParquetResolver(path string) (*ParquetResolver, error) {
+func NewParquetResolver(path string, logger *slog.Logger) (*ParquetResolver, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening parquet file: %w", err)
@@ -36,70 +42,156 @@ func NewParquetResolver(path string) (*ParquetResolver, error) {
 		return nil, fmt.Errorf("parsing parquet file: %w", err)
 	}
 
-	startIdx := -1
-	endIdx := -1
+	r := &ParquetResolver{
+		logger:   logger,
+		file:     f,
+		pf:       pf,
+		startIdx: -1,
+		endIdx:   -1,
+	}
+
 	for i, col := range pf.Root().Columns() {
 		switch col.Name() {
 		case "start_int":
-			startIdx = i
+			r.startIdx = i
 		case "end_int":
-			endIdx = i
+			r.endIdx = i
 		}
 	}
-	if startIdx < 0 || endIdx < 0 {
+	if r.startIdx < 0 || r.endIdx < 0 {
 		_ = f.Close()
-		return nil, fmt.Errorf("parquet file missing start_int/end_int columns")
+		return nil, errMissingColumns
 	}
 
-	return &ParquetResolver{
-		file:     f,
-		pf:       pf,
-		startIdx: startIdx,
-		endIdx:   endIdx,
-	}, nil
+	r.sorted = r.checkStartIntSorted()
+
+	if r.sorted {
+		logger.Info("start_int is sorted ascending, using binary search")
+	} else {
+		logger.Warn("start_int is NOT sorted, falling back to linear scan")
+	}
+
+	return r, nil
 }
 
 func (r *ParquetResolver) Name() string {
 	return "parquet"
 }
 
-func (r *ParquetResolver) Lookup(ip net.IP) (*IPInfo, error) {
+func (r *ParquetResolver) Lookup(ip net.IP, info *IPInfo) error {
 	ip4 := ip.To4()
 	if ip4 == nil {
-		return nil, fmt.Errorf("only IPv4 is supported")
+		return errSupportedOnlyIPv4
 	}
 	target := int64(binary.BigEndian.Uint32(ip4))
+	info.IP = ip.String()
+	if r.sorted {
+		return r.lookupSorted(target, info)
+	}
+	return r.lookupLinear(target, info)
+}
 
-	buf := make([]parquetRow, 256)
+// lookupSorted uses binary search across row groups and parquet.Search within
+// a row group to quickly locate the IP range containing the target.
+func (r *ParquetResolver) lookupSorted(target int64, info *IPInfo) error {
+	rowGroups := r.pf.RowGroups()
+
+	// Binary search: find the last row group where min(start_int) <= target.
+	rgIdx := sort.Search(len(rowGroups), func(i int) bool {
+		ci, err := rowGroups[i].ColumnChunks()[r.startIdx].ColumnIndex()
+		if err != nil {
+			return false
+		}
+		return ci.MinValue(0).Int64() > target
+	}) - 1
+	if rgIdx < 0 {
+		return nil
+	}
+
+	rg := rowGroups[rgIdx]
+	startChunk := rg.ColumnChunks()[r.startIdx]
+	startCI, err := startChunk.ColumnIndex()
+	if err != nil {
+		return fmt.Errorf("reading start_int column index: %w", err)
+	}
+
+	// Use parquet.Search to find the page containing the target value.
+	// Search does a binary search on the column index for ascending data.
+	targetVal := parquet.Int64Value(target)
+	pageIdx := parquet.Search(startCI, targetVal, startChunk.Type())
+
+	// If target falls between pages (no page has MinValue <= target <= MaxValue),
+	// Search returns NumPages. The matching row is in the last page where
+	// MaxValue(start_int) <= target.
+	if pageIdx >= startCI.NumPages() {
+		pageIdx = startCI.NumPages() - 1
+	}
+
+	// The matching row has start_int <= target, which could be in the found page
+	// or the one before it (if target equals a page boundary).
+	startPage := pageIdx
+	if startPage > 0 && startCI.MinValue(startPage).Int64() > target {
+		startPage--
+	}
+
+	offsetIdx, err := startChunk.OffsetIndex()
+	if err != nil {
+		return fmt.Errorf("reading start_int offset index: %w", err)
+	}
+
+	firstRow := offsetIdx.FirstRowIndex(startPage)
+	return r.lookupRow(rg, firstRow, target, info)
+}
+
+// lookupLinear scans all row groups sequentially (fallback for unsorted data).
+// IP ranges don't overlap, so the first non-skipped row group either contains
+// the match or the IP isn't in the dataset.
+func (r *ParquetResolver) lookupLinear(target int64, info *IPInfo) error {
 	for _, rg := range r.pf.RowGroups() {
 		skip, err := r.skipRowGroup(rg, target)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if skip {
 			continue
 		}
-		reader := parquet.NewGenericRowGroupReader[parquetRow](rg)
-		for {
-			n, err := reader.Read(buf)
-			for i := range n {
-				if buf[i].StartInt <= target && target <= buf[i].EndInt {
-					_ = reader.Close()
-					return buf[i].toIPInfo(ip), nil
-				}
-			}
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				_ = reader.Close()
-				return nil, err
-			}
+		return r.lookupRow(rg, -1, target, info)
+	}
+	return nil
+}
+
+// lookupRow scans rows in the row group starting from firstRow (or the beginning
+// if firstRow < 0). Fills info if a matching row is found.
+func (r *ParquetResolver) lookupRow(rg parquet.RowGroup, firstRow int64, target int64, info *IPInfo) error {
+	reader := parquet.NewGenericRowGroupReader[parquetRow](rg)
+	defer reader.Close()
+
+	if firstRow >= 0 {
+		if err := reader.SeekToRow(firstRow); err != nil {
+			return fmt.Errorf("seeking to row %d: %w", firstRow, err)
 		}
-		_ = reader.Close()
 	}
 
-	return &IPInfo{IP: ip.String()}, nil
+	var buf [10]parquetRow
+	for {
+		n, err := reader.Read(buf[:])
+		for i := range n {
+			if buf[i].StartInt > target {
+				return nil
+			}
+			if target <= buf[i].EndInt {
+				buf[i].fillIPInfo(info)
+				return nil
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *ParquetResolver) skipRowGroup(rg parquet.RowGroup, target int64) (bool, error) {
@@ -118,6 +210,54 @@ func (r *ParquetResolver) skipRowGroup(rg parquet.RowGroup, target int64) (bool,
 	}
 
 	return false, nil
+}
+
+func (r *ParquetResolver) checkStartIntSorted() bool {
+	rowGroups := r.pf.RowGroups()
+	if len(rowGroups) == 0 {
+		return false
+	}
+
+	prevMax := int64(-1)
+	for i, rg := range rowGroups {
+		// Check sorting columns metadata if available.
+		if sortCols := rg.SortingColumns(); len(sortCols) > 0 {
+			hasSortedStart := false
+			for _, sc := range sortCols {
+				if len(sc.Path()) == 1 && sc.Path()[0] == "start_int" && !sc.Descending() {
+					hasSortedStart = true
+					break
+				}
+			}
+			if !hasSortedStart {
+				r.logger.Warn("row group has sorting columns but start_int is not ascending", "rowGroup", i)
+				return false
+			}
+		}
+
+		// Verify column index boundary order.
+		ci, err := rg.ColumnChunks()[r.startIdx].ColumnIndex()
+		if err != nil {
+			r.logger.Warn("cannot read start_int column index", "rowGroup", i, "err", err)
+			return false
+		}
+		// With multiple pages, boundary order must be ascending.
+		// Single-page row groups trivially satisfy this.
+		if ci.NumPages() > 1 && !ci.IsAscending() {
+			r.logger.Warn("start_int column index not ascending", "rowGroup", i)
+			return false
+		}
+
+		// Verify row groups are ordered relative to each other.
+		curMin := ci.MinValue(0).Int64()
+		if curMin <= prevMax {
+			r.logger.Warn("start_int not sorted across row groups",
+				"rowGroup", i, "min", curMin, "prevMax", prevMax)
+			return false
+		}
+		prevMax = ci.MaxValue(ci.NumPages() - 1).Int64()
+	}
+	return true
 }
 
 func findStartIndex(ci parquet.ColumnIndex, target int64) bool {
@@ -185,11 +325,12 @@ type parquetRow struct {
 	TimeZone       string  `parquet:"time_zone,optional"`
 }
 
-func (r *parquetRow) toIPInfo(ip net.IP) *IPInfo {
-	info := &IPInfo{IP: ip.String()}
-
+func (r *parquetRow) fillIPInfo(info *IPInfo) {
 	if r.ASNNumber != 0 || r.ASNOrganization != "" {
-		info.ASN = &ASN{Number: uint(r.ASNNumber), Organization: r.ASNOrganization}
+		info.ASN = &ASN{
+			Number:       uint(r.ASNNumber),
+			Organization: r.ASNOrganization,
+		}
 	}
 	if r.ContinentCode != "" {
 		info.Continent = &Continent{
@@ -247,5 +388,4 @@ func (r *parquetRow) toIPInfo(ip net.IP) *IPInfo {
 			TimeZone:       r.TimeZone,
 		}
 	}
-	return info
 }

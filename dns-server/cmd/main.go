@@ -25,7 +25,7 @@ import (
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage"           //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
-	"github.com/mikhailv/keenetic-dns/internal/setup"
+	. "github.com/mikhailv/keenetic-dns/internal/setup" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
@@ -40,16 +40,14 @@ func main() { //nolint:funlen // ignore
 
 	cfg, err := config.LoadConfig(*configFile)
 	if err != nil {
-		exitWithError(fmt.Errorf("failed to load config: %w", err))
+		ExitWithError(fmt.Errorf("failed to load config: %w", err))
 	}
 
-	logger, logStream, logFlush := setupLogger(cfg.Logging.Debug, cfg.Logging.HistorySize)
+	logger, logStream, logFlush := LoggerStream(cfg.Logging.Debug, 300, cfg.Logging.HistorySize)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 
-	// TODO: revert after deadlock investigation
-	// defer setup.Pprof(*pprofAddr, logger)()
-	setup.Pprof(*pprofAddr, logger)
+	defer Pprof(*pprofAddr, logger)()
 
 	routingCfg := config.NewDynamic(&cfg.Routing)
 	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
@@ -62,7 +60,7 @@ func main() { //nolint:funlen // ignore
 
 	networkService, err := agentclient.NewNetworkServiceClient(cfg.Agent.BaseURL, cfg.Agent.Timeout)
 	if err != nil {
-		exitWithError(fmt.Errorf("failed to create agent client: %w", err))
+		ExitWithError(fmt.Errorf("failed to create agent client: %w", err))
 	}
 
 	ipRoutes := NewIPRouteController(routingCfg, log.WithPrefix(logger, "routes"), dnsStore, networkService, cfg.Routing.RouteTimeout)
@@ -70,7 +68,7 @@ func main() { //nolint:funlen // ignore
 
 	conntrackStore := conntrack.NewFileStore(cfg.Conntrack.DataDir, log.WithPrefix(logger, "conntrack.filestore"))
 	if err = conntrackStore.Init(ctx); err != nil {
-		exitWithError(fmt.Errorf("failed to init conntrack store: %w", err))
+		ExitWithError(fmt.Errorf("failed to init conntrack store: %w", err))
 	}
 	defer closeCloser(conntrackStore, "conntrack store", logger)
 
@@ -101,7 +99,7 @@ func main() { //nolint:funlen // ignore
 
 	resolver, err := createResolver(cfg.DNS.Providers, logger)
 	if err != nil {
-		exitWithError(fmt.Errorf("failed to create resolver: %w", err))
+		ExitWithError(fmt.Errorf("failed to create resolver: %w", err))
 	}
 
 	settableResolver := NewSettableResolver(resolver)
@@ -140,37 +138,22 @@ func main() { //nolint:funlen // ignore
 		rawQueryStream,
 		conntrackTracker,
 	)
-	go serve(ctx, httpServer)
+	go Serve(ctx, httpServer)
 
 	udpServer := NewDNSServer(cfg.Addr, dnsLogger, resolver)
-	go serve(ctx, udpServer)
+	go Serve(ctx, udpServer)
 
 	if cfg.MDNS.Enabled {
 		iface, err := getDefaultInterface()
-		exitIfError(err)
+		ExitIfError(err)
 		mdnsServer := NewMDNSServer(log.WithPrefix(logger, "mdns"), iface.Name, mdnsServicesCfg)
-		go serve(ctx, mdnsServer)
+		go Serve(ctx, mdnsServer)
 	}
 
 	logFlush()
 
 	<-ctx.Done()
 	logger.Info("shutting down...")
-}
-
-func serve(ctx context.Context, server interface{ Serve(context.Context) error }) {
-	exitIfError(server.Serve(ctx))
-}
-
-func exitWithError(err error) {
-	_, _ = fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
-}
-
-func exitIfError(err error) {
-	if err != nil {
-		exitWithError(err)
-	}
 }
 
 func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
@@ -240,17 +223,6 @@ func setupDNSCache(file string, logger *slog.Logger) (cache DNSCache, save func(
 	return cache, func() {
 		saveToFile(file, logger, pcache.Save)
 	}
-}
-
-func setupLogger(debug bool, historySize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {
-	logger = setup.Logger(debug, func(handler slog.Handler) slog.Handler {
-		buffered := log.NewBufferedHandler(handler, 300)
-		flush = buffered.Flush
-		recorder := log.NewRecorder(buffered, historySize)
-		stream = recorder.Stream()
-		return log.NewPrefixHandler(recorder)
-	})
-	return logger, stream, flush
 }
 
 func watchConfigUpdate(

@@ -7,7 +7,7 @@ TARGET_ARCH ?= arm64
 all: lint govulncheck build
 
 .PHONY: build
-build: build-agent build-dns-server
+build: build-agent build-dns-server build-ipinfo
 
 .PHONY: tools build-agent
 build-agent:
@@ -17,10 +17,15 @@ build-agent:
 build-dns-server:
 	TARGET_ARCH=$(TARGET_ARCH) $(MAKE) -C dns-server
 
+.PHONY: tools build-ipinfo
+build-ipinfo:
+	TARGET_ARCH=$(TARGET_ARCH) $(MAKE) -C ipinfo
+
 .PHONY: lint
 lint:
 	$(MAKE) -C agent lint
 	$(MAKE) -C dns-server lint
+	$(MAKE) -C ipinfo lint
 
 .PHONY: govulncheck
 govulncheck:

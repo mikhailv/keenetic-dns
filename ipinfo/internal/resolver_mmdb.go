@@ -39,11 +39,10 @@ func (r *MMDBResolver) Name() string {
 	return "mmdb"
 }
 
-func (r *MMDBResolver) Lookup(ip net.IP) (*IPInfo, error) {
+func (r *MMDBResolver) Lookup(ip net.IP, info *IPInfo) error {
 	var rec mmdbRecord
-	err := r.db.Lookup(ip, &rec)
-	if err != nil {
-		return nil, fmt.Errorf("mmdb lookup: %w", err)
+	if err := r.db.Lookup(ip, &rec); err != nil {
+		return fmt.Errorf("mmdb lookup: %w", err)
 	}
 	var subdivisions []Subdivision
 	for _, it := range []*Subdivision{rec.Subdivision1, rec.Subdivision2} {
@@ -51,8 +50,7 @@ func (r *MMDBResolver) Lookup(ip net.IP) (*IPInfo, error) {
 			subdivisions = append(subdivisions, *it)
 		}
 	}
-
-	return &IPInfo{
+	*info = IPInfo{
 		IP:                 ip.String(),
 		ASN:                rec.ASN,
 		Continent:          rec.Continent,
@@ -63,7 +61,8 @@ func (r *MMDBResolver) Lookup(ip net.IP) (*IPInfo, error) {
 		Subdivisions:       subdivisions,
 		Postal:             rec.Postal,
 		Location:           rec.Location,
-	}, nil
+	}
+	return nil
 }
 
 func (r *MMDBResolver) Close() error {
