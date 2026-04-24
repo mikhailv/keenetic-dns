@@ -3,6 +3,7 @@
 	import { formatBytes } from './util';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { type HostStore } from '$lib/stores';
+	import { formatNumber } from '$lib/util';
 
 	let {
 		buckets,
@@ -117,9 +118,9 @@
 				<td class="text-right">{g.items.length}</td>
 				<td class="text-right">{formatBytes(g.bytes_orig)}</td>
 				<td class="text-right">{formatBytes(g.bytes_reply)}</td>
-				<td class="text-right">{g.packets_orig}</td>
-				<td class="text-right">{g.packets_reply}</td>
-				<td class="text-right">{g.conn_count}</td>
+				<td class="text-right">{formatNumber(g.packets_orig)}</td>
+				<td class="text-right">{formatNumber(g.packets_reply)}</td>
+				<td class="text-right">{formatNumber(g.conn_count)}</td>
 			</tr>
 			{#if expanded[g.src_ip]}
 				<tr>
@@ -150,9 +151,9 @@
 										<td>{d.dst_port}</td>
 										<td class="text-right">{formatBytes(d.bytes_orig)}</td>
 										<td class="text-right">{formatBytes(d.bytes_reply)}</td>
-										<td class="text-right">{d.packets_orig}</td>
-										<td class="text-right">{d.packets_reply}</td>
-										<td class="text-right">{d.conn_count}</td>
+										<td class="text-right">{formatNumber(d.packets_orig)}</td>
+										<td class="text-right">{formatNumber(d.packets_reply)}</td>
+										<td class="text-right">{formatNumber(d.conn_count)}</td>
 									</tr>
 								{/each}
 							</tbody>

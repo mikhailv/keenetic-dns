@@ -2,7 +2,7 @@
 	import type { ConntrackBucket, ConntrackEntry, ConntrackTimeRange } from '$lib/types';
 	import { formatBytes } from './util';
 	import { type HostStore } from '$lib/stores';
-	import { fromTimestamp } from '$lib/util';
+	import { formatDateTime, formatTime } from '$lib/util';
 
 	let {
 		buckets,
@@ -100,7 +100,7 @@
 	}
 
 	function formatTimeRange(range: ConntrackTimeRange): string {
-		return `${fromTimestamp(range.start).toLocaleString()} - ${fromTimestamp(range.end).toLocaleTimeString()}`;
+		return `${formatDateTime(range.start)} - ${formatTime(range.end)}`;
 	}
 </script>
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { createRouteStore } from '$lib/stores';
-	import { toTimestamp } from '$lib/util';
+	import { formatDecimal, formatNumber, toTimestamp } from '$lib/util';
 
 	const ROUTES_RELOAD_INTERVAL = 5000;
 
@@ -62,7 +62,12 @@
 	<p class="text-base-content/50 pt-1">Loading data...</p>
 {:else}
 	<table class="table caption-top table-md">
-		<caption class="text-right pb-0">Routes: {$routes.total}</caption>
+		<caption class="text-right pb-0">
+			Routes: {formatNumber($routes.total)} | IPs: {formatNumber($routes.totalIPs)} ({formatDecimal(
+				($routes.totalIPs * 100) / Math.pow(2, 32),
+				4
+			)}%)
+		</caption>
 		<thead>
 			<tr>
 				<th style="width: 1%">#</th>

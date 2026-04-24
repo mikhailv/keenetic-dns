@@ -11,24 +11,29 @@ export interface RouteStore extends Readable<Readonly<RouteStoreState>> {
 export interface RouteStoreState {
 	items: IPRoute[];
 	total: number;
+	totalIPs: number;
 	error?: string;
 }
 
 export function createRouteStore(): RouteStore {
-	const routes = writable<RouteStoreState>({ items: [], total: 0 });
+	const routes = writable<RouteStoreState>({ items: [], total: 0, totalIPs: 0 });
 	const filter = writable('');
 
 	const filtered = derived([routes, filter], ([$routes, $filter]) => {
 		return {
-			items: filterRoutes($routes.items, $filter),
-			total: $routes.items.length,
-			error: $routes.error
+			...$routes,
+			items: filterRoutes($routes.items, $filter)
 		};
 	});
 
 	async function reload(): Promise<void> {
 		const { items, error } = await api.getRoutes();
-		routes.update(() => ({ items, total: items.length, error }));
+		routes.update(() => ({
+			items,
+			total: items.length,
+			totalIPs: calculateTotalIPs(items),
+			error
+		}));
 	}
 
 	function filterRoutes(routes: IPRoute[], filter: string): IPRoute[] {
@@ -45,6 +50,20 @@ export function createRouteStore(): RouteStore {
 						rec.domain.toLowerCase().includes(filter) || rec.ip.toLowerCase().includes(filter)
 				)
 		);
+	}
+
+	// this function does not exclude nested ip ranges
+	function calculateTotalIPs(items: IPRoute[]): number {
+		let res = 0;
+		for (const item of items) {
+			const p = item.addr.split('/');
+			if (p.length == 2) {
+				res += 1 << (32 - +p[1]);
+			} else {
+				res++;
+			}
+		}
+		return res;
 	}
 
 	return storeBuilder({
