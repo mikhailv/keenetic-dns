@@ -19,6 +19,7 @@ var _ Resolver = (*ParquetResolver)(nil)
 
 type ParquetResolver struct {
 	logger   *slog.Logger
+	name     string
 	file     *os.File
 	pf       *parquet.File
 	startIdx int // column index of start_int
@@ -26,7 +27,7 @@ type ParquetResolver struct {
 	sorted   bool
 }
 
-func NewParquetResolver(path string, logger *slog.Logger) (*ParquetResolver, error) {
+func NewParquetResolver(name string, path string, logger *slog.Logger) (*ParquetResolver, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening parquet file: %w", err)
@@ -44,6 +45,7 @@ func NewParquetResolver(path string, logger *slog.Logger) (*ParquetResolver, err
 
 	r := &ParquetResolver{
 		logger:   logger,
+		name:     name,
 		file:     f,
 		pf:       pf,
 		startIdx: -1,
@@ -75,7 +77,7 @@ func NewParquetResolver(path string, logger *slog.Logger) (*ParquetResolver, err
 }
 
 func (r *ParquetResolver) Name() string {
-	return "parquet"
+	return r.name
 }
 
 func (r *ParquetResolver) Lookup(ip net.IP, info *IPInfo) error {
@@ -326,6 +328,7 @@ type parquetRow struct {
 }
 
 func (r *parquetRow) fillIPInfo(info *IPInfo) {
+	info.Network = r.Network
 	if r.ASNNumber != 0 || r.ASNOrganization != "" {
 		info.ASN = &ASN{
 			Number:       uint(r.ASNNumber),

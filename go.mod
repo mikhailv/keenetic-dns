@@ -7,6 +7,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.1
 	github.com/goccy/go-json v0.10.6
 	github.com/klauspost/compress v1.18.5
+	github.com/maxmind/mmdbwriter v1.2.0
 	github.com/miekg/dns v1.1.72
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/oschwald/maxminddb-golang v1.13.1
@@ -28,6 +29,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.5.2 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
@@ -40,6 +42,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
+	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/mod v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect

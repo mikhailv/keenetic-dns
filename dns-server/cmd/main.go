@@ -44,6 +44,7 @@ func main() { //nolint:funlen // ignore
 	}
 
 	logger, logStream, logFlush := LoggerStream(cfg.Logging.Debug, 300, cfg.Logging.HistorySize)
+	defer LogPanic(logger)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 

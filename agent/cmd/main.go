@@ -27,6 +27,7 @@ func main() {
 	flag.Parse()
 
 	logger, logFlush := Logger(debug, 300)
+	defer LogPanic(logger)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
 

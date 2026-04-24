@@ -17,6 +17,12 @@ func LoggerStream(debug bool, bufferSize, streamSize int) (logger *slog.Logger, 
 	return setupLogger(debug, bufferSize, streamSize)
 }
 
+func LogPanic(logger *slog.Logger) {
+	if r := recover(); r != nil {
+		logger.Error("Panic", "err", r)
+	}
+}
+
 func setupLogger(debug bool, bufferSize, streamSize int) (logger *slog.Logger, stream *stream.Buffered[log.Entry], flush func()) {
 	logLevel := slog.LevelInfo
 	if debug {

@@ -4,6 +4,7 @@ package internal
 // JSON field names match the geolite2.mmdb output structure.
 type IPInfo struct {
 	IP                 string        `json:"ip"`
+	Network            string        `json:"network,omitempty"`
 	ASN                *ASN          `json:"asn,omitempty"`
 	Continent          *Continent    `json:"continent,omitempty"`
 	Country            *Country      `json:"country,omitempty"`

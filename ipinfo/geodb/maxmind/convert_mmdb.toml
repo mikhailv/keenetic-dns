@@ -1,0 +1,198 @@
+[output]
+format = "mmdb"
+file = "../geolite2.mmdb"
+
+[output.mmdb]
+database_type = "GeoLite2-Combined"
+description = { en = "GeoLite2 ASN + City" }
+record_size = 28
+
+# --- Databases ---
+
+[[databases]]
+name = "asn"
+path = "GeoLite2-ASN.mmdb"
+
+[[databases]]
+name = "city"
+path = "GeoLite2-City.mmdb"
+
+# --- ASN ---
+
+[[columns]]
+name = "asn_number"
+database = "asn"
+path = ["autonomous_system_number"]
+output_path = ["asn", "number"]
+
+[[columns]]
+name = "asn_organization"
+database = "asn"
+path = ["autonomous_system_organization"]
+output_path = ["asn", "organization"]
+
+# --- Continent ---
+
+[[columns]]
+name = "continent_code"
+database = "city"
+path = ["continent", "code"]
+output_path = ["continent", "code"]
+
+[[columns]]
+name = "continent_geoname_id"
+database = "city"
+path = ["continent", "geoname_id"]
+output_path = ["continent", "geoname_id"]
+
+[[columns]]
+name = "continent_name"
+database = "city"
+path = ["continent", "names", "en"]
+output_path = ["continent", "name"]
+
+# --- Country ---
+
+[[columns]]
+name = "country_iso_code"
+database = "city"
+path = ["country", "iso_code"]
+output_path = ["country", "iso_code"]
+
+[[columns]]
+name = "country_geoname_id"
+database = "city"
+path = ["country", "geoname_id"]
+output_path = ["country", "geoname_id"]
+
+[[columns]]
+name = "country_name"
+database = "city"
+path = ["country", "names", "en"]
+output_path = ["country", "name"]
+
+# --- Registered Country ---
+
+[[columns]]
+name = "registered_country_iso_code"
+database = "city"
+path = ["registered_country", "iso_code"]
+output_path = ["registered_country", "iso_code"]
+
+[[columns]]
+name = "registered_country_geoname_id"
+database = "city"
+path = ["registered_country", "geoname_id"]
+output_path = ["registered_country", "geoname_id"]
+
+[[columns]]
+name = "registered_country_name"
+database = "city"
+path = ["registered_country", "names", "en"]
+output_path = ["registered_country", "name"]
+
+# --- Represented Country ---
+
+[[columns]]
+name = "represented_country_iso_code"
+database = "city"
+path = ["represented_country", "iso_code"]
+output_path = ["represented_country", "iso_code"]
+
+[[columns]]
+name = "represented_country_geoname_id"
+database = "city"
+path = ["represented_country", "geoname_id"]
+output_path = ["represented_country", "geoname_id"]
+
+[[columns]]
+name = "represented_country_name"
+database = "city"
+path = ["represented_country", "names", "en"]
+output_path = ["represented_country", "name"]
+
+# --- City ---
+
+[[columns]]
+name = "city_geoname_id"
+database = "city"
+path = ["city", "geoname_id"]
+output_path = ["city", "geoname_id"]
+
+[[columns]]
+name = "city_name"
+database = "city"
+path = ["city", "names", "en"]
+output_path = ["city", "name"]
+
+# --- Subdivisions ---
+
+[[columns]]
+name = "subdivision_1_iso_code"
+database = "city"
+path = ["subdivisions", 0, "iso_code"]
+output_path = ["subdivision1", "iso_code"]
+
+[[columns]]
+name = "subdivision_1_geoname_id"
+database = "city"
+path = ["subdivisions", 0, "geoname_id"]
+output_path = ["subdivision1", "geoname_id"]
+
+[[columns]]
+name = "subdivision_1_name"
+database = "city"
+path = ["subdivisions", 0, "names", "en"]
+output_path = ["subdivision1", "name"]
+
+[[columns]]
+name = "subdivision_2_iso_code"
+database = "city"
+path = ["subdivisions", 1, "iso_code"]
+output_path = ["subdivision2", "iso_code"]
+
+[[columns]]
+name = "subdivision_2_geoname_id"
+database = "city"
+path = ["subdivisions", 1, "geoname_id"]
+output_path = ["subdivision2", "geoname_id"]
+
+[[columns]]
+name = "subdivision_2_name"
+database = "city"
+path = ["subdivisions", 1, "names", "en"]
+output_path = ["subdivision2", "name"]
+
+# --- Postal ---
+
+[[columns]]
+name = "postal_code"
+database = "city"
+path = ["postal", "code"]
+output_path = ["postal", "code"]
+
+# --- Location ---
+
+[[columns]]
+name = "latitude"
+database = "city"
+path = ["location", "latitude"]
+output_path = ["location", "latitude"]
+
+[[columns]]
+name = "longitude"
+database = "city"
+path = ["location", "longitude"]
+output_path = ["location", "longitude"]
+
+[[columns]]
+name = "accuracy_radius"
+database = "city"
+path = ["location", "accuracy_radius"]
+output_path = ["location", "accuracy_radius"]
+
+[[columns]]
+name = "time_zone"
+database = "city"
+path = ["location", "time_zone"]
+output_path = ["location", "time_zone"]

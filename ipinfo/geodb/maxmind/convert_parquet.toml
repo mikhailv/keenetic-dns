@@ -1,0 +1,213 @@
+[output]
+format = "parquet"
+ipv4_file = "../geolite2_ipv4.parquet"
+ipv6_file = "../geolite2_ipv6.parquet"
+
+[output.parquet]
+compression = "zstd"
+row_group_size = 1000
+
+# Integer columns first for fast IP lookups via predicate pushdown (10-100x faster).
+[[network.columns]]
+name = "start_int"
+type = "start_int"
+
+[[network.columns]]
+name = "end_int"
+type = "end_int"
+
+[[network.columns]]
+name = "network"
+type = "cidr"
+
+# --- Databases ---
+
+[[databases]]
+name = "asn"
+path = "GeoLite2-ASN.mmdb"
+
+[[databases]]
+name = "city"
+path = "GeoLite2-City.mmdb"
+
+# --- ASN ---
+
+[[columns]]
+name = "asn_number"
+database = "asn"
+path = ["autonomous_system_number"]
+type = "int64"
+
+[[columns]]
+name = "asn_organization"
+database = "asn"
+path = ["autonomous_system_organization"]
+type = "string"
+
+# --- Continent ---
+
+[[columns]]
+name = "continent_code"
+database = "city"
+path = ["continent", "code"]
+type = "string"
+
+[[columns]]
+name = "continent_geoname_id"
+database = "city"
+path = ["continent", "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "continent_name"
+database = "city"
+path = ["continent", "names", "en"]
+type = "string"
+
+# --- Country ---
+
+[[columns]]
+name = "country_iso_code"
+database = "city"
+path = ["country", "iso_code"]
+type = "string"
+
+[[columns]]
+name = "country_geoname_id"
+database = "city"
+path = ["country", "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "country_name"
+database = "city"
+path = ["country", "names", "en"]
+type = "string"
+
+# --- Registered Country ---
+
+[[columns]]
+name = "registered_country_iso_code"
+database = "city"
+path = ["registered_country", "iso_code"]
+type = "string"
+
+[[columns]]
+name = "registered_country_geoname_id"
+database = "city"
+path = ["registered_country", "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "registered_country_name"
+database = "city"
+path = ["registered_country", "names", "en"]
+type = "string"
+
+# --- Represented Country ---
+
+[[columns]]
+name = "represented_country_iso_code"
+database = "city"
+path = ["represented_country", "iso_code"]
+type = "string"
+
+[[columns]]
+name = "represented_country_geoname_id"
+database = "city"
+path = ["represented_country", "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "represented_country_name"
+database = "city"
+path = ["represented_country", "names", "en"]
+type = "string"
+
+# --- City ---
+
+[[columns]]
+name = "city_geoname_id"
+database = "city"
+path = ["city", "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "city_name"
+database = "city"
+path = ["city", "names", "en"]
+type = "string"
+
+# --- Subdivisions (first/largest, e.g. state/region) ---
+
+[[columns]]
+name = "subdivision_1_iso_code"
+database = "city"
+path = ["subdivisions", 0, "iso_code"]
+type = "string"
+
+[[columns]]
+name = "subdivision_1_geoname_id"
+database = "city"
+path = ["subdivisions", 0, "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "subdivision_1_name"
+database = "city"
+path = ["subdivisions", 0, "names", "en"]
+type = "string"
+
+# --- Subdivisions (second/smaller, e.g. county/district) ---
+
+[[columns]]
+name = "subdivision_2_iso_code"
+database = "city"
+path = ["subdivisions", 1, "iso_code"]
+type = "string"
+
+[[columns]]
+name = "subdivision_2_geoname_id"
+database = "city"
+path = ["subdivisions", 1, "geoname_id"]
+type = "int64"
+
+[[columns]]
+name = "subdivision_2_name"
+database = "city"
+path = ["subdivisions", 1, "names", "en"]
+type = "string"
+
+# --- Postal ---
+
+[[columns]]
+name = "postal_code"
+database = "city"
+path = ["postal", "code"]
+type = "string"
+
+# --- Location ---
+
+[[columns]]
+name = "latitude"
+database = "city"
+path = ["location", "latitude"]
+type = "float64"
+
+[[columns]]
+name = "longitude"
+database = "city"
+path = ["location", "longitude"]
+type = "float64"
+
+[[columns]]
+name = "accuracy_radius"
+database = "city"
+path = ["location", "accuracy_radius"]
+type = "int64"
+
+[[columns]]
+name = "time_zone"
+database = "city"
+path = ["location", "time_zone"]
+type = "string"

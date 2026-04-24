@@ -24,25 +24,31 @@ type mmdbRecord struct {
 var _ Resolver = (*MMDBResolver)(nil)
 
 type MMDBResolver struct {
-	db *maxminddb.Reader
+	name string
+	db   *maxminddb.Reader
 }
 
-func NewMMDBResolver(path string) (*MMDBResolver, error) {
+func NewMMDBResolver(name, path string) (*MMDBResolver, error) {
 	db, err := maxminddb.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening mmdb: %w", err)
 	}
-	return &MMDBResolver{db: db}, nil
+	return &MMDBResolver{name: name, db: db}, nil
 }
 
 func (r *MMDBResolver) Name() string {
-	return "mmdb"
+	return r.name
 }
 
 func (r *MMDBResolver) Lookup(ip net.IP, info *IPInfo) error {
 	var rec mmdbRecord
-	if err := r.db.Lookup(ip, &rec); err != nil {
+	network, ok, err := r.db.LookupNetwork(ip, &rec)
+	if err != nil {
 		return fmt.Errorf("mmdb lookup: %w", err)
+	}
+	if !ok {
+		info.IP = ip.String()
+		return nil
 	}
 	var subdivisions []Subdivision
 	for _, it := range []*Subdivision{rec.Subdivision1, rec.Subdivision2} {
@@ -52,6 +58,7 @@ func (r *MMDBResolver) Lookup(ip net.IP, info *IPInfo) error {
 	}
 	*info = IPInfo{
 		IP:                 ip.String(),
+		Network:            network.String(),
 		ASN:                rec.ASN,
 		Continent:          rec.Continent,
 		Country:            rec.Country,

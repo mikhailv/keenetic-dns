@@ -3,16 +3,16 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/mikhailv/keenetic-dns/internal/log"
-	. "github.com/mikhailv/keenetic-dns/internal/setup" //nolint:staticcheck //ignore
-	"github.com/mikhailv/keenetic-dns/internal/util"
+	. "github.com/mikhailv/keenetic-dns/internal/setup"  //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/ipinfo/internal" //nolint:staticcheck //ignore
 )
 
@@ -21,34 +21,37 @@ func main() {
 	defer stop()
 
 	var httpServerAddr string
-	var dbPath string
+	var dbFiles dbListFlag
 	var pprofAddr string
 	var debug bool
 
 	flag.StringVar(&httpServerAddr, "addr", "0.0.0.0:8080", "http server address")
-	flag.StringVar(&dbPath, "db", "geolite2.mmdb", "path to MMDB or Parquet file")
+	flag.Var(&dbFiles, "db", "path to MMDB or Parquet file")
 	flag.StringVar(&pprofAddr, "pprof", "", "pprof handler address")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger, logFlush := Logger(debug, 300)
-	defer logFlush()
-	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()
+	logger, _ := Logger(debug, 0)
+	defer LogPanic(logger)
 
 	defer Pprof(pprofAddr, logger)()
 
-	var resolver Resolver
-	if strings.HasSuffix(dbPath, ".parquet") {
-		resolver = Unwrap(NewParquetResolver(dbPath, log.WithPrefix(logger, "parquet")))
-	} else {
-		resolver = Unwrap(NewMMDBResolver(dbPath))
+	resolvers := make([]Resolver, 0, len(dbFiles))
+	for _, df := range dbFiles {
+		name, path := df.Name, df.Path
+		var resolver Resolver
+		if strings.HasSuffix(path, ".parquet") {
+			resolver = UnwrapOrExit(NewParquetResolver(name, path, log.WithPrefix(logger, name)))
+		} else {
+			resolver = UnwrapOrExit(NewMMDBResolver(name, path))
+		}
+		logger.Info("register resolver", "name", resolver.Name(), "path", path)
+		defer closeCloser(resolver, "resolver", logger.With("name", resolver.Name()))
+		resolvers = append(resolvers, resolver)
 	}
-	defer closeCloser(resolver, "resolver", logger)
 
-	httpServer := NewHTTPServer(httpServerAddr, logger, resolver)
+	httpServer := NewHTTPServer(httpServerAddr, logger, NewResolverRegistry(resolvers))
 	go Serve(ctx, httpServer)
-
-	logFlush()
 
 	<-ctx.Done()
 	logger.Info("shutting down...")
@@ -61,4 +64,37 @@ func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
 	} else {
 		logger.Info("closed " + name)
 	}
+}
+
+type dbFile struct {
+	Name string
+	Path string
+}
+
+var _ flag.Value = (*dbListFlag)(nil)
+
+type dbListFlag []dbFile
+
+func (f *dbListFlag) String() string {
+	return fmt.Sprintf("%v", *f)
+}
+
+// Set is an implementation of the flag.Value interface.
+func (f *dbListFlag) Set(value string) error {
+	if value == "" {
+		return nil
+	}
+	before, after, ok := strings.Cut(value, ":")
+	if !ok {
+		*f = append(*f, dbFile{
+			Name: strings.TrimSuffix(filepath.Base(value), filepath.Ext(value)),
+			Path: value,
+		})
+	} else {
+		*f = append(*f, dbFile{
+			Name: before,
+			Path: after,
+		})
+	}
+	return nil
 }

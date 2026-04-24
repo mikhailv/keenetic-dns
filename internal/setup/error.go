@@ -1,9 +1,6 @@
 package setup
 
-import (
-	"fmt"
-	"os"
-)
+import "fmt"
 
 func ExitIfError(err error) {
 	if err != nil {
@@ -12,11 +9,10 @@ func ExitIfError(err error) {
 }
 
 func ExitWithError(err error) {
-	_, _ = fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
+	panic(fmt.Errorf("setup: %w", err))
 }
 
-func Unwrap[T any](v T, err error) T {
+func UnwrapOrExit[T any](v T, err error) T {
 	ExitIfError(err)
 	return v
 }

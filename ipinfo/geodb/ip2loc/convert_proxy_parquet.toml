@@ -1,0 +1,109 @@
+[output]
+format = "parquet"
+ipv4_file = "../ip2proxy_ipv4.parquet"
+ipv6_file = "../ip2proxy_ipv6.parquet"
+
+[output.parquet]
+compression = "zstd"
+row_group_size = 1000
+
+# Integer columns first for fast IP lookups via predicate pushdown (10-100x faster).
+[[network.columns]]
+name = "start_int"
+type = "start_int"
+
+[[network.columns]]
+name = "end_int"
+type = "end_int"
+
+[[network.columns]]
+name = "network"
+type = "cidr"
+
+[[databases]]
+name = "proxy"
+path = "../ip2proxy.mmdb"
+
+[[columns]]
+name = "proxy_type"
+database = "proxy"
+path = ["proxy_type"]
+type = "string"
+
+[[columns]]
+name = "country_code"
+database = "proxy"
+path = ["country_code"]
+type = "string"
+
+[[columns]]
+name = "country_name"
+database = "proxy"
+path = ["country_name"]
+type = "string"
+
+[[columns]]
+name = "region_name"
+database = "proxy"
+path = ["region_name"]
+type = "string"
+
+[[columns]]
+name = "city_name"
+database = "proxy"
+path = ["city_name"]
+type = "string"
+
+[[columns]]
+name = "isp"
+database = "proxy"
+path = ["isp"]
+type = "string"
+
+[[columns]]
+name = "domain"
+database = "proxy"
+path = ["domain"]
+type = "string"
+
+[[columns]]
+name = "usage_type"
+database = "proxy"
+path = ["usage_type"]
+type = "string"
+
+[[columns]]
+name = "asn"
+database = "proxy"
+path = ["asn"]
+type = "string"
+
+[[columns]]
+name = "last_seen"
+database = "proxy"
+path = ["last_seen"]
+type = "string"
+
+[[columns]]
+name = "threat"
+database = "proxy"
+path = ["threat"]
+type = "string"
+
+[[columns]]
+name = "residential"
+database = "proxy"
+path = ["residential"]
+type = "string"
+
+[[columns]]
+name = "provider"
+database = "proxy"
+path = ["provider"]
+type = "string"
+
+[[columns]]
+name = "fraud_score"
+database = "proxy"
+path = ["fraud_score"]
+type = "int64"
