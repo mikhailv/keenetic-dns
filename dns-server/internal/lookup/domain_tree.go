@@ -49,6 +49,11 @@ func (t DomainTree[V]) Get(domain string) (V, bool) {
 	return bestValue, found
 }
 
+// Empty reports whether the tree contains no entries.
+func (t DomainTree[V]) Empty() bool {
+	return !t.root.hasValue && len(t.root.labels) == 0
+}
+
 // Has reports whether domain matches any suffix in the tree.
 func (t DomainTree[V]) Has(domain string) bool {
 	_, ok := t.Get(domain)
@@ -115,7 +120,7 @@ func freezeDomainNode[V any](bn *domainBuildNode[V]) domainNode[V] {
 // splitDomainReversed splits a domain into labels in reverse order.
 // "foo.youtube.com." → ["com", "youtube", "foo"].
 func splitDomainReversed(domain string) []string {
-	domain = strings.TrimSuffix(domain, ".")
+	domain = strings.Trim(domain, ".")
 	if domain == "" {
 		return nil
 	}

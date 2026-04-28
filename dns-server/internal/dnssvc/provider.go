@@ -45,7 +45,7 @@ func (s *provider) MatchQuery(msg *dns.Msg) QueryMatchResult {
 		return QueryMatchResult{Score: -1, Pattern: ignorePattern}
 	}
 	priority := byte(max(0, min(255, s.cfg.Priority)))
-	if len(s.cfg.Domains) == 0 {
+	if s.cfg.Domains.Empty() {
 		return QueryMatchResult{Score: int32(priority)}
 	}
 	pattern := s.cfg.Domains.Match(domain)

@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
@@ -93,6 +94,8 @@ type Routing struct {
 	Hosts        DomainList       `yaml:"hosts"`
 	Ignore       DomainList       `yaml:"ignore"`
 	Static       []types.IPv4     `yaml:"static"`
+
+	staticLookup lookup.IPTree[string]
 }
 
 type RoutingRule struct {
@@ -126,17 +129,17 @@ func (c *Routing) LookupIgnoredHost(host string) (pattern string) {
 }
 
 func (c *Routing) LookupIP(ip types.IPv4) (pattern string) {
-	for _, addr := range c.Static {
-		if types.PrefixMatch(addr, ip) {
-			return addr.String()
-		}
+	if ip.HasPrefix() {
+		return ""
 	}
-	return ""
+	pattern, _ = c.staticLookup.Get(ip)
+	return pattern
 }
 
 func (c *Config) init() {
 	c.setDefaults()
 	c.DNS.init()
+	c.Routing.init()
 }
 
 func (c *Config) setDefaults() {
@@ -191,6 +194,14 @@ func (c *DNS) init() {
 		provider.normalize()
 		c.Providers[name] = provider
 	}
+}
+
+func (c *Routing) init() {
+	tb := lookup.NewIPTreeBuilder[string]()
+	for _, addr := range c.Static {
+		tb.Add(addr, addr.String())
+	}
+	c.staticLookup = tb.Build()
 }
 
 func (c *DNSProvider) normalize() {

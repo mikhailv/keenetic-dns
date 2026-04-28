@@ -35,6 +35,11 @@ func (t IPTree[V]) Get(ip types.IPv4) (V, bool) {
 	return zero, false
 }
 
+// Empty reports whether the tree contains no entries.
+func (t IPTree[V]) Empty() bool {
+	return len(t.intervals) == 0
+}
+
 // Has reports whether ip matches any prefix in the tree.
 func (t IPTree[V]) Has(ip types.IPv4) bool {
 	_, ok := t.Get(ip)

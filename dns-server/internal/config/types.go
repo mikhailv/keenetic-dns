@@ -4,6 +4,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 )
 
 type Hosts map[string]net.IP
@@ -24,32 +26,28 @@ func (v *List[T]) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-type DomainList []string
+type DomainList lookup.DomainTree[string]
 
 func (s *DomainList) UnmarshalYAML(unmarshal func(any) error) error {
 	var ss []string
 	if err := unmarshal(&ss); err != nil {
 		return err
 	}
+	tb := lookup.NewDomainTreeBuilder[string]()
 	for i := range ss {
-		ss[i] = normalizeFQDN(ss[i])
+		tb.Add(ss[i], normalizeFQDN(ss[i]))
 	}
-	*s = ss
+	*s = DomainList(tb.Build())
 	return nil
 }
 
+func (s DomainList) Empty() bool {
+	return lookup.DomainTree[string](s).Empty()
+}
+
 func (s DomainList) Match(domain string) (pattern string) {
-	if len(s) == 0 || domain == "" {
-		return ""
-	}
-	// TODO: O(N) host lookup, maybe optimize?
-	domain = normalizeFQDN(domain)
-	for _, suffix := range s {
-		if isDomainSuffix(domain, suffix) {
-			return suffix
-		}
-	}
-	return ""
+	pattern, _ = lookup.DomainTree[string](s).Get(domain)
+	return pattern
 }
 
 type URL url.URL

@@ -30,6 +30,16 @@ func TestDomainTree_SuffixMatch(t *testing.T) {
 	assert.Equal(t, "yt", v)
 }
 
+func TestDomainTree_LeadingDotMatch(t *testing.T) {
+	b := NewDomainTreeBuilder[string]()
+	b.Add(".ru", "t")
+	tree := b.Build()
+
+	v, ok := tree.Get("ya.ru.")
+	assert.True(t, ok)
+	assert.Equal(t, "t", v)
+}
+
 func TestDomainTree_LongestMatch(t *testing.T) {
 	b := NewDomainTreeBuilder[string]()
 	b.Add("com.", "generic")
