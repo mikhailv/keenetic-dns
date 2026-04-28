@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
-	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -32,7 +31,6 @@ type Tracker struct {
 	logger *slog.Logger
 	agent  agentclient.NetworkServiceClient
 	store  Store
-	stream *stream.Buffered[Bucket]
 
 	mu            sync.RWMutex
 	prevSnapshot  map[snapshotKey]snapshotEntry
@@ -49,7 +47,6 @@ func NewTracker(
 	logger *slog.Logger,
 	agent agentclient.NetworkServiceClient,
 	store Store,
-	stream *stream.Buffered[Bucket],
 ) *Tracker {
 	ensureDurationMinuteBounded(cfg.BucketInterval)
 	ensureDurationMinuteBounded(cfg.ChunkInterval)
@@ -59,18 +56,12 @@ func NewTracker(
 		logger:        logger,
 		agent:         agent,
 		store:         store,
-		stream:        stream,
 		prevSnapshot:  map[snapshotKey]snapshotEntry{},
 		bucketRange:   makeRange(now, cfg.BucketInterval),
 		bucketEntries: map[ConnKey]*bucketEntryAccumulator{},
 		chunkRange:    makeRange(now, cfg.ChunkInterval),
 		chunkBuckets:  map[Timestamp]Bucket{},
 	}
-}
-
-// Stream returns the buffered stream of bucket updates for real-time subscribers.
-func (s *Tracker) Stream() *stream.Buffered[Bucket] {
-	return s.stream
 }
 
 // BucketDuration returns the native bucket size in seconds used by this tracker.
@@ -102,7 +93,7 @@ func (s *Tracker) start(ctx context.Context, onStop func()) {
 			s.flush(context.WithoutCancel(ctx))
 			return
 		case now := <-pollTicker.C:
-			s.broadcastChangedEntries(s.poll(ctx, now))
+			s.poll(ctx, now)
 		case <-saveTicker.C:
 			s.mu.RLock()
 			chunk := s.snapshotCurrentChunk()
@@ -157,26 +148,6 @@ func (s *Tracker) IterateChunks(ctx context.Context, tr TimeRange) iter.Seq2[Chu
 	}
 }
 
-func (s *Tracker) broadcastChangedEntries(changed util.Set[ConnKey]) {
-	if len(changed) == 0 {
-		return
-	}
-
-	s.mu.RLock()
-	bucket := Bucket{
-		TimeRange: s.bucketRange,
-		Entries:   make([]BucketEntry, 0, len(changed)),
-	}
-	for ck := range changed {
-		if acc := s.bucketEntries[ck]; acc != nil {
-			bucket.Entries = append(bucket.Entries, acc.toBucketEntry(ck))
-		}
-	}
-	s.mu.RUnlock()
-
-	s.stream.Append(bucket)
-}
-
 func (s *Tracker) snapshotCurrentChunk() Chunk {
 	buckets := make([]Bucket, 0, len(s.chunkBuckets)+1)
 	for _, bucket := range s.chunkBuckets {
@@ -214,11 +185,11 @@ func (s *Tracker) sealBucket() {
 	clear(s.bucketEntries)
 }
 
-func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { //nolint:funlen,gocognit,cyclop // ignore
+func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,gocognit // ignore
 	entries, err := s.agent.ListConntrack(ctx)
 	if err != nil {
 		s.logger.Error("failed to poll conntrack", "err", err)
-		return nil
+		return
 	}
 
 	var chunkToSave Chunk
@@ -245,7 +216,6 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 	defer s.mu.Unlock()
 
 	firstPoll := len(s.prevSnapshot) == 0
-	changedKeys := make(util.Set[ConnKey], len(entries))
 
 	// Build new snapshot and compute deltas.
 	newSnapshot := make(map[snapshotKey]snapshotEntry, len(entries))
@@ -308,9 +278,6 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 		acc := s.getOrCreateAccumulator(ck)
 		acc.ConnIDs.Add(sk.ID)
 		acc.Add(delta)
-		if !delta.IsZero() {
-			changedKeys.Add(ck)
-		}
 	}
 
 	// keep tracking for missing entries
@@ -329,7 +296,6 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) util.Set[ConnKey] { /
 	}
 
 	s.prevSnapshot = newSnapshot
-	return changedKeys
 }
 
 func (s *Tracker) getOrCreateAccumulator(ck ConnKey) *bucketEntryAccumulator {

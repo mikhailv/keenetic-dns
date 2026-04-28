@@ -93,12 +93,6 @@ export class APIService {
 			(JSON.parse(data) as StreamResponse<LogEntry>).map(parseLogEntry)
 		);
 	}
-
-	createConntrackStreamStore(limit: number): StreamStore<ConntrackBucket> {
-		return createWebSocketStreamStore(new URL(`${this.baseUrl}/api/conntrack/ws`), limit, (data) =>
-			(JSON.parse(data) as StreamResponse<conntrackBucketResult>).map(decodeConntrackBucket)
-		);
-	}
 }
 
 export const api = new APIService(baseURL.href);

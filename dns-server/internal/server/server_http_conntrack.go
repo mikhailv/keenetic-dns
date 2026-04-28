@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"iter"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 
@@ -31,12 +30,6 @@ type conntrackBucket struct {
 	Cursor    stream.Cursor       `cbor:"-" json:"cursor,omitempty"`
 	TimeRange conntrack.TimeRange `json:"time_range"`
 	Entries   [][9]uint64         `json:"entries"`
-}
-
-func (s *HTTPServer) filterConntrack(_ *http.Request, query url.Values) FilterFunc[conntrack.Bucket] {
-	return func(val conntrack.Bucket) bool {
-		return true
-	}
 }
 
 func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http.Request) (int, error) {

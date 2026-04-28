@@ -2,13 +2,13 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { api } from '$lib/services/api';
-	import type { ConntrackBucket, ConntrackBucketsResponse } from '$lib/types';
+	import type { ConntrackBucketsResponse } from '$lib/types';
 	import RangeSelector from '$lib/components/conntrack/RangeSelector.svelte';
 	import IntervalSelector from '$lib/components/conntrack/IntervalSelector.svelte';
 	import TrafficChart from '$lib/components/conntrack/TrafficChart.svelte';
 	import ConntrackTable from '$lib/components/conntrack/ConntrackTable.svelte';
 	import { autoBumpInterval } from '$lib/components/conntrack/util';
-	import { createHostStore, currentURL, queryParams, type StreamStore } from '$lib/stores';
+	import { createHostStore, currentURL, queryParams } from '$lib/stores';
 	import { toTimestamp } from '$lib/util';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
@@ -96,9 +96,6 @@
 
 	const hosts = createHostStore();
 	onMount(() => hosts.autoreload());
-
-	const stream: StreamStore<ConntrackBucket> = api.createConntrackStreamStore(0);
-	onMount(() => stream.start());
 
 	async function load() {
 		loading = true;

@@ -85,8 +85,6 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.Handle("GET /api/dns-queries/ws", createStreamHandler(s.queryStream, wsLogger, s.filterQueries))
 	mux.Handle("GET /api/dns-raw-queries", s.wrapHandler(createListHandler(s.rawQueryStream, s.filterRawQueries)))
 	mux.Handle("GET /api/dns-raw-queries/ws", createStreamHandler(s.rawQueryStream, wsLogger, s.filterRawQueries))
-	mux.Handle("GET /api/conntrack/ws",
-		createStreamHandlerMapped(s.conntrackTracker.Stream(), wsLogger, s.filterConntrack, mapConntrackBucket))
 	mux.Handle("GET /api/conntrack/buckets", s.wrapHandler(s.handleListConntrackBuckets))
 	mux.Handle("GET /static/", webBuildDirectoryHandler())
 	mux.Handle("GET /favicon.svg", webBuildFileHandler("favicon.svg"))

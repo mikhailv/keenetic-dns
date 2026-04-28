@@ -10,7 +10,6 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
-	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -32,7 +31,7 @@ func newTestTracker(t *testing.T) (*Tracker, *mockAgent) {
 		BucketInterval: time.Minute,
 		ChunkInterval:  time.Hour,
 		CacheDuration:  time.Hour,
-	}, slog.Default(), agent, store, stream.NewBufferedStream[Bucket](1))
+	}, slog.Default(), agent, store)
 	return tr, agent
 }
 
