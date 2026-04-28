@@ -1,10 +1,13 @@
 DIR := $(shell pwd)
 
 .PHONY: all
-all: oapi-codegen
+all: oapi-codegen mmdbconvert
 
 oapi-codegen:
 	$(call go-get-tool,'$(DIR)/oapi-codegen','github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0')
+
+mmdbconvert:
+	$(call go-get-tool,'$(DIR)/mmdbconvert','github.com/maxmind/mmdbconvert/cmd/mmdbconvert@v0.1.0')
 
 .PHONY: clean
 clean:

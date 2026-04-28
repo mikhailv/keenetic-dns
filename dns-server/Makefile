@@ -1,6 +1,9 @@
 TARGET_OS ?= linux
 TARGET_ARCH ?=
 
+TOOLS = ../tools
+OAPI_CODEGEN = $(TOOLS)/oapi-codegen
+
 .PHONY: all
 all: build
 
@@ -22,5 +25,8 @@ build-bin:
 	env GOOS=$(TARGET_OS) GOARCH=$(TARGET_ARCH) go build -o dns-server ./cmd
 
 .PHONY: generate
-generate:
+generate: $(OAPI_CODEGEN)
 	go generate ./...
+
+$(OAPI_CODEGEN):
+	$(MAKE) -C $(TOOLS) oapi-codegen

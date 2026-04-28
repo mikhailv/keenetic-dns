@@ -1,4 +1,5 @@
-MMDBCONVERT ?= mmdbconvert
+TOOLS = ../../../tools
+MMDBCONVERT = $(TOOLS)/mmdbconvert
 
 MMDB_FILES = GeoLite2-ASN.mmdb GeoLite2-City.mmdb
 
@@ -13,11 +14,14 @@ mmdb: $(OUTPUT_MMDB_FILE)
 
 parquet: $(OUTPUT_PARQUET_FILES)
 
-$(OUTPUT_MMDB_FILE): convert_mmdb.toml $(MMDB_FILES)
+$(OUTPUT_MMDB_FILE): $(MMDBCONVERT) convert_mmdb.toml $(MMDB_FILES)
 	$(MMDBCONVERT) convert_mmdb.toml
 
-$(OUTPUT_PARQUET_FILES): convert_parquet.toml $(MMDB_FILES)
+$(OUTPUT_PARQUET_FILES): $(MMDBCONVERT) convert_parquet.toml $(MMDB_FILES)
 	$(MMDBCONVERT) convert_parquet.toml
 
 clean:
 	rm -f $(OUTPUT_MMDB_FILE) $(OUTPUT_PARQUET_FILES)
+
+$(MMDBCONVERT):
+	$(MAKE) -C $(TOOLS) mmdbconvert
