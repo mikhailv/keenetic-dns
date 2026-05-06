@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
@@ -47,13 +46,16 @@ func (r IPRouteDNS) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-type IPRoutingRule config.RoutingRule
+type IPRoutingRule struct {
+	Table    int
+	From     string
+	Priority int
+}
 
 func (r IPRoutingRule) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("table", r.Table),
-		slog.String("iif", r.Iif),
-		slog.String("oif", r.Oif),
+		slog.String("from", r.From),
 		slog.Int("priority", r.Priority),
 	)
 }

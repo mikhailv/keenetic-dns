@@ -88,7 +88,9 @@ type LocalStorage struct {
 }
 
 type Routing struct {
-	Rule         RoutingRule      `yaml:"rule"`
+	Table        int              `yaml:"table"`
+	Oif          string           `yaml:"oif"`
+	Rules        []RoutingRule    `yaml:"rules"`
 	Reconcile    RoutingReconcile `yaml:"reconcile"`
 	RouteTimeout time.Duration    `yaml:"route_timeout"`
 	Hosts        DomainList       `yaml:"hosts"`
@@ -99,9 +101,7 @@ type Routing struct {
 }
 
 type RoutingRule struct {
-	Table    int    `yaml:"table"`
-	Iif      string `yaml:"iif"`
-	Oif      string `yaml:"oif"`
+	From     string `yaml:"from"`
 	Priority int    `yaml:"priority"`
 }
 

@@ -25,9 +25,8 @@ storage:
     save_interval: 10m
 
 routing:
-  rule:
-    table: 1001
-    priority: 1995
+  table: 1001
+  rules: []
   reconcile:
     interval: 2m
     timeout: 20s

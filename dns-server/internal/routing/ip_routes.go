@@ -50,7 +50,7 @@ func NewIPRouteController(
 func (s *IPRouteController) lookupHost(host string) (ok bool, pattern, iface string) {
 	cfg := s.cfg.Get()
 	if pattern = cfg.LookupHost(host); pattern != "" {
-		return true, pattern, cfg.Rule.Oif
+		return true, pattern, cfg.Oif
 	}
 	return false, "", ""
 }
@@ -58,7 +58,7 @@ func (s *IPRouteController) lookupHost(host string) (ok bool, pattern, iface str
 func (s *IPRouteController) lookupIP(ip types.IPv4) (ok bool, pattern, iface string) {
 	cfg := s.cfg.Get()
 	if pattern = cfg.LookupIP(ip); pattern != "" {
-		return true, pattern, cfg.Rule.Oif
+		return true, pattern, cfg.Oif
 	}
 	return false, "", ""
 }
@@ -122,7 +122,7 @@ func (s *IPRouteController) onConfigUpdated(ctx context.Context) {
 }
 
 func (s *IPRouteController) makeRoute(cfg *config.Routing, ip types.IPv4) IPRoute {
-	return IPRoute{cfg.Rule.Table, cfg.Rule.Oif, ip}
+	return IPRoute{cfg.Table, cfg.Oif, ip}
 }
 
 func (s *IPRouteController) startReconcileLoop(ctx context.Context) {
@@ -158,12 +158,16 @@ func (s *IPRouteController) reconcileRules(ctx context.Context, cfg *config.Rout
 	defer metrics.TrackDuration("reconcile_rules")()
 	defer log.Profile(s.logger, "reconcile rules")()
 
-	rule := IPRoutingRule(cfg.Rule)
-	exists, err := s.networkService.HasRule(ctx, uint32(rule.Table), rule.Iif)
-	if err != nil {
-		s.logger.Error("failed to check if rule exists", "err", err, "", rule)
-	} else if !exists {
-		s.addRule(ctx, rule)
+	for _, r := range cfg.Rules {
+		rule := IPRoutingRule{Table: cfg.Table, From: r.From, Priority: r.Priority}
+		exists, err := s.networkService.HasRule(ctx, uint32(rule.Table), rule.From)
+		if err != nil {
+			s.logger.Error("failed to check if rule exists", "err", err, "", rule)
+			continue
+		}
+		if !exists {
+			s.addRule(ctx, rule)
+		}
 	}
 }
 
@@ -176,7 +180,7 @@ func (s *IPRouteController) reconcileRoutes(ctx context.Context, cfg *config.Rou
 			"added", formatAgo(it.Time.Time()), "resolver", it.Resolver.Name)
 	}
 
-	definedRoutes := s.loadRoutes(ctx, cfg.Rule.Table)
+	definedRoutes := s.loadRoutes(ctx, cfg.Table)
 	actual, obsolete := s.partitionRoutes(cfg, definedRoutes)
 
 	added := 0
@@ -409,7 +413,7 @@ loop:
 func mapToAgentRule(rule IPRoutingRule) agentclient.Rule {
 	return agentclient.Rule{
 		Table:    uint32(rule.Table),
-		Iif:      rule.Iif,
+		From:     rule.From,
 		Priority: uint32(rule.Priority),
 	}
 }

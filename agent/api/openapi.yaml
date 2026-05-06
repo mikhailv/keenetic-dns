@@ -16,11 +16,12 @@ paths:
           schema:
             type: integer
             format: uint32
-        - name: iif
+        - name: from
           in: query
           required: true
           schema:
             type: string
+            description: Source CIDR matched by the rule
       responses:
         "200":
           description: Rule exists
@@ -170,13 +171,14 @@ components:
 
     Rule:
       type: object
-      required: [table, iif, priority]
+      required: [table, from, priority]
       properties:
         table:
           type: integer
           format: uint32
-        iif:
+        from:
           type: string
+          description: Source CIDR matched by the rule
         priority:
           type: integer
           format: uint32

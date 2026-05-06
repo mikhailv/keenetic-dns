@@ -34,10 +34,10 @@ func (s *networkService) HasRule(ctx context.Context, req api.HasRuleRequestObje
 		return api.HasRule500JSONResponse(makeError(err, res)), nil
 	}
 
-	def := fmt.Sprintf("from all iif %s lookup %d", req.Params.Iif, req.Params.Table)
+	def := fmt.Sprintf("from %s lookup %d", req.Params.From, req.Params.Table)
 
 	for _, line := range parseOutputLines(res.Output) {
-		// 2000:	from all iif br0 lookup 1000
+		// 1995:	from 192.168.2.0/24 lookup 1001
 		ss := strings.Split(line, ":")
 		if len(ss) == 2 && strings.TrimSpace(ss[1]) == def {
 			return api.HasRule200Response{}, nil
@@ -49,7 +49,7 @@ func (s *networkService) HasRule(ctx context.Context, req api.HasRuleRequestObje
 func (s *networkService) AddRule(ctx context.Context, req api.AddRuleRequestObject) (api.AddRuleResponseObject, error) {
 	rule := req.Body
 	//nolint:gosec // all fine
-	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "iif", rule.Iif, "table", u32ToStr(rule.Table), "priority", u32ToStr(rule.Priority))
+	cmd := exec.CommandContext(ctx, "ip", "rule", "add", "from", rule.From, "table", u32ToStr(rule.Table), "priority", u32ToStr(rule.Priority))
 	res, err := s.runCmd(cmd)
 	if err != nil {
 		s.logger.Error("failed to add rule", "err", err, "rule", rule, "output", res.ErrOutput)

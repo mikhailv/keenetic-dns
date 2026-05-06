@@ -4,7 +4,7 @@ import "log/slog"
 
 func (r *Rule) LogValue() slog.Value {
 	return slog.GroupValue(
-		slog.String("iif", r.Iif),
+		slog.String("from", r.From),
 		slog.Int("table", int(r.Table)),
 		slog.Int("priority", int(r.Priority)),
 	)

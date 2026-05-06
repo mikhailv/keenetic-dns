@@ -8,7 +8,7 @@ import (
 )
 
 type NetworkServiceClient interface {
-	HasRule(ctx context.Context, table uint32, iif string) (bool, error)
+	HasRule(ctx context.Context, table uint32, from string) (bool, error)
 	AddRule(ctx context.Context, rule Rule) error
 	ListRoutes(ctx context.Context, table uint32) ([]Route, error)
 	AddRoute(ctx context.Context, route Route) error
@@ -29,8 +29,8 @@ type networkServiceClient struct {
 	c *ClientWithResponses
 }
 
-func (c *networkServiceClient) HasRule(ctx context.Context, table uint32, iif string) (bool, error) {
-	resp, err := c.c.HasRuleWithResponse(ctx, &HasRuleParams{Table: table, Iif: iif})
+func (c *networkServiceClient) HasRule(ctx context.Context, table uint32, from string) (bool, error) {
+	resp, err := c.c.HasRuleWithResponse(ctx, &HasRuleParams{Table: table, From: from})
 	if err != nil {
 		return false, err
 	}
