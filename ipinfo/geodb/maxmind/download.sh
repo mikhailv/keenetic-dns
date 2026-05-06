@@ -20,4 +20,3 @@ for db in "${DATABASES[@]}"; do
 done
 
 echo "All databases updated."
-ls -l *.mmdb
