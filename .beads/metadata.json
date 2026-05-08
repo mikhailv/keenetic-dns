@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "keenetic_dns",
+  "project_id": "dcbb79d8-17c0-486d-9d99-9132cf07d468"
+}
