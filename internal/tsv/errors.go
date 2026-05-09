@@ -104,3 +104,43 @@ func IsEmptyColumnNameError(err error) bool {
 	var ec EmptyColumnNameError
 	return errors.As(err, &ec)
 }
+
+// DuplicateColumnError indicates that the same column name appears twice in the header.
+type DuplicateColumnError struct {
+	Column         string // Name of the duplicated column
+	FirstIndex     int    // Index where the column first appeared (0-based)
+	DuplicateIndex int    // Index where the duplicate appeared (0-based)
+}
+
+// Error returns a human-readable error message.
+func (e DuplicateColumnError) Error() string {
+	return fmt.Sprintf("tsv: duplicate column %q at indices %d and %d", e.Column, e.FirstIndex, e.DuplicateIndex)
+}
+
+// IsDuplicateColumnError reports whether the error is a DuplicateColumnError.
+func IsDuplicateColumnError(err error) bool {
+	var de DuplicateColumnError
+	return errors.As(err, &de)
+}
+
+// InvalidCharacterError indicates that a value to be written contains a character
+// that would corrupt the TSV format (tab, newline, or carriage return).
+type InvalidCharacterError struct {
+	Column string // Name of the column being written
+	Char   rune   // The offending character
+	Row    int    // Data row number (0 for header)
+}
+
+// Error returns a human-readable error message.
+func (e InvalidCharacterError) Error() string {
+	if e.Row == 0 {
+		return fmt.Sprintf("tsv: invalid character %q in header column %q", e.Char, e.Column)
+	}
+	return fmt.Sprintf("tsv: invalid character %q in column %q at row %d", e.Char, e.Column, e.Row)
+}
+
+// IsInvalidCharacterError reports whether the error is an InvalidCharacterError.
+func IsInvalidCharacterError(err error) bool {
+	var ic InvalidCharacterError
+	return errors.As(err, &ic)
+}

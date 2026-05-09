@@ -7,16 +7,20 @@ import (
 	"sync"
 )
 
-// typeCache stores type metadata for all struct types used with Reader and Writer.
-// This avoids repeatedly computing field information for the same types.
+// typeCache stores type metadata for all struct types used with Reader and
+// Writer. The cache lives for the process lifetime; in normal use callers
+// register a small fixed set of struct types so unbounded growth is not a
+// concern.
 var typeCache sync.Map // map[reflect.Type]*typeInfo
 
 // fieldInfo contains metadata for a single struct field.
 type fieldInfo struct {
-	name     string              // Column name (from tag or field name)
-	field    reflect.StructField // The actual struct field
-	optional bool                // True if field is marked as optional
-	index    []int               // Full index path for FieldByIndex (handles embedded structs)
+	name     string                              // Column name (from tag or field name)
+	field    reflect.StructField                 // The actual struct field
+	optional bool                                // True if field is marked as optional
+	index    []int                               // Full index path for FieldByIndex (handles embedded structs)
+	parse    func(string) (reflect.Value, error) // Parses a raw cell value into the field
+	format   func(reflect.Value) (string, error) // Formats a field value into a cell
 }
 
 // typeInfo contains metadata for a struct type.
@@ -76,30 +80,44 @@ func collectFields(st reflect.Type, index []int, info *typeInfo) error {
 			continue
 		}
 
-		// Validate field type is supported
-		if err := checkType(f.Type); err != nil {
-			return err
-		}
-
-		fi := fieldInfo{
-			name:  f.Name,
-			field: f,
-			index: newIndex,
-		}
-
-		// Parse ts tag: "column_name" or "column_name,optional"
-		if tag := f.Tag.Get("tsv"); tag != "" {
+		// Parse tsv tag: "column_name", "column_name,optional", or "-" to skip.
+		// An empty name (e.g. ",optional") falls back to the field name.
+		name := f.Name
+		optional := false
+		if tag, ok := f.Tag.Lookup("tsv"); ok {
 			parts := strings.Split(tag, ",")
-			fi.name = strings.TrimSpace(parts[0])
+			tagName := strings.TrimSpace(parts[0])
+			if tagName == "-" {
+				continue
+			}
+			if tagName != "" {
+				name = tagName
+			}
 			for _, p := range parts[1:] {
 				if strings.TrimSpace(p) == "optional" {
-					fi.optional = true
+					optional = true
 					break
 				}
 			}
 		}
 
-		info.fields = append(info.fields, fi)
+		parser, err := buildParser(f.Type)
+		if err != nil {
+			return err
+		}
+		formatter, err := buildFormatter(f.Type)
+		if err != nil {
+			return err
+		}
+
+		info.fields = append(info.fields, fieldInfo{
+			name:     name,
+			field:    f,
+			optional: optional,
+			index:    newIndex,
+			parse:    parser,
+			format:   formatter,
+		})
 	}
 	return nil
 }

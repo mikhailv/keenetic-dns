@@ -1,6 +1,7 @@
 package tsv
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -212,11 +213,6 @@ func TestReader_PointerEmpty(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Nil(t, row.Name)
 	assert.NotNil(t, row.Age)
-}
-
-func TestReader_ScanError(t *testing.T) {
-	r := NewReader[SimpleRow](strings.NewReader("name\tage\n"))
-	_, _ = r.Read()
 }
 
 func TestReader_HeaderOnly(t *testing.T) {
@@ -587,4 +583,309 @@ func TestWriter_TextMarshaler(t *testing.T) {
 	w.Close()
 
 	assert.Equal(t, "name\tduration\nJohn\t30s\n", buf.String())
+}
+
+func TestReader_OptionalFieldDoesNotLeakAcrossRows(t *testing.T) {
+	// Row 1 has all three columns; row 2 omits the optional Email column
+	// (short row). The leaked-value bug used to surface here as Email
+	// retaining "first@example.com" on the second row.
+	data := "name\tage\temail\nJohn\t25\tfirst@example.com\nJane\t30"
+	r := NewReader[RowWithOptional](strings.NewReader(data))
+
+	row1, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "first@example.com", row1.Email)
+
+	row2, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "Jane", row2.Name)
+	assert.Equal(t, 30, row2.Age)
+	assert.Equal(t, "", row2.Email, "optional field must not leak from previous row")
+}
+
+func TestReader_DuplicateColumn(t *testing.T) {
+	data := "name\tname\tage\nJohn\tJ\t25"
+	r := NewReader[SimpleRow](strings.NewReader(data))
+
+	_, err := r.Read()
+	assert.True(t, IsDuplicateColumnError(err))
+	var de DuplicateColumnError
+	assert.ErrorAs(t, err, &de)
+	assert.Equal(t, "name", de.Column)
+	assert.Equal(t, 0, de.FirstIndex)
+	assert.Equal(t, 1, de.DuplicateIndex)
+}
+
+func TestReader_HeaderErrorIsSticky(t *testing.T) {
+	// Header is missing the required "age" column. Subsequent Read calls
+	// must keep returning the same error rather than re-parsing the next
+	// data line as a header.
+	data := "name\nJohn\nJane"
+	r := NewReader[SimpleRow](strings.NewReader(data))
+
+	_, err1 := r.Read()
+	assert.True(t, IsMissingColumnError(err1))
+
+	_, err2 := r.Read()
+	assert.Equal(t, err1, err2)
+
+	_, err3 := r.Read()
+	assert.Equal(t, err1, err3)
+}
+
+func TestReader_PreservesWhitespaceInValues(t *testing.T) {
+	type WSRow struct {
+		Name string `tsv:"name"`
+	}
+	data := "name\n  spaced  "
+	r := NewReader[WSRow](strings.NewReader(data))
+
+	row, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "  spaced  ", row.Name)
+}
+
+func TestReader_LongLineWithOption(t *testing.T) {
+	// The default scanner buffer is 64 KiB. WithMaxLineSize raises it so
+	// that callers expecting wide rows can opt in.
+	type LongRow struct {
+		Data string `tsv:"data"`
+	}
+	long := strings.Repeat("x", 100*1024)
+	data := "data\n" + long
+	r := NewReader[LongRow](strings.NewReader(data), WithMaxLineSize(1<<20))
+
+	row, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, long, row.Data)
+}
+
+func TestReader_LongLineExceedsDefault(t *testing.T) {
+	// Without WithMaxLineSize, a line over 64 KiB surfaces bufio.ErrTooLong
+	// rather than parsing partial data.
+	type LongRow struct {
+		Data string `tsv:"data"`
+	}
+	long := strings.Repeat("x", 100*1024)
+	data := "data\n" + long
+	r := NewReader[LongRow](strings.NewReader(data))
+
+	_, err := r.Read()
+	assert.ErrorIs(t, err, bufio.ErrTooLong)
+}
+
+func TestReader_BoolInvalidValueErrors(t *testing.T) {
+	type BoolRow struct {
+		Active bool `tsv:"active"`
+	}
+	data := "active\nbanana"
+	r := NewReader[BoolRow](strings.NewReader(data))
+
+	_, err := r.Read()
+	assert.True(t, IsValueParseError(err), "got %v", err)
+}
+
+func TestReader_TagSkipDash(t *testing.T) {
+	type SkipRow struct {
+		Name   string `tsv:"name"`
+		Hidden string `tsv:"-"`
+		Age    int    `tsv:"age"`
+	}
+	data := "name\tage\nJohn\t25"
+	r := NewReader[SkipRow](strings.NewReader(data))
+
+	row, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "John", row.Name)
+	assert.Equal(t, 25, row.Age)
+	assert.Equal(t, "", row.Hidden)
+}
+
+func TestReader_TagOnlyOptionFallsBackToFieldName(t *testing.T) {
+	type FallbackRow struct {
+		Name string `tsv:",optional"`
+	}
+	// Field uses its Go name when the tag carries only options.
+	data := "Name\nJohn"
+	r := NewReader[FallbackRow](strings.NewReader(data))
+
+	row, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, "John", row.Name)
+}
+
+func TestRoundTrip_PlainValues(t *testing.T) {
+	rows := []SimpleRow{
+		{Name: "John", Age: 25, Email: "john@example.com"},
+		{Name: "Jane", Age: 30, Email: "jane@example.com"},
+	}
+
+	var buf strings.Builder
+	w := NewWriter[SimpleRow](&buf)
+	for _, r := range rows {
+		assert.NoError(t, w.Write(r))
+	}
+	assert.NoError(t, w.Close())
+
+	r := NewReader[SimpleRow](strings.NewReader(buf.String()))
+	var got []SimpleRow
+	for row, err := range r.Iterator() {
+		assert.NoError(t, err)
+		got = append(got, row)
+	}
+	assert.Equal(t, rows, got)
+}
+
+func TestWriter_RejectsTabInValue(t *testing.T) {
+	var buf strings.Builder
+	w := NewWriter[SimpleRow](&buf)
+
+	err := w.Write(SimpleRow{Name: "a\tb", Age: 1, Email: "x@y"})
+	assert.True(t, IsInvalidCharacterError(err), "got %v", err)
+	var ic InvalidCharacterError
+	assert.ErrorAs(t, err, &ic)
+	assert.Equal(t, "name", ic.Column)
+	assert.Equal(t, '\t', ic.Char)
+
+	// No bytes should have been written for the rejected row. The header
+	// goes out first (header column names are valid), so after a flush the
+	// buffer contains exactly the header line.
+	assert.NoError(t, w.Flush())
+	assert.Equal(t, "name\tage\temail\n", buf.String())
+}
+
+func TestWriter_RejectsNewlineInValue(t *testing.T) {
+	var buf strings.Builder
+	w := NewWriter[SimpleRow](&buf)
+
+	err := w.Write(SimpleRow{Name: "line1\nline2", Age: 1, Email: "x@y"})
+	assert.True(t, IsInvalidCharacterError(err), "got %v", err)
+}
+
+func TestWriter_RejectsCarriageReturnInValue(t *testing.T) {
+	var buf strings.Builder
+	w := NewWriter[SimpleRow](&buf)
+
+	err := w.Write(SimpleRow{Name: "x\ry", Age: 1, Email: "x@y"})
+	assert.True(t, IsInvalidCharacterError(err), "got %v", err)
+}
+
+func TestWriter_NoCSVQuoting(t *testing.T) {
+	// The previous implementation used encoding/csv with Comma='\t', which
+	// auto-quoted values containing '"'. The Reader uses naive Split(\t),
+	// so quoted output couldn't round-trip. The plain Writer must pass
+	// quote characters through untouched.
+	type QRow struct {
+		Q string `tsv:"q"`
+	}
+	var buf strings.Builder
+	w := NewWriter[QRow](&buf)
+	assert.NoError(t, w.Write(QRow{Q: `he said "hi"`}))
+	assert.NoError(t, w.Close())
+
+	assert.Equal(t, "q\nhe said \"hi\"\n", buf.String())
+
+	r := NewReader[QRow](strings.NewReader(buf.String()))
+	row, err := r.Read()
+	assert.NoError(t, err)
+	assert.Equal(t, `he said "hi"`, row.Q)
+}
+
+func TestReader_Iterator_StopsOnHeaderError(t *testing.T) {
+	// Header errors are sticky. The iterator must yield the error once and
+	// then stop — even if the caller doesn't break — to avoid an infinite
+	// loop on the same sticky error.
+	data := "nonexistent\nvalue"
+	r := NewReader[SimpleRow](strings.NewReader(data))
+
+	count := 0
+	var lastErr error
+	for _, err := range r.Iterator() {
+		count++
+		lastErr = err
+		if count > 5 {
+			t.Fatal("iterator did not stop on sticky header error")
+		}
+	}
+	assert.Equal(t, 1, count)
+	assert.True(t, IsMissingColumnError(lastErr))
+}
+
+func TestReader_Iterator_ContinuesOnRecoverableError(t *testing.T) {
+	// ValueParseError describes a single bad row; the scanner has already
+	// advanced past it, so iteration must continue with the next row unless
+	// the caller chooses to break.
+	type IntRow struct {
+		Age int `tsv:"age"`
+	}
+	data := "age\n1\ninvalid\n3"
+	r := NewReader[IntRow](strings.NewReader(data))
+
+	var ages []int
+	var errs []error
+	for row, err := range r.Iterator() {
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		ages = append(ages, row.Age)
+	}
+	assert.Equal(t, []int{1, 3}, ages)
+	assert.Len(t, errs, 1)
+	assert.True(t, IsValueParseError(errs[0]))
+}
+
+func TestReader_Iterator_ContinuesOnMissingColumnValue(t *testing.T) {
+	// MissingColumnValueError is also recoverable — the short row has been
+	// consumed, so the next Read can fetch the row after it.
+	type RequiredRow struct {
+		Name string `tsv:"name"`
+		Age  int    `tsv:"age"`
+	}
+	data := "name\tage\nJohn\t25\nJane\nBob\t30"
+	r := NewReader[RequiredRow](strings.NewReader(data))
+
+	var names []string
+	var errs []error
+	for row, err := range r.Iterator() {
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		names = append(names, row.Name)
+	}
+	assert.Equal(t, []string{"John", "Bob"}, names)
+	assert.Len(t, errs, 1)
+	assert.True(t, IsMissingColumnValueError(errs[0]))
+}
+
+func TestReader_Iterator_StopsOnScannerError(t *testing.T) {
+	// bufio.ErrTooLong on a data line is sticky — the scanner won't produce
+	// further tokens. Iterator must yield once and stop, even if the caller
+	// doesn't break.
+	type LongRow struct {
+		Data string `tsv:"data"`
+	}
+	long := strings.Repeat("x", 100*1024)
+	data := "data\nshort\n" + long + "\nshort2"
+	r := NewReader[LongRow](strings.NewReader(data)) // default 64 KiB max
+
+	var rows []LongRow
+	var errs []error
+	count := 0
+	for row, err := range r.Iterator() {
+		count++
+		if count > 10 {
+			t.Fatal("iterator did not stop on sticky scanner error")
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		rows = append(rows, row)
+	}
+	assert.Len(t, rows, 1)
+	assert.Equal(t, "short", rows[0].Data)
+	assert.Len(t, errs, 1)
+	assert.ErrorIs(t, errs[0], bufio.ErrTooLong)
 }

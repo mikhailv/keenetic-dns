@@ -9,6 +9,25 @@ import (
 	"strings"
 )
 
+// defaultMaxLineSize is the bufio.Scanner default token size; lines longer
+// than this fail with bufio.ErrTooLong unless overridden via WithMaxLineSize.
+const defaultMaxLineSize = 64 * 1024
+
+// ReaderOption configures a Reader at construction time.
+type ReaderOption func(*readerOptions)
+
+type readerOptions struct {
+	maxLineSize int
+}
+
+// WithMaxLineSize sets the maximum size of a single TSV line, in bytes.
+// Lines longer than this fail with bufio.ErrTooLong. The default is 64 KiB.
+func WithMaxLineSize(n int) ReaderOption {
+	return func(o *readerOptions) {
+		o.maxLineSize = n
+	}
+}
+
 // Reader reads TSV data from an io.Reader and unmarshalls it into struct values.
 // The generic type parameter T must be a struct type with exported fields
 // tagged with `tsv` tags for column names.
@@ -22,18 +41,31 @@ import (
 //
 //	r := tsv.NewReader[Person](file)
 //	row, err := r.Read()
+//
+// A Reader is not safe for concurrent use.
 type Reader[T any] struct {
 	scanner  *bufio.Scanner
 	typeInfo *typeInfo
 	colMap   map[int]int // field index -> column index in header; nil until header is parsed
 	value    T           // Reused buffer for row values
 	row      int         // Current row number (1-based, header is line 1)
+	err      error       // Sticky error; once set, every Read returns it
 }
 
 // NewReader creates a new Reader for type T that reads from r.
-func NewReader[T any](r io.Reader) *Reader[T] {
+func NewReader[T any](r io.Reader, opts ...ReaderOption) *Reader[T] {
+	o := readerOptions{maxLineSize: defaultMaxLineSize}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	scanner := bufio.NewScanner(r)
+	initBuf := o.maxLineSize
+	if initBuf > defaultMaxLineSize {
+		initBuf = defaultMaxLineSize
+	}
+	scanner.Buffer(make([]byte, 0, initBuf), o.maxLineSize)
 	return &Reader[T]{
-		scanner: bufio.NewScanner(r),
+		scanner: scanner,
 	}
 }
 
@@ -49,21 +81,35 @@ func (r *Reader[T]) init() error {
 // Columns in the TSV that don't match any struct field are ignored.
 // Missing optional fields are set to their zero value.
 // Missing required fields return MissingColumnValueError.
+//
+// If header parsing fails (or the input is empty), the same error is returned
+// from every subsequent call — the reader does not attempt recovery.
 func (r *Reader[T]) Read() (T, error) {
+	if r.err != nil {
+		return zeroVal[T](), r.err
+	}
 	if r.colMap == nil {
 		r.row++
 		if err := r.init(); err != nil {
+			r.err = err
 			return zeroVal[T](), err
 		}
-		if line, err := r.scanNextLine(); err != nil {
+		line, err := r.scanNextLine()
+		if err != nil {
+			r.err = err
 			return zeroVal[T](), err
-		} else if err := r.parseHeader(line); err != nil {
+		}
+		if err := r.parseHeader(line); err != nil {
+			r.err = err
 			return zeroVal[T](), err
 		}
 	}
 
 	line, err := r.scanNextLine()
 	if err != nil {
+		// Scanner errors (including io.EOF and bufio.ErrTooLong) leave the
+		// scanner unable to produce more rows, so make them sticky.
+		r.err = err
 		return zeroVal[T](), err
 	}
 
@@ -71,6 +117,10 @@ func (r *Reader[T]) Read() (T, error) {
 
 	rowVals := strings.Split(line, "\t")
 
+	// Reset the buffer so optional/short-row fields don't leak the previous
+	// row's value into the next one.
+	var zero T
+	r.value = zero
 	result := reflect.ValueOf(&r.value).Elem()
 
 	for i, f := range r.typeInfo.fields {
@@ -86,9 +136,9 @@ func (r *Reader[T]) Read() (T, error) {
 			continue
 		}
 
-		val := strings.TrimSpace(rowVals[colIdx])
+		val := rowVals[colIdx]
 
-		fieldVal, err := parseValue(val, f.field.Type)
+		fieldVal, err := f.parse(val)
 		if err != nil {
 			return zeroVal[T](), ValueParseError{f.name, val, r.row, err}
 		}
@@ -112,7 +162,6 @@ func (r *Reader[T]) scanNextLine() (string, error) {
 
 // parseHeader parses the TSV header line and builds a column mapping.
 func (r *Reader[T]) parseHeader(headerLine string) error {
-	headerLine = strings.TrimSpace(headerLine)
 	if headerLine == "" {
 		return ErrNoColumns
 	}
@@ -127,6 +176,9 @@ func (r *Reader[T]) parseHeader(headerLine string) error {
 
 	headerIndex := map[string]int{}
 	for idx, name := range headerCols {
+		if existing, dup := headerIndex[name]; dup {
+			return DuplicateColumnError{Column: name, FirstIndex: existing, DuplicateIndex: idx}
+		}
 		headerIndex[name] = idx
 	}
 
@@ -144,30 +196,37 @@ func (r *Reader[T]) parseHeader(headerLine string) error {
 
 // Iterator returns an iterator over all rows in the TSV data.
 //
-// Example usage:
+// Errors are classified as recoverable or sticky:
+//   - Recoverable errors (ValueParseError, MissingColumnValueError) describe a
+//     single bad row; the scanner has advanced past it, so iteration continues
+//     with the next row unless the caller stops it by returning false from the
+//     yield function.
+//   - Sticky errors (header errors, scanner I/O errors such as bufio.ErrTooLong)
+//     leave the Reader unable to make progress; the iterator yields the error
+//     once and then stops.
+//
+// io.EOF is never yielded — it terminates iteration silently.
+//
+// Example:
 //
 //	for row, err := range r.Iterator() {
 //		if err != nil {
-//			// handle the error, it can be ValueParseError, MissingColumnValueError or i/o error.
-//		} else {
-//			// use row
+//			// inspect / log; break here to stop on the first error
+//			continue
 //		}
+//		// use row
 //	}
-//
-// The iterator yields (row, error) pairs. Iteration stops when:
-//   - io.EOF is returned (normal completion)
-//   - The yield function returns false
-//
-// Note: Errors other than io.EOF are yielded to the caller.
-// The caller should check for errors and break the loop if needed.
 func (r *Reader[T]) Iterator() iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
 		for {
 			row, err := r.Read()
-			if err != nil && errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) {
 				return
 			}
 			if !yield(row, err) {
+				return
+			}
+			if r.err != nil {
 				return
 			}
 		}
