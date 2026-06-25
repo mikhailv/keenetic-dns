@@ -3,6 +3,7 @@ package internal
 import (
 	"compress/gzip"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"iter"
@@ -21,6 +22,9 @@ import (
 )
 
 const defaultQueryLimit = 100
+
+//go:embed favicon.ico
+var faviconICO []byte
 
 type HTTPServer struct {
 	server   srv.HTTP
@@ -55,6 +59,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	// {$} matches only the literal "/", so deep paths still 404 instead of falling through to handleClientIP.
 	mux.HandleFunc("GET /{$}", s.handleClientIP)
 	mux.HandleFunc("GET /{ip}", s.handleIP)
+	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
 	// API endpoints
 	mux.HandleFunc("GET /ip", s.handleClientIP)
 	mux.HandleFunc("GET /ip/{ip}", s.handleIP)
@@ -64,6 +69,12 @@ func (s *HTTPServer) createHandler() http.Handler {
 	handler := cors.Default().Handler(mux)
 	gzWrapper := util.UnwrapResult(gzhttp.NewWrapper(gzhttp.CompressionLevel(gzip.BestSpeed)))
 	return gzWrapper(handler)
+}
+
+func (s *HTTPServer) handleFavicon(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+	_, _ = w.Write(faviconICO)
 }
 
 func (s *HTTPServer) handleClientIP(w http.ResponseWriter, r *http.Request) {
