@@ -1,0 +1,24 @@
+# BuildKit honors a "<dockerfile>.dockerignore" sibling of the Dockerfile and
+# uses it INSTEAD of the context-root .dockerignore. This keeps the ipinfo image
+# rules local to this directory.
+#
+# NOTE: patterns are still evaluated relative to the BUILD CONTEXT, which is the
+# repository root (the Go module lives there and ipinfo imports its internal/
+# packages) — hence the "ipinfo/..." prefixes below. Requires BuildKit.
+
+.git
+**/node_modules
+**/dist
+agent-rs/target
+**/*.bak
+
+# Prebuilt local binaries (rebuilt inside the image).
+ipinfo/ipinfo
+agent/agent
+
+# Exclude all geodb data, then re-include only the files baked into the image.
+ipinfo/geodb/**
+!ipinfo/geodb/geolite2.mmdb
+!ipinfo/geodb/geolite2_ipv4.parquet
+!ipinfo/geodb/ip2proxy.mmdb
+!ipinfo/geodb/ip2proxy_ipv4.parquet

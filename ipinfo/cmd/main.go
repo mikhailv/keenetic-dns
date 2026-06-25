@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	. "github.com/mikhailv/keenetic-dns/internal/setup"  //nolint:staticcheck //ignore
@@ -21,6 +22,7 @@ func main() {
 		httpServerAddr          string
 		geoMMDB, geoParquet     string
 		proxyMMDB, proxyParquet string
+		cacheTTL                time.Duration
 		pprofAddr               string
 		debug                   bool
 	)
@@ -30,6 +32,8 @@ func main() {
 	flag.StringVar(&geoParquet, "geo-parquet", "", "path to geo parquet file")
 	flag.StringVar(&proxyMMDB, "proxy-mmdb", "", "path to proxy mmdb file")
 	flag.StringVar(&proxyParquet, "proxy-parquet", "", "path to proxy parquet file")
+	flag.DurationVar(&cacheTTL, "cache-ttl", time.Hour,
+		"Cache-Control max-age for cacheable responses (0 disables caching)")
 	flag.StringVar(&pprofAddr, "pprof", "", "pprof handler address")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
@@ -45,7 +49,7 @@ func main() {
 	proxy := UnwrapOrExit(NewDataset[ProxyInfo, ProxyInfo](proxyMMDB, proxyParquet, log.WithPrefix(logger, "proxy")))
 	defer closeCloser(proxy, "proxy dataset", logger)
 
-	httpServer := NewHTTPServer(httpServerAddr, logger, geo, proxy)
+	httpServer := NewHTTPServer(httpServerAddr, logger, geo, proxy, cacheTTL)
 	go Serve(ctx, httpServer)
 
 	<-ctx.Done()

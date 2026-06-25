@@ -3,6 +3,7 @@ package internal
 // IPLookup is the combined per-IP response: geo information and proxy information. Either field is omitted if the
 // respective dataset has no record for the queried IP.
 type IPLookup struct {
+	IP    string     `json:"ip"`
 	Geo   *IPInfo    `json:"geo,omitempty"`
 	Proxy *ProxyInfo `json:"proxy,omitempty"`
 }

@@ -1,0 +1,17 @@
+services:
+  ipinfo:
+    image: ghcr.io/mikhailv/ipinfo:latest
+    container_name: ipinfo
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # Override the image CMD to tune the cacheable-response TTL (default 1h; 0 disables).
+    command:
+      - "-addr=0.0.0.0:8080"
+      - "-cache-ttl=1h"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/ip/1.1.1.1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

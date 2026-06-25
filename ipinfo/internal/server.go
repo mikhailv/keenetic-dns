@@ -4,11 +4,14 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/rs/cors"
@@ -20,9 +23,10 @@ import (
 const defaultQueryLimit = 100
 
 type HTTPServer struct {
-	server srv.HTTP
-	geo    *Dataset[GeoRecord, GeoRow]
-	proxy  *Dataset[ProxyInfo, ProxyInfo]
+	server   srv.HTTP
+	geo      *Dataset[GeoRecord, GeoRow]
+	proxy    *Dataset[ProxyInfo, ProxyInfo]
+	cacheTTL time.Duration
 }
 
 func NewHTTPServer(
@@ -30,11 +34,13 @@ func NewHTTPServer(
 	logger *slog.Logger,
 	geo *Dataset[GeoRecord, GeoRow],
 	proxy *Dataset[ProxyInfo, ProxyInfo],
+	cacheTTL time.Duration,
 ) *HTTPServer {
 	return &HTTPServer{
-		server: srv.NewHTTPServer(addr, logger, nil),
-		geo:    geo,
-		proxy:  proxy,
+		server:   srv.NewHTTPServer(addr, logger, nil),
+		geo:      geo,
+		proxy:    proxy,
+		cacheTTL: cacheTTL,
 	}
 }
 
@@ -45,6 +51,11 @@ func (s *HTTPServer) Serve(ctx context.Context) error {
 
 func (s *HTTPServer) createHandler() http.Handler {
 	mux := http.NewServeMux()
+	// root-level shortcuts that mirror /ip and /ip/{ip} for quick browser use (not part of public API).
+	// {$} matches only the literal "/", so deep paths still 404 instead of falling through to handleClientIP.
+	mux.HandleFunc("GET /{$}", s.handleClientIP)
+	mux.HandleFunc("GET /{ip}", s.handleIP)
+	// API endpoints
 	mux.HandleFunc("GET /ip", s.handleClientIP)
 	mux.HandleFunc("GET /ip/{ip}", s.handleIP)
 	mux.HandleFunc("GET /ip/query", s.handleGeoQuery)
@@ -56,27 +67,40 @@ func (s *HTTPServer) createHandler() http.Handler {
 }
 
 func (s *HTTPServer) handleClientIP(w http.ResponseWriter, r *http.Request) {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
+	// The response depends on the caller's own address, so it must never be shared by a CDN.
+	s.lookupIP(w, r.Context(), clientIP(r), false)
+}
+
+// clientIP resolves the originating client address, preferring proxy headers over the direct peer. Behind Cloudflare,
+// CF-Connecting-IP holds the true visitor; X-Forwarded-For is the fallback (its first entry is the original client).
+func clientIP(r *http.Request) string {
+	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+		return cf
 	}
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		host = fwd
+		first, _, _ := strings.Cut(fwd, ",")
+		return strings.TrimSpace(first)
 	}
-	s.lookupIP(w, r.Context(), host)
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (s *HTTPServer) handleIP(w http.ResponseWriter, r *http.Request) {
-	s.lookupIP(w, r.Context(), r.PathValue("ip"))
+	// Keyed by the IP in the path, so the response is deterministic and safe to cache.
+	s.lookupIP(w, r.Context(), r.PathValue("ip"), true)
 }
 
-func (s *HTTPServer) lookupIP(w http.ResponseWriter, ctx context.Context, ipStr string) {
-	ip, ok := parseIPv4(w, ipStr)
-	if !ok {
+func (s *HTTPServer) lookupIP(w http.ResponseWriter, ctx context.Context, ipStr string, cacheable bool) {
+	ip, err := parseIPv4(ipStr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	var result IPLookup
+	result.IP = ip.String()
 
 	var rec GeoRecord
 	geoNetwork, err := s.geo.Lookup(ctx, ip, &rec)
@@ -101,7 +125,19 @@ func (s *HTTPServer) lookupIP(w http.ResponseWriter, ctx context.Context, ipStr 
 		result.Proxy = &proxy
 	}
 
+	s.setCacheControl(w, cacheable)
 	writeJSON(w, result)
+}
+
+// setCacheControl emits a Cache-Control header so an upstream CDN (e.g. Cloudflare) and browsers can cache
+// deterministic responses for cacheTTL. Non-cacheable or TTL<=0 responses are marked no-store so nothing caches them.
+func (s *HTTPServer) setCacheControl(w http.ResponseWriter, cacheable bool) {
+	if cacheable && s.cacheTTL > 0 {
+		maxAge := strconv.FormatInt(int64(s.cacheTTL/time.Second), 10)
+		w.Header().Set("Cache-Control", "public, max-age="+maxAge)
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 }
 
 func (s *HTTPServer) handleGeoQuery(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +150,7 @@ func (s *HTTPServer) handleGeoQuery(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.setCacheControl(w, true)
 	writeJSON(w, resp)
 }
 
@@ -127,6 +164,7 @@ func (s *HTTPServer) handleProxyQuery(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.setCacheControl(w, true)
 	writeJSON(w, resp)
 }
 
@@ -154,17 +192,15 @@ func collectQuery[P, R any](seq iter.Seq2[P, error], offset, limit int, convert 
 
 func identity[T any](v T) T { return v }
 
-func parseIPv4(w http.ResponseWriter, ipStr string) (net.IP, bool) {
-	ip := net.ParseIP(ipStr)
+func parseIPv4(s string) (net.IP, error) {
+	ip := net.ParseIP(s)
 	if ip == nil {
-		http.Error(w, "invalid IP address", http.StatusBadRequest)
-		return nil, false
+		return nil, errors.New("invalid IP address")
 	}
 	if ip.To4() == nil {
-		http.Error(w, "only IPv4 is supported", http.StatusBadRequest)
-		return nil, false
+		return nil, errors.New("only IPv4 is supported")
 	}
-	return ip, true
+	return ip, nil
 }
 
 func parseQueryArgs(w http.ResponseWriter, r *http.Request) (field, query string, offset, limit int, ok bool) {
