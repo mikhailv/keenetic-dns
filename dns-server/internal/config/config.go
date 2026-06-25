@@ -46,6 +46,7 @@ type Agent struct {
 type DNS struct {
 	TTLOverride      time.Duration          `yaml:"ttl_override"`
 	DropECH          bool                   `yaml:"drop_ech"`
+	DropAAAA         bool                   `yaml:"drop_aaaa"`
 	QueryHistorySize int                    `yaml:"query_history_size"`
 	Providers        map[string]DNSProvider `yaml:"providers"`
 }

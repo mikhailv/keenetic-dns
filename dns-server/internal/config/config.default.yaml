@@ -12,6 +12,7 @@ agent:
 dns:
   ttl_override: 60s
   drop_ech: false
+  drop_aaaa: false
   query_history_size: 2000
   providers: {}
 

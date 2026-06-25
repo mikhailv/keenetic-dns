@@ -116,12 +116,13 @@ func main() { //nolint:funlen // ignore
 
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			NewRawQueryMiddleware(rawQueryStream),                // pre+post
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),        // post
-			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH), // post
-			SingleInflightMiddleware,                             // pre
+			NewRawQueryMiddleware(rawQueryStream),                                                            // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                                    // post
+			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                                             // post
+			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA),                                           // post
+			SingleInflightMiddleware,                                                                         // pre
 			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream, log.WithPrefix(logger, "ip_routing")), // post
-			ErrorSafeResponseMiddleware, // post
+			ErrorSafeResponseMiddleware,                                                                      // post
 		},
 		NewCachedResolver("cache", settableResolver, dnsCache),
 	)
