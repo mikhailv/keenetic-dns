@@ -2,6 +2,10 @@
 
 all: mmdb parquet
 
+download:
+	(cd ip2loc && ./download.sh)
+	(cd maxmind && ./download.sh)
+
 mmdb:
 	make -C ip2loc mmdb
 	make -C maxmind mmdb

@@ -101,6 +101,7 @@ make lint build
 
 ### Code Style
 - Standard Go formatting
+- Max line length: 120 characters (see `.editorconfig`)
 - `slog` for structured logging
 - iter.Seq2 for two-value iterators (Go 1.22+)
 

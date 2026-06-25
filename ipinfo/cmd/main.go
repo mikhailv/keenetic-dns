@@ -3,12 +3,9 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
 	"log/slog"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/mikhailv/keenetic-dns/internal/log"
@@ -20,13 +17,19 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	var httpServerAddr string
-	var dbFiles dbListFlag
-	var pprofAddr string
-	var debug bool
+	var (
+		httpServerAddr          string
+		geoMMDB, geoParquet     string
+		proxyMMDB, proxyParquet string
+		pprofAddr               string
+		debug                   bool
+	)
 
 	flag.StringVar(&httpServerAddr, "addr", "0.0.0.0:8080", "http server address")
-	flag.Var(&dbFiles, "db", "path to MMDB or Parquet file")
+	flag.StringVar(&geoMMDB, "geo-mmdb", "", "path to geo mmdb file")
+	flag.StringVar(&geoParquet, "geo-parquet", "", "path to geo parquet file")
+	flag.StringVar(&proxyMMDB, "proxy-mmdb", "", "path to proxy mmdb file")
+	flag.StringVar(&proxyParquet, "proxy-parquet", "", "path to proxy parquet file")
 	flag.StringVar(&pprofAddr, "pprof", "", "pprof handler address")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
@@ -36,21 +39,13 @@ func main() {
 
 	defer Pprof(pprofAddr, logger)()
 
-	resolvers := make([]Resolver, 0, len(dbFiles))
-	for _, df := range dbFiles {
-		name, path := df.Name, df.Path
-		var resolver Resolver
-		if strings.HasSuffix(path, ".parquet") {
-			resolver = UnwrapOrExit(NewParquetResolver(name, path, log.WithPrefix(logger, name)))
-		} else {
-			resolver = UnwrapOrExit(NewMMDBResolver(name, path))
-		}
-		logger.Info("register resolver", "name", resolver.Name(), "path", path)
-		defer closeCloser(resolver, "resolver", logger.With("name", resolver.Name()))
-		resolvers = append(resolvers, resolver)
-	}
+	geo := UnwrapOrExit(NewDataset[GeoRecord, GeoRow](geoMMDB, geoParquet, log.WithPrefix(logger, "geo")))
+	defer closeCloser(geo, "geo dataset", logger)
 
-	httpServer := NewHTTPServer(httpServerAddr, logger, NewResolverRegistry(resolvers))
+	proxy := UnwrapOrExit(NewDataset[ProxyInfo, ProxyInfo](proxyMMDB, proxyParquet, log.WithPrefix(logger, "proxy")))
+	defer closeCloser(proxy, "proxy dataset", logger)
+
+	httpServer := NewHTTPServer(httpServerAddr, logger, geo, proxy)
 	go Serve(ctx, httpServer)
 
 	<-ctx.Done()
@@ -64,37 +59,4 @@ func closeCloser(closer io.Closer, name string, logger *slog.Logger) {
 	} else {
 		logger.Info("closed " + name)
 	}
-}
-
-type dbFile struct {
-	Name string
-	Path string
-}
-
-var _ flag.Value = (*dbListFlag)(nil)
-
-type dbListFlag []dbFile
-
-func (f *dbListFlag) String() string {
-	return fmt.Sprintf("%v", *f)
-}
-
-// Set is an implementation of the flag.Value interface.
-func (f *dbListFlag) Set(value string) error {
-	if value == "" {
-		return nil
-	}
-	before, after, ok := strings.Cut(value, ":")
-	if !ok {
-		*f = append(*f, dbFile{
-			Name: strings.TrimSuffix(filepath.Base(value), filepath.Ext(value)),
-			Path: value,
-		})
-	} else {
-		*f = append(*f, dbFile{
-			Name: before,
-			Path: after,
-		})
-	}
-	return nil
 }
