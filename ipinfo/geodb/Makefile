@@ -1,6 +1,12 @@
-.PHONY: all parquet mmdb clean
+.PHONY: all update parquet mmdb clean download
 
 all: mmdb parquet
+
+# Download fresh source databases (skipping unchanged ones) and rebuild only
+# the outputs whose sources changed.
+update:
+	make -C ip2loc update
+	make -C maxmind update
 
 download:
 	(cd ip2loc && ./download.sh)

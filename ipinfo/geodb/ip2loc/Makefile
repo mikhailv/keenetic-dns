@@ -13,9 +13,26 @@ OUTPUT_PROXY_PARQUET_FILE = ../ip2proxy_ipv4.parquet ../ip2proxy_ipv6.parquet
 OUTPUT_MMDB_FILES = $(OUTPUT_GEO_MMDB_FILE) $(OUTPUT_PROXY_MMDB_FILE)
 OUTPUT_PARQUET_FILES = $(OUTPUT_GEO_PARQUET_FILES) $(OUTPUT_PROXY_PARQUET_FILE)
 
-.PHONY: all parquet mmdb clean
+.PHONY: all update download parquet mmdb clean
 
 all: mmdb parquet
+
+# Download fresh source databases and rebuild ONLY if something new was
+# downloaded. download.sh exits 3 when everything is already up to date.
+update:
+	@if ./download.sh; then \
+		$(MAKE) all; \
+	else \
+		code=$$?; \
+		if [ $$code -eq 3 ]; then \
+			echo "No new databases downloaded; skipping rebuild."; \
+		else \
+			exit $$code; \
+		fi; \
+	fi
+
+download:
+	@./download.sh || [ $$? -eq 3 ]
 
 mmdb: $(OUTPUT_MMDB_FILES)
 

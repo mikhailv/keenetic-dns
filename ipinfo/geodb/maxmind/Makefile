@@ -6,9 +6,26 @@ MMDB_FILES = GeoLite2-ASN.mmdb GeoLite2-City.mmdb
 OUTPUT_MMDB_FILE = ../geolite2.mmdb
 OUTPUT_PARQUET_FILES = ../geolite2_ipv4.parquet ../geolite2_ipv6.parquet
 
-.PHONY: all parquet mmdb clean
+.PHONY: all update download parquet mmdb clean
 
 all: mmdb parquet
+
+# Download fresh source databases and rebuild ONLY if something new was
+# downloaded. download.sh exits 3 when everything is already up to date.
+update:
+	@if ./download.sh; then \
+		$(MAKE) all; \
+	else \
+		code=$$?; \
+		if [ $$code -eq 3 ]; then \
+			echo "No new databases downloaded; skipping rebuild."; \
+		else \
+			exit $$code; \
+		fi; \
+	fi
+
+download:
+	@./download.sh || [ $$? -eq 3 ]
 
 mmdb: $(OUTPUT_MMDB_FILE)
 
