@@ -125,7 +125,7 @@ func (db *DB[T]) buildStates(preds []Predicate) ([]predState, error) {
 			pred:      p,
 			fieldIdx:  fi,
 			fieldIdx2: -1,
-			colIdx:    db.colIdxOr(p.field, -1),
+			colIdx:    db.lookupColIdx(p.field),
 			colIdx2:   -1,
 		}
 		if p.field2 != "" {
@@ -134,17 +134,17 @@ func (db *DB[T]) buildStates(preds []Predicate) ([]predState, error) {
 				return nil, fmt.Errorf("unknown field %q for row type %T", p.field2, *new(T))
 			}
 			states[i].fieldIdx2 = fi2
-			states[i].colIdx2 = db.colIdxOr(p.field2, -1)
+			states[i].colIdx2 = db.lookupColIdx(p.field2)
 		}
 	}
 	return states, nil
 }
 
-func (db *DB[T]) colIdxOr(name string, fallback int) int {
+func (db *DB[T]) lookupColIdx(name string) int {
 	if i, ok := db.colIdx[name]; ok {
 		return i
 	}
-	return fallback
+	return -1
 }
 
 func (db *DB[T]) queryScan(ctx context.Context, preds []Predicate) iter.Seq2[T, error] {
@@ -155,6 +155,7 @@ func (db *DB[T]) queryScan(ctx context.Context, preds []Predicate) iter.Seq2[T, 
 			yield(zero, err)
 			return
 		}
+		project := canProject(states)
 		for _, rg := range db.pf.RowGroups() {
 			if err := ctx.Err(); err != nil {
 				yield(zero, err)
@@ -170,11 +171,34 @@ func (db *DB[T]) queryScan(ctx context.Context, preds []Predicate) iter.Seq2[T, 
 			if skip {
 				continue
 			}
-			if !scanRowGroup(ctx, rg, states, yield) {
+			scan := scanRowGroup[T]
+			if project {
+				scan = scanRowGroupProjected[T]
+			}
+			if !scan(ctx, rg, states, yield) {
 				return
 			}
 		}
 	}
+}
+
+// canProject reports whether the predicate set can be evaluated with a projection scan: every column it reads must be
+// present in the file. When any column is absent, the full-decode path must be used so the missing column evaluates
+// against the struct field's zero value. Zero predicates cannot project (there is nothing to read; the full scan yields
+// every row).
+func canProject(states []predState) bool {
+	if len(states) == 0 {
+		return false
+	}
+	for _, s := range states {
+		if s.colIdx < 0 {
+			return false
+		}
+		if s.fieldIdx2 >= 0 && s.colIdx2 < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // shouldSkipRowGroup returns true if no row in rg can satisfy every predicate, based on column-index page bounds.
@@ -241,6 +265,155 @@ func scanRowGroup[T any](ctx context.Context, rg parquet.RowGroup, states []pred
 			return false
 		}
 	}
+}
+
+// projState pairs a predicate with the raw column values read for its column(s) in one row group. vals holds the
+// primary column (row-aligned by index); vals2 holds the range end column, or nil for non-range predicates.
+type projState struct {
+	pred  Predicate
+	vals  []parquet.Value
+	kind  parquet.Kind
+	vals2 []parquet.Value
+}
+
+// scanRowGroupProjected evaluates the predicates by reading only their columns, collecting the offsets of matching
+// rows, then materializing just those rows. This avoids decoding every column of every row, which is the dominant cost
+// when scanning an unsorted column (e.g. city_geoname_id) that min/max pruning cannot narrow. Rows are yielded in row
+// order, identical to scanRowGroup.
+func scanRowGroupProjected[T any](
+	ctx context.Context,
+	rg parquet.RowGroup,
+	states []predState,
+	yield func(T, error) bool,
+) bool {
+	var zero T
+	numRows := int(rg.NumRows())
+	chunks := rg.ColumnChunks()
+
+	// Read each referenced column once, even when several predicates share it.
+	valCache := map[int][]parquet.Value{}
+	readCol := func(ci int) ([]parquet.Value, error) {
+		if v, ok := valCache[ci]; ok {
+			return v, nil
+		}
+		v, err := readColumnValues(chunks[ci], numRows)
+		if err != nil {
+			return nil, err
+		}
+		valCache[ci] = v
+		return v, nil
+	}
+
+	ps := make([]projState, len(states))
+	for i, s := range states {
+		vals, err := readCol(s.colIdx)
+		if err != nil {
+			yield(zero, fmt.Errorf("reading column %q: %w", s.pred.field, err))
+			return false
+		}
+		ps[i] = projState{pred: s.pred, vals: vals, kind: chunks[s.colIdx].Type().Kind()}
+		if s.colIdx2 >= 0 {
+			vals2, err := readCol(s.colIdx2)
+			if err != nil {
+				yield(zero, fmt.Errorf("reading column %q: %w", s.pred.field2, err))
+				return false
+			}
+			ps[i].vals2 = vals2
+		}
+	}
+
+	var matches []int
+	for i := range numRows {
+		if matchRowProjected(ps, i) {
+			matches = append(matches, i)
+		}
+	}
+	if len(matches) == 0 {
+		return true
+	}
+
+	reader := parquet.NewGenericRowGroupReader[T](rg)
+	defer reader.Close()
+	var buf [1]T
+	for _, m := range matches {
+		if err := ctx.Err(); err != nil {
+			yield(zero, err)
+			return false
+		}
+		if err := reader.SeekToRow(int64(m)); err != nil {
+			yield(zero, fmt.Errorf("seeking to row %d: %w", m, err))
+			return false
+		}
+		n, err := reader.Read(buf[:])
+		if n == 1 {
+			if !yield(buf[0], nil) {
+				return false
+			}
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			yield(zero, err)
+			return false
+		}
+	}
+	return true
+}
+
+func matchRowProjected(ps []projState, i int) bool {
+	for _, s := range ps {
+		if s.pred.op == opRangeContainsInt64 {
+			if !s.pred.matchRangeInt64(int64OrZero(s.vals[i]), int64OrZero(s.vals2[i])) {
+				return false
+			}
+			continue
+		}
+		if !s.pred.matchProjectedValue(s.vals[i], s.kind) {
+			return false
+		}
+	}
+	return true
+}
+
+func int64OrZero(v parquet.Value) int64 {
+	if v.IsNull() {
+		return 0
+	}
+	return v.Int64()
+}
+
+// readColumnValues reads all values of a single column chunk into a row-aligned slice (one value per row, nulls
+// included). Values are cloned so byte-array payloads stay valid after their backing page is released.
+func readColumnValues(chunk parquet.ColumnChunk, numRows int) ([]parquet.Value, error) {
+	out := make([]parquet.Value, 0, numRows)
+	pages := chunk.Pages()
+	defer func() { _ = pages.Close() }()
+	buf := make([]parquet.Value, 1024)
+	for {
+		pg, err := pages.ReadPage()
+		if pg != nil {
+			vr := pg.Values()
+			for {
+				n, verr := vr.ReadValues(buf)
+				for i := range n {
+					out = append(out, buf[i].Clone())
+				}
+				if verr != nil {
+					if errors.Is(verr, io.EOF) {
+						break
+					}
+					parquet.Release(pg)
+					return nil, verr
+				}
+			}
+			parquet.Release(pg)
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func matchAll[T any](row *T, states []predState) bool {

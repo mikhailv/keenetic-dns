@@ -164,6 +164,37 @@ func (p Predicate) matchRangeInt64(start, end int64) bool {
 	return p.op == opRangeContainsInt64 && start <= p.intVal && p.intVal <= end
 }
 
+// matchProjectedValue evaluates a single-column predicate against a raw value read directly from a column chunk during
+// a projection scan. kind is the column's physical type. A null value is interpreted as the Go zero value (0 or "") so
+// results match the full-decode path, where an absent optional column decodes to the struct field's zero value.
+//
+// Range predicates span two columns and are handled by the caller, not here.
+func (p Predicate) matchProjectedValue(v parquet.Value, kind parquet.Kind) bool {
+	switch kind { //nolint:exhaustive // unsupported kinds fall through to false, matching matchValue
+	case parquet.Int32, parquet.Int64:
+		var n int64
+		if !v.IsNull() {
+			if kind == parquet.Int32 {
+				n = int64(v.Int32())
+			} else {
+				n = v.Int64()
+			}
+		}
+		if p.isStringOp() {
+			return p.matchString(strconv.FormatInt(n, 10))
+		}
+		return p.matchInt64(n)
+	case parquet.ByteArray, parquet.FixedLenByteArray:
+		var s string
+		if !v.IsNull() {
+			s = string(v.ByteArray())
+		}
+		return p.matchString(s)
+	default:
+		return false
+	}
+}
+
 // canMatchPage reports whether a page of column `field` whose bounds are [lo, hi] could contain a row that satisfies
 // this predicate. Used for row-group pruning. `field` must be one of p.Fields().
 func (p Predicate) canMatchPage(field string, lo, hi parquet.Value) bool {
