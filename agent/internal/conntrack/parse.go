@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/mikhailv/keenetic-dns/agent/internal/api"
-	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 // Parse parses the content of `conntrack -L` into structured entries.
@@ -67,7 +66,7 @@ func parseKeyValues(entry *api.ConntrackEntry, fields []string) {
 
 	for _, f := range fields {
 		if f == "[ASSURED]" {
-			entry.Assured = util.Ptr(true)
+			entry.Assured = new(true)
 			continue
 		}
 		if strings.HasPrefix(f, "[") {

@@ -197,7 +197,7 @@ func aggregateBuckets(bucketSeq iter.Seq2[conntrack.Bucket, error], interval uin
 					slices.Sort(ae.ConnIDs)
 					ae.ConnIDs = slices.Compact(ae.ConnIDs) // remove duplicates
 				} else {
-					agg.entries[entry.ConnKey] = util.Ptr(entry.Clone())
+					agg.entries[entry.ConnKey] = new(entry.Clone())
 				}
 			}
 		}

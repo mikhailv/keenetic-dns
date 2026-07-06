@@ -541,7 +541,7 @@ type CustomDuration struct {
 }
 
 func (d CustomDuration) MarshalText() ([]byte, error) {
-	return []byte(fmt.Sprintf("%ds", d.Seconds)), nil
+	return fmt.Appendf(nil, "%ds", d.Seconds), nil
 }
 
 func (d *CustomDuration) UnmarshalText(text []byte) error {

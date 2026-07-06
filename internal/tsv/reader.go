@@ -59,10 +59,7 @@ func NewReader[T any](r io.Reader, opts ...ReaderOption) *Reader[T] {
 		opt(&o)
 	}
 	scanner := bufio.NewScanner(r)
-	initBuf := o.maxLineSize
-	if initBuf > defaultMaxLineSize {
-		initBuf = defaultMaxLineSize
-	}
+	initBuf := min(o.maxLineSize, defaultMaxLineSize)
 	scanner.Buffer(make([]byte, 0, initBuf), o.maxLineSize)
 	return &Reader[T]{
 		scanner: scanner,

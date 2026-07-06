@@ -16,7 +16,7 @@ func TestGetTypeInfo_Struct(t *testing.T) {
 	info, err := getTypeInfo[TestRow]()
 	assert.NoError(t, err)
 	assert.NotNil(t, info)
-	assert.Equal(t, reflect.TypeOf(TestRow{}), info.typ)
+	assert.Equal(t, reflect.TypeFor[TestRow](), info.typ)
 	assert.Len(t, info.fields, 2)
 }
 
@@ -96,7 +96,7 @@ func TestGetTypeInfo_Cache(t *testing.T) {
 }
 
 func TestBuildTypeInfo_NotStruct(t *testing.T) {
-	_, err := buildTypeInfo(reflect.TypeOf("string"))
+	_, err := buildTypeInfo(reflect.TypeFor[string]())
 	assert.ErrorContains(t, err, "expected struct type")
 }
 
@@ -104,7 +104,7 @@ func TestBuildTypeInfo_NoExportedFields(t *testing.T) {
 	type NoExported struct {
 		name string // unexported
 	}
-	_, err := buildTypeInfo(reflect.TypeOf(NoExported{}))
+	_, err := buildTypeInfo(reflect.TypeFor[NoExported]())
 	assert.ErrorContains(t, err, "no exported fields")
 }
 
@@ -126,7 +126,7 @@ func TestCollectFields_AllTypes(t *testing.T) {
 		Bool    bool    `tsv:"bool"`
 	}
 
-	info, err := buildTypeInfo(reflect.TypeOf(AllTypesRow{}))
+	info, err := buildTypeInfo(reflect.TypeFor[AllTypesRow]())
 	assert.NoError(t, err)
 	assert.Len(t, info.fields, 14) // All 14 fields
 }
@@ -134,7 +134,7 @@ func TestCollectFields_AllTypes(t *testing.T) {
 func TestCheckType_Supported(t *testing.T) {
 	tests := []struct {
 		name string
-		typ  interface{}
+		typ  any
 	}{
 		{"string", ""},
 		{"int", 0},
@@ -170,9 +170,9 @@ func TestCheckType_Unsupported(t *testing.T) {
 		name string
 		typ  reflect.Type
 	}{
-		{"map", reflect.TypeOf(CustomMap(nil))},
-		{"slice", reflect.TypeOf(CustomSlice(nil))},
-		{"struct", reflect.TypeOf(CustomStruct{})},
+		{"map", reflect.TypeFor[CustomMap]()},
+		{"slice", reflect.TypeFor[CustomSlice]()},
+		{"struct", reflect.TypeFor[CustomStruct]()},
 	}
 
 	for _, tt := range tests {
@@ -199,11 +199,11 @@ func (t *TextValue) UnmarshalText(text []byte) error {
 
 func TestCheckType_TextMarshaler(t *testing.T) {
 	// Value type with TextMarshaler/Unmarshaler
-	err := checkType(reflect.TypeOf(TextValue{}))
+	err := checkType(reflect.TypeFor[TextValue]())
 	assert.NoError(t, err)
 
 	// Pointer to type with TextMarshaler/Unmarshaler
-	err = checkType(reflect.TypeOf(&TextValue{}))
+	err = checkType(reflect.TypeFor[*TextValue]())
 	assert.NoError(t, err)
 }
 

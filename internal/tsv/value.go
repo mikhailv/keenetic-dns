@@ -8,15 +8,15 @@ import (
 )
 
 var (
-	textMarshallerType   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
-	textUnmarshallerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
+	textMarshallerType   = reflect.TypeFor[encoding.TextMarshaler]()
+	textUnmarshallerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 )
 
 // buildParser returns a function that parses a string into a reflect.Value of
 // the given type. The returned value is suitable for reflect.Value.Set on a
 // struct field. Returns an error if the type is not supported.
 func buildParser(typ reflect.Type) (func(string) (reflect.Value, error), error) {
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		elemTyp := typ.Elem()
 		// If typ itself (i.e. *elemTyp) implements TextUnmarshaler, allocate
 		// the result pointer directly and unmarshal into it — saves an extra
@@ -117,7 +117,7 @@ func buildFormatter(typ reflect.Type) (func(reflect.Value) (string, error), erro
 	}
 	// Pointer-receiver TextMarshaler on a value type: copy to addressable
 	// storage so we can call the method.
-	if typ.Kind() != reflect.Ptr && reflect.PointerTo(typ).Implements(textMarshallerType) {
+	if typ.Kind() != reflect.Pointer && reflect.PointerTo(typ).Implements(textMarshallerType) {
 		return func(v reflect.Value) (string, error) {
 			tmp := reflect.New(typ)
 			tmp.Elem().Set(v)
@@ -126,7 +126,7 @@ func buildFormatter(typ reflect.Type) (func(reflect.Value) (string, error), erro
 		}, nil
 	}
 
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		elemFormat, err := buildFormatter(typ.Elem())
 		if err != nil {
 			return nil, err
