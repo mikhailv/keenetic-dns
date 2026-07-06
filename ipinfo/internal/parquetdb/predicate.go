@@ -195,6 +195,24 @@ func (p Predicate) matchProjectedValue(v parquet.Value, kind parquet.Kind) bool 
 	}
 }
 
+// matchesZeroValue reports whether the predicate matches the Go zero value of a column of the given physical kind (0
+// for ints, "" for byte arrays). Null values decode to that zero value (see matchProjectedValue), but column-index
+// page bounds exclude nulls, so pruning must consult this to avoid skipping a null-bearing page whose non-null min/max
+// does not bracket the query value. Mirrors matchProjectedValue's null branch exactly.
+func (p Predicate) matchesZeroValue(kind parquet.Kind) bool {
+	switch kind { //nolint:exhaustive // unsupported kinds cannot match, matching matchProjectedValue
+	case parquet.Int32, parquet.Int64:
+		if p.isStringOp() {
+			return p.matchString("0")
+		}
+		return p.matchInt64(0)
+	case parquet.ByteArray, parquet.FixedLenByteArray:
+		return p.matchString("")
+	default:
+		return false
+	}
+}
+
 // canMatchPage reports whether a page of column `field` whose bounds are [lo, hi] could contain a row that satisfies
 // this predicate. Used for row-group pruning. `field` must be one of p.Fields().
 func (p Predicate) canMatchPage(field string, lo, hi parquet.Value) bool {

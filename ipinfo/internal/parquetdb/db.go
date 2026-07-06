@@ -206,31 +206,40 @@ func canProject(states []predState) bool {
 func shouldSkipRowGroup(rg parquet.RowGroup, states []predState) (bool, error) {
 	chunks := rg.ColumnChunks()
 	for _, s := range states {
-		if s.colIdx >= 0 {
-			ci, err := chunks[s.colIdx].ColumnIndex()
-			if err != nil {
-				return false, fmt.Errorf("reading column index for %q: %w", s.pred.field, err)
-			}
-			if !anyPageCanMatch(ci, s.pred, s.pred.field) {
-				return true, nil
-			}
+		skip, err := columnPrunesRowGroup(chunks, s.colIdx, s.pred, s.pred.field)
+		if err != nil || skip {
+			return skip, err
 		}
-		if s.colIdx2 >= 0 {
-			ci, err := chunks[s.colIdx2].ColumnIndex()
-			if err != nil {
-				return false, fmt.Errorf("reading column index for %q: %w", s.pred.field2, err)
-			}
-			if !anyPageCanMatch(ci, s.pred, s.pred.field2) {
-				return true, nil
-			}
+		skip, err = columnPrunesRowGroup(chunks, s.colIdx2, s.pred, s.pred.field2)
+		if err != nil || skip {
+			return skip, err
 		}
 	}
 	return false, nil
 }
 
-func anyPageCanMatch(ci parquet.ColumnIndex, p Predicate, field string) bool {
+// columnPrunesRowGroup reports whether column colIdx's page bounds prove no row can satisfy p. A negative colIdx (column
+// absent from the file, or an unused range end) never prunes.
+func columnPrunesRowGroup(chunks []parquet.ColumnChunk, colIdx int, p Predicate, field string) (bool, error) {
+	if colIdx < 0 {
+		return false, nil
+	}
+	ci, err := chunks[colIdx].ColumnIndex()
+	if err != nil {
+		return false, fmt.Errorf("reading column index for %q: %w", field, err)
+	}
+	return !anyPageCanMatch(ci, p, field, chunks[colIdx].Type().Kind()), nil
+}
+
+func anyPageCanMatch(ci parquet.ColumnIndex, p Predicate, field string, kind parquet.Kind) bool {
+	// A null decodes to the column's zero value; page min/max bounds exclude nulls. So a predicate that matches the
+	// zero value can be satisfied by a null even when the non-null bounds do not bracket the query value.
+	nullMatches := p.matchesZeroValue(kind)
 	for pi := range ci.NumPages() {
 		if p.canMatchPage(field, ci.MinValue(pi), ci.MaxValue(pi)) {
+			return true
+		}
+		if nullMatches && (ci.NullPage(pi) || ci.NullCount(pi) > 0) {
 			return true
 		}
 	}
