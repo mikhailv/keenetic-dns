@@ -140,8 +140,8 @@ func main() { //nolint:funlen // ignore
 	)
 	go Serve(ctx, httpServer)
 
-	udpServer := NewDNSServer(cfg.Addr, dnsLogger, resolver)
-	go Serve(ctx, udpServer)
+	dnsServer := NewDNSServer(cfg.Addr, dnsLogger, resolver)
+	go Serve(ctx, dnsServer)
 
 	if cfg.MDNS.Enabled {
 		iface, err := getDefaultInterface()
