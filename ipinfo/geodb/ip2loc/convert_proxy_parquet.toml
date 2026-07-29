@@ -5,7 +5,7 @@ ipv6_file = "../ip2proxy_ipv6.parquet"
 
 [output.parquet]
 compression = "zstd"
-row_group_size = 1000
+row_group_size = 10000
 
 # Integer columns first for fast IP lookups via predicate pushdown (10-100x faster).
 [[network.columns]]
