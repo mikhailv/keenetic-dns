@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/blockstats"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"            //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc" //nolint:staticcheck //ignore
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/handlers"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing"           //nolint:staticcheck //ignore
@@ -42,6 +45,9 @@ func main() { //nolint:funlen // ignore
 	if err != nil {
 		ExitWithError(fmt.Errorf("failed to load config: %w", err))
 	}
+	if err = cfg.Validate(); err != nil {
+		ExitWithError(fmt.Errorf("invalid config: %w", err))
+	}
 
 	logger, logStream, logFlush := LoggerStream(cfg.Logging.Debug, 300, cfg.Logging.HistorySize)
 	defer LogPanic(logger)
@@ -50,8 +56,8 @@ func main() { //nolint:funlen // ignore
 
 	defer Pprof(*pprofAddr, logger)()
 
-	routingCfg := config.NewDynamic(&cfg.Routing)
-	mdnsServicesCfg := config.NewDynamic(cfg.MDNS.Services)
+	routingCfg := util.NewDynamic(&cfg.Routing)
+	mdnsServicesCfg := util.NewDynamic(cfg.MDNS.Services)
 
 	logger.Info("config loaded", "route_timeout", cfg.Routing.RouteTimeout)
 
@@ -88,12 +94,47 @@ func main() { //nolint:funlen // ignore
 
 	defer util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave).Wait()
 
+	var blockingMiddleware Middleware
+
+	if cfg.Blocking.Enabled {
+		blocklistManager := blocklist.NewManager(cfg.Blocking.Config, log.WithPrefix(logger, "blocklist"))
+		defer closeCloser(blocklistManager, "blocklist", logger)
+		defer blocklistManager.Start(ctx).Wait()
+
+		var blockRecorder handlers.BlockRecorder
+
+		if cfg.Blocking.Stats.Enabled {
+			statsStore := blockstats.NewFileStore(cfg.Blocking.Stats.DataDir, log.WithPrefix(logger, "blockstats.filestore"))
+			if err = statsStore.Init(ctx); err != nil {
+				ExitWithError(fmt.Errorf("failed to init blockstats store: %w", err))
+			}
+			defer closeCloser(statsStore, "blockstats store", logger)
+
+			statsRecorder := blockstats.NewRecorder(statsStore, cfg.Blocking.Stats, log.WithPrefix(logger, "blockstats"))
+			defer closeCloser(statsRecorder, "blockstats", logger)
+			defer statsRecorder.Start(ctx).Wait()
+
+			blockRecorder = statsRecorder
+
+			logger.Info("blockstats enabled",
+				"dir", cfg.Blocking.Stats.DataDir, "flush_interval", cfg.Blocking.Stats.FlushInterval)
+		}
+
+		blockingMiddleware = NewBlockingMiddleware(blocklistManager, cfg.Blocking.Mode, blockRecorder, log.WithPrefix(logger, "blocking"))
+
+		logger.Info("blocking enabled", "lists", len(cfg.Blocking.EnabledLists()),
+			"mode", cfg.Blocking.Mode.String(), "groups", len(cfg.Blocking.Groups))
+	} else {
+		blockingMiddleware = NopMiddleware
+		logger.Info("blocking disabled")
+	}
+
 	dnsQueryStream := stream.NewBufferedStream[types.DNSQuery](cfg.DNS.QueryHistorySize)
 	rawQueryStream := stream.NewBufferedStream[types.DNSRawQuery](cfg.DNS.QueryHistorySize)
 
 	dnsLogger := log.WithPrefix(logger, "dns")
 	dnsQueryStream.Listen(func(cursor stream.Cursor, query types.DNSQuery) {
-		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_addr", query.ClientAddr)
+		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_ip", query.ClientIP)
 	})
 
 	resolver, err := createResolver(cfg.DNS.Providers, logger)
@@ -116,13 +157,14 @@ func main() { //nolint:funlen // ignore
 
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			NewRawQueryMiddleware(rawQueryStream),                                                            // pre+post
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                                    // post
-			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                                             // post
-			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA),                                           // post
-			SingleInflightMiddleware,                                                                         // pre
+			NewRawQueryMiddleware(rawQueryStream),                  // pre+post
+			blockingMiddleware,                                     // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),          // post
+			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),   // post
+			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA), // post
+			SingleInflightMiddleware,                               // pre
 			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream, log.WithPrefix(logger, "ip_routing")), // post
-			ErrorSafeResponseMiddleware,                                                                      // post
+			ErrorSafeResponseMiddleware, // post
 		},
 		NewCachedResolver("cache", settableResolver, dnsCache),
 	)
@@ -171,7 +213,8 @@ func setupDNSStore(file string, logger *slog.Logger, retentionTime time.Duration
 	logger = logger.With("file", file)
 
 	removeExpired := func() {
-		removed, dur, _ := measure(func() ([]*types.DomainLookup, error) { return store.RemoveExpired(), nil })
+		m := measure()
+		removed := store.RemoveExpired()
 		if len(removed) > 0 {
 			if logger.Enabled(context.Background(), slog.LevelDebug) {
 				for _, r := range removed {
@@ -182,7 +225,7 @@ func setupDNSStore(file string, logger *slog.Logger, retentionTime time.Duration
 					logger.Debug("dns record expired", "domain", r.Domain, "ips", ips, "resolved", r.Time)
 				}
 			}
-			logger.Info("removed expired records", "removed", len(removed), "duration", dur)
+			logger.Info("removed expired records", "removed", len(removed), "duration", m())
 		}
 	}
 
@@ -315,41 +358,38 @@ func getDefaultInterface() (*net.Interface, error) {
 }
 
 func loadFromFile(file string, logger *slog.Logger, loader func(io.Reader) (int, error)) {
+	m := measure()
 	if f, err := os.Open(file); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			logger.Error("failed to open file", "err", err)
 		}
-	} else if loaded, dur, err := measure(func() (int, error) { return loader(f) }); err != nil {
+	} else if loaded, err := loader(f); err != nil {
 		_ = f.Close()
 		logger.Error("failed to load from file", "err", err)
 	} else {
 		_ = f.Close()
-		logger.Info("loaded from file", "records", loaded, "duration", dur)
+		logger.Info("loaded from file", "records", loaded, "duration", m())
 	}
 }
 
 func saveToFile(file string, logger *slog.Logger, saver func(io.Writer) (int, error)) {
-	syncClose := func(f *os.File) {
-		if err := f.Sync(); err != nil {
-			logger.Error("failed to sync file", "err", err)
-		}
-		if err := f.Close(); err != nil {
-			logger.Error("failed to close file", "err", err)
-		}
-	}
-	if f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
-		logger.Error("failed to create file", "err", err)
-	} else if saved, dur, err := measure(func() (int, error) { return saver(f) }); err != nil {
+	m := measure()
+	var saved int
+	err := util.SaveToFileFunc(file, func(w io.Writer) error {
+		var err error
+		saved, err = saver(w)
+		return err
+	})
+	if err != nil {
 		logger.Error("failed to save to file", "err", err)
-		syncClose(f)
-	} else {
-		logger.Info("saved to file", "records", saved, "duration", dur)
-		syncClose(f)
+		return
 	}
+	logger.Info("saved to file", "records", saved, "duration", m())
 }
 
-func measure[T any](fn func() (T, error)) (T, time.Duration, error) {
+func measure() func() time.Duration {
 	st := time.Now()
-	r, err := fn()
-	return r, time.Since(st).Truncate(time.Microsecond), err
+	return func() time.Duration {
+		return time.Since(st).Truncate(time.Microsecond)
+	}
 }

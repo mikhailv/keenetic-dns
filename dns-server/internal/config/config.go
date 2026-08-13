@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	_ "embed"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/blockstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
@@ -31,6 +34,24 @@ type Config struct {
 	Storage   Storage   `yaml:"storage"`
 	Routing   Routing   `yaml:"routing"`
 	Conntrack Conntrack `yaml:"conntrack"`
+	Blocking  Blocking  `yaml:"blocking"`
+}
+
+type Blocking struct {
+	blocklist.Config `yaml:",inline"`
+	Stats            blockstats.Config `yaml:"stats"`
+}
+
+func (c *Blocking) SetDefaults() {
+	c.Config.SetDefaults()
+	c.Stats.SetDefaults()
+}
+
+func (c *Blocking) Validate() error {
+	return cmp.Or(
+		c.Config.Validate(),
+		c.Stats.Validate(),
+	)
 }
 
 type Logging struct {
@@ -143,10 +164,15 @@ func (c *Config) init() {
 	c.Routing.init()
 }
 
+func (c *Config) Validate() error {
+	return c.Blocking.Validate()
+}
+
 func (c *Config) setDefaults() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = c.Addr
 	}
+	c.Blocking.SetDefaults()
 }
 
 func DefaultConfig() *Config {

@@ -43,3 +43,34 @@ conntrack:
   save_interval: 10m
   data_dir: conntrack
   history_size: 1000
+
+blocking:
+  enabled: false
+  mode: nxdomain # nxdomain | null | nodata
+  data_dir: blocklist
+  refresh_interval: 24h
+  download_timeout: 2m
+  lists: []
+    # `urls` are sources of blocked domains and `allow_urls` sources of allowed domains.
+    # `allow` and `deny` are lists of domains that can be written in config.
+    #
+    # - name: hagezi-pro
+    #   enabled: true
+    #   urls:
+    #     - 'https://gitlab.com/hagezi/mirror/-/raw/main/dns-blocklists/wildcard/pro-onlydomains.txt'
+    #   allow_urls: []
+    #   allow: ['analytics.mycompany.com']
+    #   deny: ['annoying.example.net']
+
+  groups: []
+  # groups:
+  #   - name: kids
+  #     clients: ['192.168.1.50', '192.168.9.0/24']
+  #     lists: [hagezi-pro, my-overrides]
+
+  stats:
+    enabled: false
+    data_dir: blockstats
+    chunk_duration: 1h
+    flush_interval: 5m
+    max_entries: 50000

@@ -2,6 +2,50 @@
 
 This file provides guidance for AI assistants working with this codebase.
 
+## Code Style
+- Standard Go formatting
+- Max line length: 160 characters (see `.editorconfig`)
+- Comments wrap at 120, narrower than the 160 code allows. Code lines run long
+  because of identifiers and argument lists, where breaking early hurts more
+  than it helps; prose has no such excuse and reads worse the wider it gets.
+- `slog` for structured logging
+- iter.Seq2 for two-value iterators (Go 1.22+)
+
+## Comment Style
+**NEVER add comments that restate what the code obviously does.**
+
+**Only comment complex algorithmic logic or non-obvious business rules. Omit all
+self-explanatory or redundant inline comments.**
+
+A comment that repeats the identifier it sits above earns nothing and has to be
+maintained. If a name, signature, or three lines of straightforward code already
+say it, say nothing.
+
+Comments that do stay explain intent and consequence — why the code is shaped
+this way, and what breaks otherwise. Keep them about the code, not about the
+environment it happens to run in or the session that produced them.
+
+Do NOT put in comments:
+- **Deployment hardware.** No mention of routers, microSD cards, tmpfs, "slow
+  storage", or specific device limits. Hardware shaped some decisions, but it is
+  a constraint we develop against, not a property of the code — and it dates
+  badly the moment the service runs somewhere else. Say what the code needs in
+  neutral terms instead: "must be a persistent location", "a build is far more
+  demanding than serving the result".
+- **Benchmark numbers.** No "measured at 27MB for 214k domains", no timings, no
+  file sizes. They read as trivia, go stale silently, and nothing verifies them.
+  State the shape of the cost ("peak memory is dominated by the accumulated
+  rules") and leave the figures to commit messages, issues, or benchmarks.
+- **Callers, in shared code.** A comment in `internal/util` or any other
+  general-purpose package must not explain itself through one of its consumers
+  ("this is how a download validates itself"). A reader in that package has no
+  idea which consumer is meant, and the comment is wrong the moment a second one
+  appears. Say what the code does for anyone ("the last point at which the new
+  contents can be inspected and refused"); a package that genuinely has one
+  caller is a package that should live next to it.
+- Session narrative — what was tried, what an earlier version did, when
+  something was written.
+
 ## Project Overview
 
 **keenetic-dns** is a DNS server with selective routing capabilities designed for Keenetic routers. It resolves specific domains (YouTube, Facebook, Instagram, etc.) and automatically adds IP routes to route their traffic through configured interfaces (VPN tunnels) while other traffic uses the default route.
@@ -63,19 +107,10 @@ Init scripts and watchdog shell scripts for deployment on Keenetic.
 - **tsv/** - TSV reader/writer utilities with reflection-based type info
 - **util/** - Set, ring buffer, weak map, sync map, closer, run helpers, seq utilities
 
-## Configuration
-
-YAML-based configuration in `config.yaml`:
-- DNS upstream providers (DoH endpoints, DNS servers)
-- Selective routing rules (domain patterns → interface)
-- Static IP routes
-- mDNS service definitions
-- Reconciliation settings
-
 ## Key Patterns
 
 ### Dynamic Config with Listeners
-`config.Dynamic[T]` provides thread-safe config with listener callbacks. Listeners must not call `Set()` synchronously (causes deadlock).
+`util.Dynamic[T]` provides thread-safe config with listener callbacks. Listeners must not call `Set()` synchronously (causes deadlock).
 
 ### Stream with Listeners
 `stream.Buffered[T]` provides cursor-based queries and push updates via listeners. Remember to check context cancellation before adding listeners.
@@ -99,23 +134,20 @@ go test ./...
 make lint build
 ```
 
-### Code Style
-- Standard Go formatting
-- Max line length: 120 characters (see `.editorconfig`)
-- `slog` for structured logging
-- iter.Seq2 for two-value iterators (Go 1.22+)
+### Configuration
+A `Config` struct lives in the package whose behaviour it configures, in that
+package's `config.go`, with its `yaml:` tags, `SetDefaults()` and `Validate()`.
+`internal/config` composes those types instead of restating them, so every
+setting is declared once and validated next to the constants it checks:
 
-### Recent Changes
-- Routing: support for multiple routing rules from different source subnetworks
-- Conntrack: WebSocket streaming and related functionality removed
-- Optimized domain and IP tree handling, improved config initialization
-- ipinfo: ip2location lite database support and download script
-- Centralized tool usage via Makefile dependencies (`tools/`)
-- Beads issue tracking initialized
+```go
+Blocking blocklist.Config `yaml:"blocking"`
+```
 
-## Known Issues (Documented)
-
-None currently.
+Exceptions in `internal/config`: settings with no owning package (`addr`,
+`logging`), and types carrying behaviour beyond configuration (`config.Routing`
+has `LookupHost`/`LookupIP`). A key spanning several packages is composed there
+too, rather than nesting one package's config inside another's.
 
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
