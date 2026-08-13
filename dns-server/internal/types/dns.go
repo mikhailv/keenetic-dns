@@ -50,7 +50,7 @@ var _ stream.CursorAware = (*DNSQuery)(nil)
 
 type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
-	ClientAddr string        `json:"client_addr"`
+	ClientIP   IPv4          `json:"client_ip"`
 	Duration   float64       `json:"duration"`
 	IPRoutings IPRoutings    `json:"ip_routings,omitempty"`
 	DomainLookup
@@ -172,12 +172,12 @@ func (s *IPRoutings) add(action RoutingAction, static bool, iface, reason string
 var _ stream.CursorAware = (*DNSRawQuery)(nil)
 
 type DNSRawQuery struct {
-	Cursor     stream.Cursor `json:"cursor,omitempty"`
-	Time       Timestamp     `json:"time"`
-	ClientAddr string        `json:"client_addr"`
-	Response   bool          `json:"response,omitempty"`
-	Msg        PackedMsg     `json:"msg"`
-	Error      error         `json:"error,omitempty"`
+	Cursor   stream.Cursor `json:"cursor,omitempty"`
+	Time     Timestamp     `json:"time"`
+	ClientIP IPv4          `json:"client_ip"`
+	Response bool          `json:"response,omitempty"`
+	Msg      PackedMsg     `json:"msg"`
+	Error    error         `json:"error,omitempty"`
 }
 
 func (s *DNSRawQuery) SetCursor(cursor stream.Cursor) {

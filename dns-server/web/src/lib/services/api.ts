@@ -108,7 +108,6 @@ function parseIPRoute(it: IPRoute): IPRoute {
 
 function parseDNSQuery(it: DNSQuery): DNSQuery {
 	it.time = new Date(it.time);
-	it.client_ip = it.client_addr.split(':')[0];
 	return it;
 }
 

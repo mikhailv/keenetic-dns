@@ -85,7 +85,7 @@ func (s *HTTPServer) handleClientIP(w http.ResponseWriter, r *http.Request) {
 // clientIP resolves the originating client address, preferring proxy headers over the direct peer. Behind Cloudflare,
 // CF-Connecting-IP holds the true visitor; X-Forwarded-For is the fallback (its first entry is the original client).
 func clientIP(r *http.Request) string {
-	if cf := r.Header.Get("CF-Connecting-IP"); cf != "" {
+	if cf := r.Header.Get("Cf-Connecting-Ip"); cf != "" {
 		return cf
 	}
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {

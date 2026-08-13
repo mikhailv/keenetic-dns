@@ -102,7 +102,7 @@ func (s *memDNSCache) Load(reader io.Reader) (count int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	defer handleError(gz.Close, &err)
+	defer util.HandleError(gz.Close, &err)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -135,9 +135,9 @@ func (s *memDNSCache) Save(writer io.Writer) (count int, err error) {
 	s.mu.RUnlock()
 
 	bufWriter := bufio.NewWriter(writer)
-	defer handleError(bufWriter.Flush, &err)
+	defer util.HandleError(bufWriter.Flush, &err)
 	gz := gzip.NewWriter(bufWriter)
-	defer handleError(gz.Close, &err)
+	defer util.HandleError(gz.Close, &err)
 
 	encoder := cbor.NewEncoder(gz)
 	for _, v := range entries {
@@ -205,11 +205,4 @@ func minRecordsTTL(records []dns.RR) uint32 {
 		res = min(res, rr.Header().Ttl)
 	}
 	return res
-}
-
-func handleError(fn func() error, err *error) {
-	fnErr := fn()
-	if *err == nil {
-		*err = fnErr
-	}
 }

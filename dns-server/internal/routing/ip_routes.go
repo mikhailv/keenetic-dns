@@ -20,7 +20,7 @@ import (
 )
 
 type IPRouteController struct {
-	cfg            *config.Dynamic[*config.Routing]
+	cfg            *util.Dynamic[*config.Routing]
 	logger         *slog.Logger
 	dnsStore       *storage.DNSStore
 	networkService agentclient.NetworkServiceClient
@@ -31,7 +31,7 @@ type IPRouteController struct {
 }
 
 func NewIPRouteController(
-	cfg *config.Dynamic[*config.Routing],
+	cfg *util.Dynamic[*config.Routing],
 	logger *slog.Logger,
 	dnsStore *storage.DNSStore,
 	networkService agentclient.NetworkServiceClient,

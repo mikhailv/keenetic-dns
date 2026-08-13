@@ -296,43 +296,14 @@ func scanRowGroupProjected[T any](
 	yield func(T, error) bool,
 ) bool {
 	var zero T
-	numRows := int(rg.NumRows())
-	chunks := rg.ColumnChunks()
-
-	// Read each referenced column once, even when several predicates share it.
-	valCache := map[int][]parquet.Value{}
-	readCol := func(ci int) ([]parquet.Value, error) {
-		if v, ok := valCache[ci]; ok {
-			return v, nil
-		}
-		v, err := readColumnValues(chunks[ci], numRows)
-		if err != nil {
-			return nil, err
-		}
-		valCache[ci] = v
-		return v, nil
-	}
-
-	ps := make([]projState, len(states))
-	for i, s := range states {
-		vals, err := readCol(s.colIdx)
-		if err != nil {
-			yield(zero, fmt.Errorf("reading column %q: %w", s.pred.field, err))
-			return false
-		}
-		ps[i] = projState{pred: s.pred, vals: vals, kind: chunks[s.colIdx].Type().Kind()}
-		if s.colIdx2 >= 0 {
-			vals2, err := readCol(s.colIdx2)
-			if err != nil {
-				yield(zero, fmt.Errorf("reading column %q: %w", s.pred.field2, err))
-				return false
-			}
-			ps[i].vals2 = vals2
-		}
+	ps, err := loadProjStates(rg, states)
+	if err != nil {
+		yield(zero, err)
+		return false
 	}
 
 	var matches []int
-	for i := range numRows {
+	for i := range int(rg.NumRows()) {
 		if matchRowProjected(ps, i) {
 			matches = append(matches, i)
 		}
@@ -365,6 +336,41 @@ func scanRowGroupProjected[T any](
 		}
 	}
 	return true
+}
+
+func loadProjStates(rg parquet.RowGroup, states []predState) ([]projState, error) {
+	numRows := int(rg.NumRows())
+	chunks := rg.ColumnChunks()
+
+	valCache := map[int][]parquet.Value{}
+	readCol := func(ci int) ([]parquet.Value, error) {
+		if v, ok := valCache[ci]; ok {
+			return v, nil
+		}
+		v, err := readColumnValues(chunks[ci], numRows)
+		if err != nil {
+			return nil, err
+		}
+		valCache[ci] = v
+		return v, nil
+	}
+
+	ps := make([]projState, len(states))
+	for i, s := range states {
+		vals, err := readCol(s.colIdx)
+		if err != nil {
+			return nil, fmt.Errorf("reading column %q: %w", s.pred.field, err)
+		}
+		ps[i] = projState{pred: s.pred, vals: vals, kind: chunks[s.colIdx].Type().Kind()}
+		if s.colIdx2 >= 0 {
+			vals2, err := readCol(s.colIdx2)
+			if err != nil {
+				return nil, fmt.Errorf("reading column %q: %w", s.pred.field2, err)
+			}
+			ps[i].vals2 = vals2
+		}
+	}
+	return ps, nil
 }
 
 func matchRowProjected(ps []projState, i int) bool {

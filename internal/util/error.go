@@ -10,3 +10,10 @@ func PanicIf(err error) {
 		panic(err)
 	}
 }
+
+func HandleError(fn func() error, err *error) {
+	fnErr := fn()
+	if *err == nil {
+		*err = fnErr
+	}
+}

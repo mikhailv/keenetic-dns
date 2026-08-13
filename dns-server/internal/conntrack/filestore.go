@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -17,6 +18,8 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/gzip"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 // NewFileStore creates a Store that persists chunks as gzip-compressed binary
@@ -154,16 +157,10 @@ func (s *fileStore) listAllChunks() (map[TimeRange]string, error) {
 	return res, nil
 }
 
-func (s *fileStore) saveFile(path string, chunk Chunk) (resErr error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("create file: %w", err)
-	}
-	defer handleError(f.Close, &resErr)
-	return encodeChunk(f, chunk)
+func (s *fileStore) saveFile(path string, chunk Chunk) error {
+	return util.SaveToFileFunc(path, func(w io.Writer) error {
+		return encodeChunk(w, chunk)
+	})
 }
 
 func (s *fileStore) loadFile(path string, onlyVersion bool) (chunk Chunk, version byte, resErr error) {
@@ -174,7 +171,7 @@ func (s *fileStore) loadFile(path string, onlyVersion bool) (chunk Chunk, versio
 		}
 		return Chunk{}, 0, fmt.Errorf("open file: %w", err)
 	}
-	defer handleError(f.Close, &resErr)
+	defer util.HandleError(f.Close, &resErr)
 	version, err = decodeChunk(f, &chunk, onlyVersion)
 	return chunk, version, err
 }
@@ -200,12 +197,14 @@ func parseChunkFilename(name string) TimeRange {
 	}
 }
 
+var errCorruptChunk = errors.New("corrupt chunk file")
+
 func decodeChunk(r io.Reader, chunk *Chunk, onlyVersion bool) (version byte, resErr error) {
 	gz, err := gzip.NewReader(bufio.NewReader(r))
 	if err != nil {
-		return 0, fmt.Errorf("gzip reader: %w", err)
+		return 0, fmt.Errorf("%w: gzip reader: %w", errCorruptChunk, err)
 	}
-	defer handleError(gz.Close, &resErr)
+	defer util.HandleError(gz.Close, &resErr)
 
 	decoder := newChunkDecoder(gz)
 	if err := decoder.Decode(chunk, onlyVersion); err != nil {
@@ -216,20 +215,13 @@ func decodeChunk(r io.Reader, chunk *Chunk, onlyVersion bool) (version byte, res
 
 func encodeChunk(w io.Writer, chunk Chunk) (resErr error) {
 	bufWriter := bufio.NewWriter(w)
-	defer handleError(bufWriter.Flush, &resErr)
+	defer util.HandleError(bufWriter.Flush, &resErr)
 	gz := gzip.NewWriter(bufWriter)
-	defer handleError(gz.Close, &resErr)
+	defer util.HandleError(gz.Close, &resErr)
 
 	encoder := newChunkEncoder(gz)
 	if err := encoder.Encode(&chunk); err != nil {
 		return fmt.Errorf("encode chunk: %w", err)
 	}
 	return nil
-}
-
-func handleError(fn func() error, err *error) {
-	fnErr := fn()
-	if *err == nil {
-		*err = fnErr
-	}
 }

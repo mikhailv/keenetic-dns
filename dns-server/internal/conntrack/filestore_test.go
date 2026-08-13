@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/gzip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -152,4 +154,94 @@ func TestFileStore_Init_MigratesFlatFiles(t *testing.T) {
 	}
 	require.Len(t, loaded, 1)
 	assert.Equal(t, chunk, loaded[0])
+}
+
+func TestFileStore_Init_KeepsCorruptChunk(t *testing.T) {
+	dir := t.TempDir()
+
+	base := Timestamp(time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC).Unix())
+	tr := TimeRange{Start: base, End: base + 3600}
+
+	corrupt := filepath.Join(dir, "2026-04-06", fmt.Sprintf("%d-%d.bin", tr.Start, tr.End))
+	require.NoError(t, os.MkdirAll(filepath.Dir(corrupt), 0o755))
+	require.NoError(t, os.WriteFile(corrupt, []byte("\x98\x94\x03\x00not a gzip stream"), 0o600))
+
+	good := TimeRange{Start: base + 3601, End: base + 7200}
+	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	require.NoError(t, store.Save(t.Context(), Chunk{TimeRange: good, BucketDuration: 300}))
+	require.NoError(t, store.Init(t.Context()))
+
+	_, err := os.Stat(corrupt)
+	require.NoError(t, err, "a corrupt chunk must be left in place for the operator to remove")
+
+	var loaded []Chunk
+	for c, loadErr := range store.Load(t.Context(), good) {
+		require.NoError(t, loadErr)
+		loaded = append(loaded, c)
+	}
+	assert.Len(t, loaded, 1, "the corrupt file must not stop the rest from loading")
+}
+
+func TestFileStore_Init_KeepsChunkWithUnknownVersion(t *testing.T) {
+	dir := t.TempDir()
+
+	base := Timestamp(time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC).Unix())
+	tr := TimeRange{Start: base, End: base + 3600}
+
+	path := filepath.Join(dir, "2026-04-06", fmt.Sprintf("%d-%d.bin", tr.Start, tr.End))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	_, err := gz.Write([]byte{encodingVersion + 1})
+	require.NoError(t, err)
+	require.NoError(t, gz.Close())
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+
+	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	require.NoError(t, store.Init(t.Context()))
+
+	_, err = os.Stat(path)
+	assert.NoError(t, err, "a chunk from a newer build must be kept")
+}
+
+func TestFileStore_Init_IgnoresAbandonedTempFile(t *testing.T) {
+	dir := t.TempDir()
+
+	tmp := filepath.Join(dir, "2026-04-06", "1775484000-1775487600.bin.tmp")
+	require.NoError(t, os.MkdirAll(filepath.Dir(tmp), 0o755))
+	require.NoError(t, os.WriteFile(tmp, []byte("half written"), 0o600))
+
+	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	require.NoError(t, store.Init(t.Context()))
+
+	tr := TimeRange{Start: 1775484000, End: 1775487600}
+	var loaded []Chunk
+	for c, err := range store.Load(t.Context(), tr) {
+		require.NoError(t, err)
+		loaded = append(loaded, c)
+	}
+	assert.Empty(t, loaded, "a temporary file must not be loaded as a chunk")
+}
+
+func TestFileStore_SaveDoesNotWriteInPlace(t *testing.T) {
+	dir := t.TempDir()
+	fs := &fileStore{dir: dir, logger: slog.New(slog.DiscardHandler)}
+
+	base := Timestamp(time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC).Unix())
+	tr := TimeRange{Start: base, End: base + 3600}
+	path := filepath.Join(dir, fmt.Sprintf("%d-%d.bin", tr.Start, tr.End))
+
+	require.NoError(t, fs.saveFile(path, Chunk{TimeRange: tr, BucketDuration: 300}))
+	first, err := os.Stat(path)
+	require.NoError(t, err)
+
+	require.NoError(t, fs.saveFile(path, Chunk{TimeRange: tr, BucketDuration: 600}))
+	second, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.False(t, os.SameFile(first, second), "save must rename a new file into place, not rewrite the old one")
+
+	chunk, _, err := fs.loadFile(path, false)
+	require.NoError(t, err)
+	assert.Equal(t, uint(600), chunk.BucketDuration)
 }

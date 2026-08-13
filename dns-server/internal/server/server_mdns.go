@@ -13,6 +13,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 const (
@@ -34,12 +35,12 @@ type mdnsService struct {
 
 type MDNSServer struct {
 	logger   *slog.Logger
-	cfg      *config.Dynamic[[]config.MDNSService]
+	cfg      *util.Dynamic[[]config.MDNSService]
 	iface    string
 	services atomic.Pointer[[]*mdnsService]
 }
 
-func NewMDNSServer(logger *slog.Logger, iface string, cfg *config.Dynamic[[]config.MDNSService]) *MDNSServer {
+func NewMDNSServer(logger *slog.Logger, iface string, cfg *util.Dynamic[[]config.MDNSService]) *MDNSServer {
 	return &MDNSServer{
 		logger: logger,
 		cfg:    cfg,

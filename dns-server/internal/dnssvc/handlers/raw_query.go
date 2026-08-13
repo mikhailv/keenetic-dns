@@ -32,11 +32,12 @@ func (s rawQueryHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, er
 }
 
 func (s rawQueryHandler) appendQuery(ctx context.Context, msg *dns.Msg, err error) {
+	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 	q := types.DNSRawQuery{
-		Time:       types.TimestampFromTime(time.Now()),
-		ClientAddr: ctxutil.GetDNSQueryRemoteAddr(ctx),
-		Response:   (msg != nil && msg.Response) || err != nil,
-		Error:      err,
+		Time:     types.TimestampFromTime(time.Now()),
+		ClientIP: clientIP,
+		Response: (msg != nil && msg.Response) || err != nil,
+		Error:    err,
 	}
 	if msg != nil {
 		q.Msg = util.UnwrapResult(msg.Pack())

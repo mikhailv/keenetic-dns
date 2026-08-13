@@ -2,11 +2,13 @@ package conntrack
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 func (s *fileStore) migrate(ctx context.Context, dir string, files map[TimeRange]string) error {
@@ -31,28 +33,40 @@ func (s *fileStore) migrate(ctx context.Context, dir string, files map[TimeRange
 			}
 			continue
 		}
-		tr := parseChunkFilename(e.Name())
-		if !tr.Valid() {
-			continue
+		if tr, newPath, ok := s.migrateFile(path, e.Name()); ok {
+			files[tr] = newPath
 		}
-		newPath := s.chunkPath(tr, ".bin")
-		_, version, err := s.loadFile(path, true)
-		if err != nil {
-			s.logger.Error("failed to load version of chunk", "path", path, "err", err)
-			continue
-		}
-		if version < encodingVersion {
-			if !s.migrateChunkFile(path, newPath, version) {
-				continue
-			}
-		} else if newPath != path {
-			if !s.moveChunkFile(path, newPath) {
-				continue
-			}
-		}
-		files[tr] = newPath
 	}
 	return nil
+}
+
+func (s *fileStore) migrateFile(path, name string) (TimeRange, string, bool) {
+	tr := parseChunkFilename(name)
+	if !tr.Valid() {
+		return TimeRange{}, "", false
+	}
+	newPath := s.chunkPath(tr, ".bin")
+	_, version, err := s.loadFile(path, true)
+	if err != nil {
+		if errors.Is(err, errCorruptChunk) {
+			s.logger.Error("chunk file is corrupt and will be skipped, remove it to silence this",
+				"path", path, "err", err)
+		} else {
+			s.logger.Error("failed to load version of chunk", "path", path, "err", err)
+		}
+		return TimeRange{}, "", false
+	}
+	switch {
+	case version < encodingVersion:
+		if !s.migrateChunkFile(path, newPath, version) {
+			return TimeRange{}, "", false
+		}
+	case newPath != path:
+		if !s.moveChunkFile(path, newPath) {
+			return TimeRange{}, "", false
+		}
+	}
+	return tr, newPath, true
 }
 
 func (s *fileStore) migrateChunkFile(path, savePath string, version byte) bool {
@@ -100,16 +114,9 @@ func copyFile(src, dst string) (resErr error) {
 	if err != nil {
 		return err
 	}
-	defer handleError(srcFile.Close, &resErr)
+	defer util.HandleError(srcFile.Close, &resErr)
 
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer handleError(dstFile.Close, &resErr)
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	return util.SaveToFile(dst, util.SaveFileConfig{Reader: srcFile})
 }
 
 func (s *fileStore) deleteEntriesFromChunkFile(path string, del func(BucketEntry) bool) error { //nolint:unused //ignore

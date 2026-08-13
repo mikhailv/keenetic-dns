@@ -11,6 +11,7 @@ import (
 	"github.com/klauspost/compress/gzip"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type DNSStore struct {
@@ -41,7 +42,7 @@ func (s *DNSStore) Load(reader io.Reader) (count int, loadErr error) {
 	if err != nil {
 		return 0, err
 	}
-	defer handleError(gz.Close, &err)
+	defer util.HandleError(gz.Close, &err)
 
 	s.index.Clear()
 
@@ -64,9 +65,9 @@ func (s *DNSStore) Load(reader io.Reader) (count int, loadErr error) {
 
 func (s *DNSStore) Save(writer io.Writer) (count int, err error) {
 	bufWriter := bufio.NewWriter(writer)
-	defer handleError(bufWriter.Flush, &err)
+	defer util.HandleError(bufWriter.Flush, &err)
 	gz := gzip.NewWriter(bufWriter)
-	defer handleError(gz.Close, &err)
+	defer util.HandleError(gz.Close, &err)
 
 	encoder := cbor.NewEncoder(gz)
 	for rec := range s.index.Iterator() {
@@ -76,11 +77,4 @@ func (s *DNSStore) Save(writer io.Writer) (count int, err error) {
 		count++
 	}
 	return count, nil
-}
-
-func handleError(fn func() error, err *error) {
-	fnErr := fn()
-	if *err == nil {
-		*err = fnErr
-	}
 }

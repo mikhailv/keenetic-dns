@@ -18,7 +18,6 @@ export interface DNSQuery {
 	cursor: string;
 	time: Date;
 	client_ip: string;
-	client_addr: string;
 	duration: number;
 	resolver: ResolverInfo;
 	domain: string;
@@ -65,7 +64,7 @@ export interface LogEntry {
 export interface DNSRawQuery {
 	cursor: string;
 	time: Date;
-	client_addr: string;
+	client_ip: string;
 	response?: boolean;
 	msg: string;
 	error?: string;

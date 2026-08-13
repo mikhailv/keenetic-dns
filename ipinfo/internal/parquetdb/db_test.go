@@ -3,7 +3,6 @@ package parquetdb
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,30 +18,30 @@ type testRow struct {
 	Name  string `parquet:"name,optional"`
 }
 
-func writeTestParquet[T any](t testing.TB, rows []T, rowGroupSize int) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.parquet")
+func writeTestParquet[T any](tb testing.TB, rows []T, rowGroupSize int) string {
+	tb.Helper()
+	path := filepath.Join(tb.TempDir(), "test.parquet")
 	f, err := os.Create(path)
 	if err != nil {
-		t.Fatalf("create: %v", err)
+		tb.Fatalf("create: %v", err)
 	}
 	defer f.Close()
 	w := parquet.NewGenericWriter[T](f, parquet.MaxRowsPerRowGroup(int64(rowGroupSize)))
 	if _, err := w.Write(rows); err != nil {
-		t.Fatalf("write: %v", err)
+		tb.Fatalf("write: %v", err)
 	}
 	if err := w.Close(); err != nil {
-		t.Fatalf("close writer: %v", err)
+		tb.Fatalf("close writer: %v", err)
 	}
 	return path
 }
 
-func collect[T any](t testing.TB, db *DB[T], preds ...Predicate) []T {
-	t.Helper()
+func collect[T any](tb testing.TB, db *DB[T], preds ...Predicate) []T {
+	tb.Helper()
 	var out []T
-	for row, err := range db.Query(t.Context(), preds...) {
+	for row, err := range db.Query(tb.Context(), preds...) {
 		if err != nil {
-			t.Fatalf("query error: %v", err)
+			tb.Fatalf("query error: %v", err)
 		}
 		out = append(out, row)
 	}
@@ -64,13 +63,13 @@ func makeTestRows(n int) []testRow {
 	return rows
 }
 
-func openTestDB(t testing.TB, path string) *DB[testRow] {
-	t.Helper()
-	db, err := Open[testRow](path, slog.New(slog.NewTextHandler(io.Discard, nil)))
+func openTestDB(tb testing.TB, path string) *DB[testRow] {
+	tb.Helper()
+	db, err := Open[testRow](path, slog.New(slog.DiscardHandler))
 	if err != nil {
-		t.Fatalf("open: %v", err)
+		tb.Fatalf("open: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	tb.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -195,13 +194,13 @@ func TestProjectionNullHandling(t *testing.T) {
 
 type scanFunc[T any] func(context.Context, parquet.RowGroup, []predState, func(T, error) bool) bool
 
-func runScan[T any](t testing.TB, db *DB[T], states []predState, scan scanFunc[T]) []T {
-	t.Helper()
+func runScan[T any](tb testing.TB, db *DB[T], states []predState, scan scanFunc[T]) []T {
+	tb.Helper()
 	var out []T
 	for _, rg := range db.pf.RowGroups() {
-		scan(t.Context(), rg, states, func(row T, err error) bool {
+		scan(tb.Context(), rg, states, func(row T, err error) bool {
 			if err != nil {
-				t.Fatalf("scan error: %v", err)
+				tb.Fatalf("scan error: %v", err)
 			}
 			out = append(out, row)
 			return true
@@ -210,14 +209,14 @@ func runScan[T any](t testing.TB, db *DB[T], states []predState, scan scanFunc[T
 	return out
 }
 
-func assertRowsEqual[T any](t testing.TB, want, got []T) {
-	t.Helper()
+func assertRowsEqual[T any](tb testing.TB, want, got []T) {
+	tb.Helper()
 	if len(want) != len(got) {
-		t.Fatalf("row count: want %d, got %d", len(want), len(got))
+		tb.Fatalf("row count: want %d, got %d", len(want), len(got))
 	}
 	for i := range want {
 		if fmt.Sprintf("%v", want[i]) != fmt.Sprintf("%v", got[i]) {
-			t.Fatalf("row %d: want %v, got %v", i, want[i], got[i])
+			tb.Fatalf("row %d: want %v, got %v", i, want[i], got[i])
 		}
 	}
 }

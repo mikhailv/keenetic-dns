@@ -49,11 +49,11 @@ func (s *DNSServer) Serve(ctx context.Context) error {
 	context.AfterFunc(ctx, func() {
 		for _, srv := range s.servers {
 			s.logger.Info("shutting down server...", "net", srv.Net)
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if err := srv.ShutdownContext(shutdownCtx); err != nil {
 				s.logger.Error("failed to shutdown server", "err", err, "net", srv.Net)
 			}
-			cancel()
+			shutdownCancel()
 		}
 	})
 
@@ -84,7 +84,7 @@ func (s *DNSServer) Serve(ctx context.Context) error {
 func (s *DNSServer) createHandler(ctx context.Context) dns.Handler {
 	return dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
 		defer metrics.TrackDuration("dns.handle")()
-		resp, err := s.resolver.Resolve(ctxutil.WithDNSQueryRemoteAddr(ctx, w.RemoteAddr().String()), req)
+		resp, err := s.resolver.Resolve(ctxutil.WithDNSQueryClientAddrString(ctx, w.RemoteAddr().String()), req)
 		if err != nil {
 			s.logger.Error("failed to handle request", "err", err)
 			metrics.TrackStatus("dns.handle", "failed")

@@ -194,8 +194,9 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 
 	ipRoutingSet := s.ipRoutes.AddRoutes(ctx, dl)
 
+	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 	s.stream.Append(types.DNSQuery{
-		ClientAddr:   ctxutil.GetDNSQueryRemoteAddr(ctx),
+		ClientIP:     clientIP,
 		DomainLookup: *dl,
 		Duration:     time.Since(dl.Time.Time()).Seconds(),
 		IPRoutings:   ipRoutingSet,

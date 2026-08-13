@@ -29,7 +29,7 @@ func (s *HTTPServer) handleDNSQueryGET(w http.ResponseWriter, req *http.Request)
 		return http.StatusBadRequest, errors.New("doh: failed to decode base64 encoded dns request")
 	}
 
-	ctx := ctxutil.WithDNSQueryRemoteAddr(req.Context(), req.RemoteAddr)
+	ctx := ctxutil.WithDNSQueryClientAddrString(req.Context(), req.RemoteAddr)
 	return s.handleDNSRequest(ctx, dnsReqBody, w)
 }
 
@@ -43,7 +43,7 @@ func (s *HTTPServer) handleDNSQueryPOST(w http.ResponseWriter, req *http.Request
 		return http.StatusInternalServerError, fmt.Errorf("doh: failed to read body: %w", err)
 	}
 
-	ctx := ctxutil.WithDNSQueryRemoteAddr(req.Context(), req.RemoteAddr)
+	ctx := ctxutil.WithDNSQueryClientAddrString(req.Context(), req.RemoteAddr)
 	return s.handleDNSRequest(ctx, dnsReqBody, w)
 }
 

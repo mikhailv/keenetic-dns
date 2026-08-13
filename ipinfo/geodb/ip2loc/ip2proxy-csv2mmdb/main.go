@@ -17,6 +17,8 @@ import (
 
 	"github.com/maxmind/mmdbwriter"
 	"github.com/maxmind/mmdbwriter/mmdbtype"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 // CSV columns (IP2PROXY-LITE-PX12.CIDR.CSV):
@@ -131,12 +133,8 @@ func buildRecord(row []string) mmdbtype.Map {
 }
 
 func writeMMDB(writer *mmdbwriter.Tree, path string) error {
-	out, err := os.Create(path)
-	if err != nil {
+	return util.SaveToFileFunc(path, func(w io.Writer) error {
+		_, err := writer.WriteTo(w)
 		return err
-	}
-	defer out.Close()
-
-	_, err = writer.WriteTo(out)
-	return err
+	})
 }

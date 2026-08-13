@@ -97,6 +97,8 @@ func parseQueryTypes(types []string) ([]uint16, error) {
 			r[i] = dns.TypeCNAME
 		case "HTTPS":
 			r[i] = dns.TypeHTTPS
+		case "PTR":
+			r[i] = dns.TypePTR
 		default:
 			return nil, fmt.Errorf("unsupported query type %q", t)
 		}

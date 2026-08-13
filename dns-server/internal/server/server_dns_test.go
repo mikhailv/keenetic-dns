@@ -5,18 +5,31 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
-type stubResolver struct{}
+type stubResolver struct {
+	mu        sync.Mutex
+	clientIP  types.IPv4
+	hasClient bool
+}
 
-func (stubResolver) Name() string { return "stub" }
-func (stubResolver) Close() error { return nil }
+func (*stubResolver) Name() string { return "stub" }
+func (*stubResolver) Close() error { return nil }
 
-func (stubResolver) Resolve(_ context.Context, req *dns.Msg) (*dns.Msg, error) {
+func (s *stubResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
+	ip, ok := ctxutil.GetDNSQueryClientIP(ctx)
+	s.mu.Lock()
+	s.clientIP, s.hasClient = ip, ok
+	s.mu.Unlock()
+
 	resp := new(dns.Msg)
 	resp.SetReply(req)
 	resp.Answer = append(resp.Answer, &dns.A{
@@ -29,7 +42,8 @@ func (stubResolver) Resolve(_ context.Context, req *dns.Msg) (*dns.Msg, error) {
 func TestDNSServer_ServesUDPAndTCP(t *testing.T) {
 	addr := "127.0.0.1:" + strconv.Itoa(freePort(t))
 
-	srv := NewDNSServer(addr, slog.New(slog.DiscardHandler), stubResolver{})
+	resolver := &stubResolver{}
+	srv := NewDNSServer(addr, slog.New(slog.DiscardHandler), resolver)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	serveErr := make(chan error, 1)
@@ -56,26 +70,42 @@ func TestDNSServer_ServesUDPAndTCP(t *testing.T) {
 			if len(resp.Answer) != 1 {
 				t.Fatalf("expected 1 answer over %s, got %d", network, len(resp.Answer))
 			}
+
+			resolver.mu.Lock()
+			clientIP, hasClient := resolver.clientIP, resolver.hasClient
+			resolver.mu.Unlock()
+			if !hasClient {
+				t.Fatalf("no client IP in context over %s", network)
+			}
+			if got := clientIP.String(); got != "127.0.0.1" {
+				t.Fatalf("client IP over %s = %q, want 127.0.0.1", network, got)
+			}
 		})
 	}
 }
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	l, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("failed to reserve port: %v", err)
 	}
-	defer l.Close() //nolint:errcheck
-	return l.Addr().(*net.TCPAddr).Port
+	defer l.Close()
+	addr, ok := l.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("unexpected listener address type %T", l.Addr())
+	}
+	return addr.Port
 }
 
 func waitListening(t *testing.T, addr string) {
 	t.Helper()
+	dialer := net.Dialer{Timeout: 100 * time.Millisecond}
 	for range 100 {
-		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		conn, err := dialer.DialContext(t.Context(), "tcp", addr)
 		if err == nil {
-			conn.Close() //nolint:errcheck
+			conn.Close()
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
