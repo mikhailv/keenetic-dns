@@ -102,9 +102,9 @@ func TestParse_PlainDomains(t *testing.T) {
 			want:  []Rule{{Domain: "_dmarc.example.com", Action: Block, Subdomains: true}},
 		},
 		{
-			name:  "single label accepted",
+			name:  "single label skipped",
 			input: "internal",
-			want:  []Rule{{Domain: "internal", Action: Block, Subdomains: true}},
+			want:  nil,
 		},
 		{
 			name:  "leading dot form covers subdomains",
@@ -176,9 +176,34 @@ func TestParse_Adblock(t *testing.T) {
 			want:  nil,
 		},
 		{
-			name:  "dnsrewrite skipped",
+			name:  "dnsrewrite to nxdomain blocks",
+			input: "||mask.icloud.com^$dnsrewrite=NXDOMAIN",
+			want:  []Rule{{Domain: "mask.icloud.com", Action: Block, Subdomains: true}},
+		},
+		{
+			name:  "dnsrewrite to refused blocks",
+			input: "||ads.example.com^$dnsrewrite=REFUSED",
+			want:  []Rule{{Domain: "ads.example.com", Action: Block, Subdomains: true}},
+		},
+		{
+			name:  "dnsrewrite to an unroutable address blocks",
 			input: "||ads.example.com^$dnsrewrite=NOERROR;A;0.0.0.0",
+			want:  []Rule{{Domain: "ads.example.com", Action: Block, Subdomains: true}},
+		},
+		{
+			name:  "dnsrewrite to a real address skipped",
+			input: "||ads.example.com^$dnsrewrite=NOERROR;A;192.0.2.1",
 			want:  nil,
+		},
+		{
+			name:  "dnsrewrite to a cname skipped",
+			input: "||ads.example.com^$dnsrewrite=example.net",
+			want:  nil,
+		},
+		{
+			name:  "single label kept in adblock syntax",
+			input: "||zip^",
+			want:  []Rule{{Domain: "zip", Action: Block, Subdomains: true}},
 		},
 		{
 			name:  "path rule skipped",
@@ -327,4 +352,66 @@ func TestParse_LineTooLong(t *testing.T) {
 		}
 	}
 	assert.ErrorContains(t, gotErr, "token too long")
+}
+
+func TestScan(t *testing.T) {
+	tests := map[string]struct {
+		input    string
+		rules    int
+		attempts int
+	}{
+		"comments and blanks count nowhere": {
+			input:    "! header\n# comment\n\n   \nads.example.com\n",
+			rules:    1,
+			attempts: 1,
+		},
+		"a hosts line offers every domain on it": {
+			input:    "0.0.0.0 a.example.com b.example.com c.example.com\n",
+			rules:    3,
+			attempts: 3,
+		},
+		"failures on a hosts line are not masked by its successes": {
+			input:    "0.0.0.0 a.example.com not!a!domain also!bad\n",
+			rules:    1,
+			attempts: 3,
+		},
+		"a line that is not a rule still counts as an attempt": {
+			input:    "not found, visit some.domain.com\nexample.com##.ad\n",
+			rules:    0,
+			attempts: 2,
+		},
+		"prose offers tokens and yields none of them": {
+			input:    "service\ntemporarily\nunavailable\n",
+			rules:    0,
+			attempts: 3,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			rules, attempts, err := Scan(strings.NewReader(tt.input))
+			require.NoError(t, err)
+			assert.Equal(t, tt.rules, rules, "rules")
+			assert.Equal(t, tt.attempts, attempts, "attempts")
+		})
+	}
+}
+
+func TestScan_SmallAdGuardList(t *testing.T) {
+	const list = `! Title: HaGeZi's Apple Private Relay/DNS Bypass
+! Description: Blocks Apple Private Relay and possible Apple DNS bypasses correctly.
+! Syntax: AdGuard Home/DNS
+! 
+||mask.icloud.com^$dnsrewrite=NXDOMAIN
+||mask-h2.icloud.com^$dnsrewrite=NXDOMAIN
+||mask-canary.icloud.com^$dnsrewrite=NXDOMAIN
+||doh.dns.apple.com^$dnsrewrite=NXDOMAIN
+||doh-dns-apple-com.v.aaplimg.com^$dnsrewrite=NXDOMAIN
+||doh.dns.apple.com.v.aaplimg.com^$dnsrewrite=NXDOMAIN
+||_dns.resolver.arpa^$dnsrewrite=NXDOMAIN
+`
+	rules, attempts, err := Scan(strings.NewReader(list))
+	require.NoError(t, err)
+	assert.Equal(t, 7, rules)
+	assert.Equal(t, 7, attempts)
+	assert.GreaterOrEqual(t, float64(rules)/float64(attempts), minListValidRulesFraction)
 }

@@ -27,9 +27,6 @@ func listOf(domains ...string) string {
 	for _, d := range domains {
 		sb.WriteString(d + "\n")
 	}
-	for i := range minListRules {
-		fmt.Fprintf(&sb, "filler%d.example.net\n", i)
-	}
 	return sb.String()
 }
 

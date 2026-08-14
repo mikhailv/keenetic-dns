@@ -1,7 +1,6 @@
 package blocklist
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,8 +19,9 @@ import (
 )
 
 const (
-	maxListSize               = 256 << 20
-	minListRules              = 20
+	maxListSize = 256 << 20
+
+	//
 	minListValidRulesFraction = 0.25
 )
 
@@ -212,50 +212,17 @@ func validateList(path string) (int, error) {
 		return 0, seekErr
 	}
 
-	var rules int
-	for _, err := range Parse(f) {
-		if err != nil {
-			return 0, err
-		}
-		rules++
-	}
-	lines, err := countMeaningfulLines(path)
+	rules, attempts, err := Scan(f)
 	if err != nil {
 		return 0, err
 	}
-	if rules < minListRules {
-		return 0, fmt.Errorf("only %d rules parsed, expected at least %d", rules, minListRules)
+	if attempts == 0 {
+		return 0, errors.New("response body holds no rules at all")
 	}
-	if yield := float64(rules) / float64(lines); yield < minListValidRulesFraction {
-		return 0, fmt.Errorf("only %d rules parsed from %d lines (%.1f%%)", rules, lines, yield*100)
+	if fraction := float64(rules) / float64(attempts); fraction < minListValidRulesFraction {
+		return 0, fmt.Errorf("only %d rules parsed from %d candidates (%.1f%%)", rules, attempts, fraction*100)
 	}
 	return rules, nil
-}
-
-func countMeaningfulLines(path string) (int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	var count int
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 4096), maxLineSize)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || line[0] == '#' || line[0] == '!' || line[0] == '[' {
-			continue
-		}
-		count++
-	}
-	if err := sc.Err(); err != nil {
-		return 0, err
-	}
-	if count == 0 {
-		return 1, nil // avoid dividing by zero; the rule count check still applies
-	}
-	return count, nil
 }
 
 func isHTML(contentType string) bool {

@@ -52,7 +52,7 @@ func Parse(r io.Reader) iter.Seq2[Rule, error] {
 		sc.Buffer(make([]byte, 0, 4096), maxLineSize)
 		var buf []Rule
 		for sc.Scan() {
-			buf = parseLine(sc.Text(), buf[:0])
+			buf, _ = parseLine(sc.Text(), buf[:0])
 			for _, rule := range buf {
 				if !yield(rule, nil) {
 					return
@@ -63,6 +63,22 @@ func Parse(r io.Reader) iter.Seq2[Rule, error] {
 			yield(Rule{}, err)
 		}
 	}
+}
+
+func Scan(r io.Reader) (rules, attempts int, err error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 4096), maxLineSize)
+	var buf []Rule
+	for sc.Scan() {
+		var n int
+		buf, n = parseLine(sc.Text(), buf[:0])
+		rules += len(buf)
+		attempts += n
+	}
+	if err := sc.Err(); err != nil {
+		return 0, 0, err
+	}
+	return rules, attempts, nil
 }
 
 var sinkIPs = map[string]bool{
@@ -95,54 +111,66 @@ var safeAdblockModifiers = map[string]bool{
 	"popup":     true,
 }
 
-func parseLine(line string, dst []Rule) []Rule {
+var blockingDNSRewrites = map[string]bool{
+	"nxdomain": true,
+	"refused":  true,
+	"nodata":   true,
+	"0.0.0.0":  true,
+	"::":       true,
+}
+
+func parseLine(line string, dst []Rule) (_ []Rule, attempts int) {
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return dst
+		return dst, 0
 	}
 	switch line[0] {
 	case '#', '!', '[': // comment, AdBlock comment, AdBlock header
-		return dst
+		return dst, 0
 	}
 	if strings.Contains(line, "##") || strings.Contains(line, "#@#") || strings.Contains(line, "#?#") {
-		return dst
+		return dst, 1
 	}
 	switch {
 	case strings.HasPrefix(line, "@@"), strings.HasPrefix(line, "||"):
-		return parseAdblockLine(line, dst)
+		return parseAdblockLine(line, dst), 1
 	case strings.HasPrefix(line, "address=/"), strings.HasPrefix(line, "local=/"):
 		return parseDnsmasqLine(line, dst)
 	}
 	line = trimInlineComment(line)
 	if line == "" {
-		return dst
+		return dst, 0
 	}
 	if fields := strings.Fields(line); len(fields) > 1 {
 		return parseHostsLine(fields, dst)
 	}
-	return parsePlainLine(line, dst)
+	return parsePlainLine(line, dst), 1
 }
 
-func parseHostsLine(fields []string, dst []Rule) []Rule {
+func parseHostsLine(fields []string, dst []Rule) (_ []Rule, attempts int) {
 	if !sinkIPs[fields[0]] {
-		return dst
+		return dst, 1
 	}
 	for _, field := range fields[1:] {
 		if domain, ok := normalizeDomain(field); ok {
 			dst = append(dst, Rule{Domain: domain, Action: Block})
 		}
 	}
-	return dst
+	return dst, len(fields) - 1
 }
 
 func parsePlainLine(line string, dst []Rule) []Rule {
 	line = strings.TrimSuffix(line, "^")
 	line = strings.TrimPrefix(line, "*.")
 	line = strings.TrimPrefix(line, ".")
-	if domain, ok := normalizeDomain(line); ok {
-		dst = append(dst, Rule{Domain: domain, Action: Block, Subdomains: true})
+	domain, ok := normalizeDomain(line)
+	if !ok {
+		return dst
 	}
-	return dst
+	if !strings.Contains(domain, ".") {
+		return dst
+	}
+	return append(dst, Rule{Domain: domain, Action: Block, Subdomains: true})
 }
 
 func parseAdblockLine(line string, dst []Rule) []Rule {
@@ -176,30 +204,53 @@ func cutAdblockModifiers(rule string) (string, bool) {
 		return rule, true
 	}
 	for modifier := range strings.SplitSeq(modifiers, ",") {
-		name, _, _ := strings.Cut(modifier, "=")
-		if !safeAdblockModifiers[strings.TrimSpace(name)] {
+		name, value, valued := strings.Cut(modifier, "=")
+		name = strings.TrimSpace(name)
+		if name == "dnsrewrite" {
+			if !valued || !isBlockingDNSRewrite(value) {
+				return "", false
+			}
+			continue
+		}
+		if !safeAdblockModifiers[name] {
 			return "", false
 		}
 	}
 	return pattern, true
 }
 
-func parseDnsmasqLine(line string, dst []Rule) []Rule {
+func isBlockingDNSRewrite(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if blockingDNSRewrites[value] {
+		return true
+	}
+	rcode, rest, found := strings.Cut(value, ";")
+	if !found {
+		return false
+	}
+	if blockingDNSRewrites[rcode] {
+		return true
+	}
+	_, answer, ok := strings.Cut(rest, ";")
+	return rcode == "noerror" && ok && blockingDNSRewrites[strings.TrimSpace(answer)]
+}
+
+func parseDnsmasqLine(line string, dst []Rule) (_ []Rule, attempts int) {
 	_, rest, _ := strings.Cut(line, "=/")
 	parts := strings.Split(rest, "/")
 	if len(parts) < 2 {
-		return dst
+		return dst, 1
 	}
 	target := strings.TrimSpace(parts[len(parts)-1])
 	if target != "" && target != "#" && !sinkIPs[target] {
-		return dst
+		return dst, len(parts) - 1
 	}
 	for _, part := range parts[:len(parts)-1] {
 		if domain, ok := normalizeDomain(part); ok {
 			dst = append(dst, Rule{Domain: domain, Action: Block, Subdomains: true})
 		}
 	}
-	return dst
+	return dst, len(parts) - 1
 }
 
 func trimInlineComment(line string) string {
