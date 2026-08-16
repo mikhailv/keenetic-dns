@@ -124,8 +124,8 @@ func TestFileStore_Init_MigratesFlatFiles(t *testing.T) {
 
 	// Write a chunk file in the old flat layout (directly in dir).
 	flatPath := filepath.Join(dir, fmt.Sprintf("%d-%d.bin", tr.Start, tr.End))
-	fs := &fileStore{dir: dir, logger: slog.Default()}
-	require.NoError(t, fs.saveFile(flatPath, chunk))
+	fs := newFileStore(dir, slog.Default())
+	require.NoError(t, fs.SaveFile(flatPath, chunk))
 
 	// Verify flat file exists.
 	_, err := os.Stat(flatPath)
@@ -226,17 +226,17 @@ func TestFileStore_Init_IgnoresAbandonedTempFile(t *testing.T) {
 
 func TestFileStore_SaveDoesNotWriteInPlace(t *testing.T) {
 	dir := t.TempDir()
-	fs := &fileStore{dir: dir, logger: slog.New(slog.DiscardHandler)}
+	fs := newFileStore(dir, slog.New(slog.DiscardHandler))
 
 	base := Timestamp(time.Date(2026, 4, 6, 14, 0, 0, 0, time.UTC).Unix())
 	tr := TimeRange{Start: base, End: base + 3600}
 	path := filepath.Join(dir, fmt.Sprintf("%d-%d.bin", tr.Start, tr.End))
 
-	require.NoError(t, fs.saveFile(path, Chunk{TimeRange: tr, BucketDuration: 300}))
+	require.NoError(t, fs.SaveFile(path, Chunk{TimeRange: tr, BucketDuration: 300}))
 	first, err := os.Stat(path)
 	require.NoError(t, err)
 
-	require.NoError(t, fs.saveFile(path, Chunk{TimeRange: tr, BucketDuration: 600}))
+	require.NoError(t, fs.SaveFile(path, Chunk{TimeRange: tr, BucketDuration: 600}))
 	second, err := os.Stat(path)
 	require.NoError(t, err)
 	assert.False(t, os.SameFile(first, second), "save must rename a new file into place, not rewrite the old one")

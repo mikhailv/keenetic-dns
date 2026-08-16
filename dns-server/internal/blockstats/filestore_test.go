@@ -235,10 +235,3 @@ func TestOffsets_UnmarshalRejectsGarbage(t *testing.T) {
 		assert.Error(t, got.UnmarshalText([]byte(text)), text)
 	}
 }
-
-func TestParseChunkFilename(t *testing.T) {
-	assert.Equal(t, TimeRange{Start: 100, End: 200}, parseChunkFilename("100-200.tsv.gz"))
-	for _, name := range []string{"100-200.bin", "garbage.tsv.gz", "100.tsv.gz", "a-b.tsv.gz"} {
-		assert.False(t, parseChunkFilename(name).Valid(), name)
-	}
-}

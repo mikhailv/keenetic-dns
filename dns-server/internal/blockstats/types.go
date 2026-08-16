@@ -5,13 +5,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
 type (
-	TimeRange = conntrack.TimeRange
-	Timestamp = conntrack.Timestamp
+	TimeRange = chunkstore.TimeRange
+	Timestamp = chunkstore.Timestamp
 )
 
 const maxChunkSeconds = 1 << 16
@@ -21,6 +21,10 @@ const maxOffsets = 4096
 type Chunk struct {
 	TimeRange TimeRange
 	Entries   []Entry
+}
+
+func (c Chunk) Range() TimeRange {
+	return c.TimeRange
 }
 
 type Entry struct {

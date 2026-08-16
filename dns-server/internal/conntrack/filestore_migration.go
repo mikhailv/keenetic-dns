@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -41,14 +42,14 @@ func (s *fileStore) migrate(ctx context.Context, dir string, files map[TimeRange
 }
 
 func (s *fileStore) migrateFile(path, name string) (TimeRange, string, bool) {
-	tr := parseChunkFilename(name)
+	tr := chunkstore.ParseChunkName(name, chunkFileSuffix)
 	if !tr.Valid() {
 		return TimeRange{}, "", false
 	}
-	newPath := s.chunkPath(tr, ".bin")
+	newPath := s.ChunkPath(tr)
 	_, version, err := s.loadFile(path, true)
 	if err != nil {
-		if errors.Is(err, errCorruptChunk) {
+		if errors.Is(err, chunkstore.ErrCorrupt) {
 			s.logger.Error("chunk file is corrupt and will be skipped, remove it to silence this",
 				"path", path, "err", err)
 		} else {
@@ -82,7 +83,7 @@ func (s *fileStore) migrateChunkFile(path, savePath string, version byte) bool {
 			return false
 		}
 	}
-	if err := s.saveFile(savePath, chunk); err != nil {
+	if err := s.SaveFile(savePath, chunk); err != nil {
 		s.logger.Error("failed to migrate chunk file", "path", path, "err", err)
 		return false
 	}
@@ -134,7 +135,7 @@ func (s *fileStore) deleteEntriesFromChunkFile(path string, del func(BucketEntry
 		}
 	}
 	if deleted {
-		return s.saveFile(path, chunk)
+		return s.SaveFile(path, chunk)
 	}
 	return nil
 }

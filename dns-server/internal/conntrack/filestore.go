@@ -2,41 +2,49 @@ package conntrack
 
 import (
 	"bufio"
-	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"log/slog"
-	"maps"
 	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/klauspost/compress/gzip"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
+
+const chunkFileSuffix = ".bin"
 
 // NewFileStore creates a Store that persists chunks as gzip-compressed binary
 // files in the given directory. Files are organized into date-based
 // subdirectories (yyyy-mm-dd) with each chunk stored as `{start}-{end}.bin`.
 func NewFileStore(dir string, logger *slog.Logger) Store {
-	return &fileStore{dir: dir, logger: logger}
+	return newFileStore(dir, logger)
+}
+
+func newFileStore(dir string, logger *slog.Logger) *fileStore {
+	return &fileStore{
+		FileStore: chunkstore.NewFileStore(dir, chunkstore.Codec[Chunk]{
+			Suffix: chunkFileSuffix,
+			Encode: encodeChunk,
+			Decode: func(r io.Reader, _ chunkstore.TimeRange) (Chunk, error) {
+				var chunk Chunk
+				_, err := decodeChunk(r, &chunk, false)
+				return chunk, err
+			},
+		}),
+		dir:    dir,
+		logger: logger,
+	}
 }
 
 var _ Store = (*fileStore)(nil)
 
 type fileStore struct {
+	*chunkstore.FileStore[Chunk]
 	dir    string
 	logger *slog.Logger
-	mu     sync.RWMutex
-	files  map[TimeRange]string
 }
 
 func (s *fileStore) Init(ctx context.Context) error {
@@ -44,125 +52,8 @@ func (s *fileStore) Init(ctx context.Context) error {
 	if err := s.migrate(ctx, s.dir, files); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.files = files
-	s.mu.Unlock()
+	s.SetFiles(files)
 	return nil
-}
-
-func (s *fileStore) Save(_ context.Context, chunk Chunk) error {
-	path := s.chunkPath(chunk.TimeRange, ".bin")
-	if err := s.saveFile(path, chunk); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	if s.files != nil {
-		s.files[chunk.TimeRange] = path
-	}
-	s.mu.Unlock()
-	return nil
-}
-
-func (s *fileStore) Load(ctx context.Context, tr TimeRange) iter.Seq2[Chunk, error] {
-	return func(yield func(Chunk, error) bool) {
-		files, err := s.listChunks(tr)
-		if err != nil {
-			yield(Chunk{}, err)
-			return
-		}
-		for _, path := range files {
-			if err := ctx.Err(); err != nil {
-				yield(Chunk{}, err)
-				return
-			}
-			chunk, _, err := s.loadFile(path, false)
-			if os.IsNotExist(err) {
-				s.mu.Lock()
-				s.files = nil // invalidate file cache
-				s.mu.Unlock()
-				continue
-			}
-			if !yield(chunk, err) {
-				return
-			}
-		}
-	}
-}
-
-func (s *fileStore) chunkPath(tr TimeRange, suffix string) string {
-	dateDir := tr.Start.Time().UTC().Format(time.DateOnly)
-	return filepath.Join(s.dir, dateDir, fmt.Sprintf("%d-%d%s", tr.Start, tr.End, suffix))
-}
-
-func (s *fileStore) listChunks(tr TimeRange) ([]string, error) {
-	s.mu.RLock()
-	files := maps.Clone(s.files)
-	s.mu.RUnlock()
-
-	if files == nil {
-		var err error
-		files, err = s.listAllChunks()
-		if err != nil {
-			return nil, err
-		}
-		s.mu.Lock()
-		s.files = files
-		s.mu.Unlock()
-		files = maps.Clone(files)
-	}
-
-	ranges := make([]TimeRange, 0, 5)
-	for ftr := range files {
-		if ftr.Intersects(tr) {
-			ranges = append(ranges, ftr)
-		}
-	}
-	slices.SortFunc(ranges, func(a, b TimeRange) int {
-		return cmp.Compare(a.Start, b.Start)
-	})
-	res := make([]string, len(ranges))
-	for i, r := range ranges {
-		res[i] = files[r]
-	}
-	return res, nil
-}
-
-func (s *fileStore) listAllChunks() (map[TimeRange]string, error) {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil //nolint:nilnil // ignore
-		}
-		return nil, fmt.Errorf("read dir: %w", err)
-	}
-	res := map[TimeRange]string{}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		subDir := filepath.Join(s.dir, e.Name())
-		subEntries, err := os.ReadDir(subDir)
-		if err != nil {
-			return nil, fmt.Errorf("read subdir %s: %w", e.Name(), err)
-		}
-		for _, se := range subEntries {
-			if se.IsDir() {
-				continue
-			}
-			tr := parseChunkFilename(se.Name())
-			if !tr.Valid() {
-				continue
-			}
-			res[tr] = filepath.Join(subDir, se.Name())
-		}
-	}
-	return res, nil
-}
-
-func (s *fileStore) saveFile(path string, chunk Chunk) error {
-	return util.SaveToFileFunc(path, func(w io.Writer) error {
-		return encodeChunk(w, chunk)
-	})
 }
 
 func (s *fileStore) loadFile(path string, onlyVersion bool) (chunk Chunk, version byte, resErr error) {
@@ -178,33 +69,10 @@ func (s *fileStore) loadFile(path string, onlyVersion bool) (chunk Chunk, versio
 	return chunk, version, err
 }
 
-func (s *fileStore) Close() error { return nil }
-
-func parseChunkFilename(name string) TimeRange {
-	if !strings.HasSuffix(name, ".bin") {
-		return TimeRange{}
-	}
-	before, after, ok := strings.Cut(strings.TrimSuffix(name, ".bin"), "-")
-	if !ok {
-		return TimeRange{}
-	}
-	start, err1 := strconv.ParseUint(before, 10, 32)
-	end, err2 := strconv.ParseUint(after, 10, 32)
-	if err1 != nil || err2 != nil {
-		return TimeRange{}
-	}
-	return TimeRange{
-		Start: Timestamp(start),
-		End:   Timestamp(end),
-	}
-}
-
-var errCorruptChunk = errors.New("corrupt chunk file")
-
 func decodeChunk(r io.Reader, chunk *Chunk, onlyVersion bool) (version byte, resErr error) {
 	gz, err := gzip.NewReader(bufio.NewReader(r))
 	if err != nil {
-		return 0, fmt.Errorf("%w: gzip reader: %w", errCorruptChunk, err)
+		return 0, fmt.Errorf("%w: gzip reader: %w", chunkstore.ErrCorrupt, err)
 	}
 	defer util.HandleError(gz.Close, &resErr)
 

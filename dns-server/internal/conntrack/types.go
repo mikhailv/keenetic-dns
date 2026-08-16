@@ -1,14 +1,19 @@
 package conntrack
 
 import (
-	"fmt"
 	"log/slog"
 	"slices"
 	"time"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
+)
+
+type (
+	TimeRange = chunkstore.TimeRange
+	Timestamp = chunkstore.Timestamp
 )
 
 // Protocol represents a network protocol as its IANA protocol number.
@@ -74,6 +79,10 @@ type Chunk struct {
 
 func (s *Chunk) IsValid() bool {
 	return !s.TimeRange.IsZero() && s.BucketDuration > 0
+}
+
+func (s Chunk) Range() TimeRange {
+	return s.TimeRange
 }
 
 func (s *Chunk) Clone() Chunk {
@@ -203,46 +212,6 @@ func (s *bucketEntryAccumulator) toBucketEntry(key ConnKey) BucketEntry {
 		ConnStat: s.ConnStat,
 		ConnIDs:  connIDs,
 	}
-}
-
-type Timestamp uint32
-
-func (t Timestamp) Time() time.Time {
-	return time.Unix(int64(t), 0)
-}
-
-type TimeRange struct {
-	_     struct{}  `cbor:",toarray"`
-	Start Timestamp `json:"start"`
-	End   Timestamp `json:"end"`
-}
-
-func (s TimeRange) IsZero() bool {
-	return s == (TimeRange{})
-}
-
-func (s TimeRange) StartTime() time.Time {
-	return s.Start.Time()
-}
-
-func (s TimeRange) EndTime() time.Time {
-	return s.End.Time()
-}
-
-func (s TimeRange) InRange(t Timestamp) bool {
-	return s.Start <= t && t <= s.End
-}
-
-func (s TimeRange) Intersects(other TimeRange) bool {
-	return s.Start <= other.End && s.End >= other.Start
-}
-
-func (s TimeRange) Valid() bool {
-	return s.Start <= s.End && s.End > 0
-}
-
-func (s TimeRange) String() string {
-	return fmt.Sprintf("%d-%d", s.Start, s.End)
 }
 
 func makeRange(t time.Time, d time.Duration) TimeRange {
