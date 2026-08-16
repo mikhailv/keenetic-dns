@@ -1,4 +1,4 @@
-package blockstats
+package domainstats
 
 import (
 	"bufio"
@@ -33,20 +33,24 @@ func sampleChunk(start Timestamp) Chunk {
 		TimeRange: hourRange(start),
 		Entries: []Entry{
 			{
-				ClientIP: types.MustParseIPv4("192.168.1.42"),
-				Domain:   "ads.example.com",
-				QType:    "A",
-				List:     "hagezi-pro",
-				Count:    3,
-				Ts:       Offsets{12, 45, 3511},
+				Key: Key{
+					ClientIP: types.MustParseIPv4("192.168.1.42"),
+					Domain:   "ads.example.com",
+					QType:    "A",
+					Label:    "hagezi-pro",
+				},
+				Count: 3,
+				Ts:    Offsets{12, 45, 3511},
 			},
 			{
-				ClientIP: types.MustParseIPv4("192.168.1.50"),
-				Domain:   "tracker.example.net",
-				QType:    "AAAA",
-				List:     "hagezi-pro",
-				Count:    1,
-				Ts:       Offsets{900},
+				Key: Key{
+					ClientIP: types.MustParseIPv4("192.168.1.50"),
+					Domain:   "tracker.example.net",
+					QType:    "AAAA",
+					Label:    "hagezi-pro",
+				},
+				Count: 1,
+				Ts:    Offsets{900},
 			},
 		},
 	}
@@ -200,7 +204,7 @@ func TestFileStore_FileIsReadableTSV(t *testing.T) {
 	require.NoError(t, sc.Err())
 
 	require.Len(t, lines, 3, "header plus one line per entry")
-	assert.Equal(t, "client_ip\tdomain\tqtype\tlist\tcount\tts", lines[0])
+	assert.Equal(t, "client_ip\tdomain\tqtype\tlabel\tcount\tts", lines[0])
 	assert.Equal(t, "192.168.1.42\tads.example.com\tA\thagezi-pro\t3\t12,45,3511", lines[1])
 	assert.True(t, strings.HasPrefix(lines[2], "192.168.1.50\t"))
 }

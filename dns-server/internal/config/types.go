@@ -5,8 +5,11 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 )
+
+type DomainStats = domainstats.Config
 
 type Hosts map[string]net.IP
 

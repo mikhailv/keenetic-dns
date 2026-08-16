@@ -1,4 +1,4 @@
-package blockstats
+package domainstats
 
 import (
 	"context"
@@ -47,7 +47,7 @@ func NewRecorder(store Store, cfg Config, logger *slog.Logger) *Recorder {
 func (r *Recorder) Start(ctx context.Context) util.Waiter {
 	return util.RunPeriodically(ctx.Done(), r.cfg.FlushInterval, func() {
 		if err := r.Flush(ctx); err != nil && ctx.Err() == nil {
-			r.logger.Error("failed to flush blockstats", "err", err)
+			r.logger.Error("failed to flush stats", "err", err)
 		}
 	})
 }
@@ -56,7 +56,7 @@ func (r *Recorder) Close() error {
 	return r.Flush(context.Background())
 }
 
-func (r *Recorder) RecordBlocked(clientIP types.IPv4, domain, qtype, list string) {
+func (r *Recorder) Record(clientIP types.IPv4, domain, qtype, label string) {
 	now := r.now()
 
 	r.mu.Lock()
@@ -64,14 +64,14 @@ func (r *Recorder) RecordBlocked(clientIP types.IPv4, domain, qtype, list string
 
 	r.rotate(now)
 
-	key := Key{ClientIP: clientIP, Domain: domain, QType: qtype, List: list}
+	key := Key{ClientIP: clientIP, Domain: domain, QType: qtype, Label: label}
 	state, ok := r.entries[key]
 	if !ok && len(r.entries) >= r.cfg.MaxEntries {
 		r.overflow++
 		r.dirty = true
 		if !r.cappedLogged {
 			r.cappedLogged = true
-			r.logger.Warn("blockstats entry cap reached, further entries are counted as overflow",
+			r.logger.Warn("stats entry cap reached, further entries are counted as overflow",
 				"max_entries", r.cfg.MaxEntries)
 		}
 		return
@@ -107,16 +107,13 @@ func (r *Recorder) chunk() Chunk {
 	entries := make([]Entry, 0, len(r.entries)+1)
 	for key, state := range r.entries {
 		entries = append(entries, Entry{
-			ClientIP: key.ClientIP,
-			Domain:   key.Domain,
-			QType:    key.QType,
-			List:     key.List,
-			Count:    state.count,
-			Ts:       state.offsets.clone(),
+			Key:   key,
+			Count: state.count,
+			Ts:    state.offsets.clone(),
 		})
 	}
 	if r.overflow > 0 {
-		entries = append(entries, Entry{Domain: OverflowDomain, Count: r.overflow})
+		entries = append(entries, Entry{Key: Key{Domain: OverflowDomain}, Count: r.overflow})
 	}
 	return Chunk{TimeRange: r.current, Entries: entries}
 }
@@ -136,7 +133,7 @@ func (r *Recorder) Flush(ctx context.Context) error {
 	var failed []Chunk
 	for _, chunk := range pending {
 		if err := r.store.Save(ctx, chunk); err != nil {
-			r.logger.Error("failed to save blockstats chunk", "range", chunk.TimeRange, "err", err)
+			r.logger.Error("failed to save stats chunk", "range", chunk.TimeRange, "err", err)
 			errs = append(errs, err)
 			failed = append(failed, chunk)
 		}
@@ -148,7 +145,7 @@ func (r *Recorder) Flush(ctx context.Context) error {
 	}
 	if current != nil {
 		if err := r.store.Save(ctx, *current); err != nil {
-			r.logger.Error("failed to save blockstats chunk", "range", current.TimeRange, "err", err)
+			r.logger.Error("failed to save stats chunk", "range", current.TimeRange, "err", err)
 			errs = append(errs, err)
 		}
 	}

@@ -20,15 +20,15 @@ type Blocklist interface {
 	Lookup(domain string, clientIP types.IPv4) (blocklist.Match, bool)
 }
 
-type BlockRecorder interface {
-	RecordBlocked(clientIP types.IPv4, domain, qtype, list string)
+type StatsRecorder interface {
+	Record(clientIP types.IPv4, domain, qtype, label string)
 }
 
 func NewBlockingHandler(
 	handler dnssvc.Handler,
 	list Blocklist,
 	mode blocklist.Mode,
-	recorder BlockRecorder,
+	recorder StatsRecorder,
 	logger *slog.Logger,
 ) dnssvc.Handler {
 	return blockingHandler{handler: handler, list: list, mode: mode, recorder: recorder, logger: logger}
@@ -40,7 +40,7 @@ type blockingHandler struct {
 	handler  dnssvc.Handler
 	list     Blocklist
 	mode     blocklist.Mode
-	recorder BlockRecorder
+	recorder StatsRecorder
 	logger   *slog.Logger
 }
 
@@ -53,7 +53,7 @@ func (s blockingHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, er
 	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 
 	if match, ok := s.blocked(domain, clientIP); ok {
-		return s.block(req, domain, match, clientIP), nil
+		return s.block(ctx, req, domain, match, clientIP), nil
 	}
 
 	resp, err := s.handler.Handle(ctx, req)
@@ -63,7 +63,7 @@ func (s blockingHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, er
 
 	if target, match, ok := s.blockedCNAME(resp, clientIP); ok {
 		s.logger.Debug("blocked cname target", "domain", domain, "target", target, "list", match.List)
-		return s.block(req, target, match, clientIP), nil
+		return s.block(ctx, req, target, match, clientIP), nil
 	}
 	return resp, nil
 }
@@ -90,10 +90,17 @@ func (s blockingHandler) blockedCNAME(resp *dns.Msg, clientIP types.IPv4) (strin
 	return "", blocklist.Match{}, false
 }
 
-func (s blockingHandler) block(req *dns.Msg, domain string, match blocklist.Match, clientIP types.IPv4) *dns.Msg {
+func (s blockingHandler) block(
+	ctx context.Context,
+	req *dns.Msg,
+	domain string,
+	match blocklist.Match,
+	clientIP types.IPv4,
+) *dns.Msg {
 	qtype := dns.TypeToString[req.Question[0].Qtype]
+	dnssvc.SetQueryBlocked(ctx)
 	if s.recorder != nil {
-		s.recorder.RecordBlocked(clientIP, domain, qtype, match.List)
+		s.recorder.Record(clientIP, domain, qtype, match.List)
 	}
 	s.logger.Debug("query blocked", "domain", domain, "qtype", qtype, "list", match.List)
 	return s.response(req)

@@ -1,7 +1,7 @@
-package blockstats
+package domainstats
 
 import (
-	"errors"
+	"fmt"
 	"time"
 )
 
@@ -20,9 +20,6 @@ type Config struct {
 }
 
 func (c *Config) SetDefaults() {
-	if c.DataDir == "" {
-		c.DataDir = "blockstats"
-	}
 	if c.ChunkDuration <= 0 {
 		c.ChunkDuration = DefaultChunkDuration
 	}
@@ -37,12 +34,15 @@ func (c *Config) SetDefaults() {
 	}
 }
 
-func (c *Config) Validate() error {
+func (c *Config) Validate(name string) error {
 	if !c.Enabled {
 		return nil
 	}
+	if c.DataDir == "" {
+		return fmt.Errorf("%s: data_dir must be set", name)
+	}
 	if c.FlushInterval > c.ChunkDuration {
-		return errors.New("blocking stats: flush_interval must not exceed chunk_duration")
+		return fmt.Errorf("%s: flush_interval must not exceed chunk_duration", name)
 	}
 	return nil
 }

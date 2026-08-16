@@ -189,9 +189,14 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 
 	s.dnsStore.Add(dl)
 
+	routings := s.ipRoutes.AddRoutes(ctx, dl)
+	if routings.Has(types.ActionRouted) {
+		dnssvc.SetQueryRouted(ctx)
+	}
+
 	dnssvc.SetQueryInfo(ctx, dnssvc.QueryInfo{
 		Lookup:     dl,
-		IPRoutings: s.ipRoutes.AddRoutes(ctx, dl),
+		IPRoutings: routings,
 	})
 }
 

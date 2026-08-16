@@ -53,13 +53,13 @@ type recordedBlock struct {
 	clientIP types.IPv4
 	domain   string
 	qtype    string
-	list     string
+	label    string
 }
 
 type stubRecorder struct{ records []recordedBlock }
 
-func (s *stubRecorder) RecordBlocked(clientIP types.IPv4, domain, qtype, list string) {
-	s.records = append(s.records, recordedBlock{clientIP, domain, qtype, list})
+func (s *stubRecorder) Record(clientIP types.IPv4, domain, qtype, label string) {
+	s.records = append(s.records, recordedBlock{clientIP, domain, qtype, label})
 }
 
 func query(domain string, qtype uint16) *dns.Msg {
@@ -189,7 +189,7 @@ func TestBlocking_RecordsClientAndQuestion(t *testing.T) {
 	assert.Equal(t, "192.168.1.42", recorder.records[0].clientIP.String())
 	assert.Equal(t, "ads.example.com", recorder.records[0].domain)
 	assert.Equal(t, "AAAA", recorder.records[0].qtype)
-	assert.Equal(t, "test", recorder.records[0].list)
+	assert.Equal(t, "test", recorder.records[0].label)
 }
 
 func TestBlocking_UpstreamErrorPropagates(t *testing.T) {

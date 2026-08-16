@@ -15,7 +15,6 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/blockstats"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
@@ -23,9 +22,10 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/handlers"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing"           //nolint:staticcheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"            //nolint:staticcheck //ignore
-	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage"           //nolint:staticcheck //ignore
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:staticcheck //ignore
+	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/log"
 	. "github.com/mikhailv/keenetic-dns/internal/setup" //nolint:staticcheck //ignore
@@ -101,23 +101,23 @@ func main() { //nolint:funlen // ignore
 		defer closeCloser(blocklistManager, "blocklist", logger)
 		defer blocklistManager.Start(ctx).Wait()
 
-		var blockRecorder handlers.BlockRecorder
+		var blockRecorder handlers.StatsRecorder
 
 		if cfg.Blocking.Stats.Enabled {
-			statsStore := blockstats.NewFileStore(cfg.Blocking.Stats.DataDir, log.WithPrefix(logger, "blockstats.filestore"))
+			statsCfg := cfg.Blocking.Stats
+			statsStore := domainstats.NewFileStore(statsCfg.DataDir, log.WithPrefix(logger, "blockstats.filestore"))
 			if err = statsStore.Init(ctx); err != nil {
 				ExitWithError(fmt.Errorf("failed to init blockstats store: %w", err))
 			}
 			defer closeCloser(statsStore, "blockstats store", logger)
 
-			statsRecorder := blockstats.NewRecorder(statsStore, cfg.Blocking.Stats, log.WithPrefix(logger, "blockstats"))
+			statsRecorder := domainstats.NewRecorder(statsStore, statsCfg, log.WithPrefix(logger, "blockstats"))
 			defer closeCloser(statsRecorder, "blockstats", logger)
 			defer statsRecorder.Start(ctx).Wait()
 
 			blockRecorder = statsRecorder
 
-			logger.Info("blockstats enabled",
-				"dir", cfg.Blocking.Stats.DataDir, "flush_interval", cfg.Blocking.Stats.FlushInterval)
+			logger.Info("blockstats enabled", "dir", statsCfg.DataDir, "flush_interval", statsCfg.FlushInterval)
 		}
 
 		blockingMiddleware = NewBlockingMiddleware(blocklistManager, cfg.Blocking.Mode, blockRecorder, log.WithPrefix(logger, "blocking"))
@@ -155,9 +155,28 @@ func main() { //nolint:funlen // ignore
 		}
 	}).Wait()
 
+	queryStatsMiddleware := NopMiddleware
+
+	if cfg.QueryStats.Enabled {
+		statsStore := domainstats.NewFileStore(cfg.QueryStats.DataDir, log.WithPrefix(logger, "querystats.filestore"))
+		if initErr := statsStore.Init(ctx); initErr != nil {
+			ExitWithError(fmt.Errorf("failed to init querystats store: %w", initErr))
+		}
+		defer closeCloser(statsStore, "querystats store", logger)
+
+		statsRecorder := domainstats.NewRecorder(statsStore, cfg.QueryStats, log.WithPrefix(logger, "querystats"))
+		defer closeCloser(statsRecorder, "querystats", logger)
+		defer statsRecorder.Start(ctx).Wait()
+
+		queryStatsMiddleware = NewQueryStatsMiddleware(statsRecorder)
+
+		logger.Info("querystats enabled", "dir", cfg.QueryStats.DataDir, "flush_interval", cfg.QueryStats.FlushInterval)
+	}
+
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
 			NewRawQueryMiddleware(rawQueryStream),                                            // pre+post
+			queryStatsMiddleware,                                                             // post
 			blockingMiddleware,                                                               // pre+post
 			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                    // post
 			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                             // post

@@ -1,4 +1,4 @@
-package blockstats
+package domainstats
 
 import (
 	"errors"
@@ -27,29 +27,22 @@ func (c Chunk) Range() TimeRange {
 	return c.TimeRange
 }
 
-type Entry struct {
+type Key struct {
 	ClientIP types.IPv4 `tsv:"client_ip"`
 	Domain   string     `tsv:"domain"`
 	QType    string     `tsv:"qtype"`
-	List     string     `tsv:"list,optional"`
-	Count    uint32     `tsv:"count"`
-	Ts       Offsets    `tsv:"ts,optional"`
+	Label    string     `tsv:"label,optional"`
 }
 
-type Key struct {
-	ClientIP types.IPv4
-	Domain   string
-	QType    string
-	List     string
-}
-
-func (e *Entry) Key() Key {
-	return Key{ClientIP: e.ClientIP, Domain: e.Domain, QType: e.QType, List: e.List}
+type Entry struct {
+	Key
+	Count uint32  `tsv:"count"`
+	Ts    Offsets `tsv:"ts,optional"`
 }
 
 type Offsets []uint16
 
-var errInvalidOffset = errors.New("blockstats: invalid offset")
+var errInvalidOffset = errors.New("domainstats: invalid offset")
 
 func (o Offsets) clone() Offsets {
 	if len(o) == 0 {

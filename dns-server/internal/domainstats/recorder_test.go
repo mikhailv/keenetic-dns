@@ -1,4 +1,4 @@
-package blockstats
+package domainstats
 
 import (
 	"context"
@@ -107,11 +107,11 @@ func TestRecorder_AggregatesByKey(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.RecordBlocked(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com", "A", "hagezi-pro")
 	c.advance(30 * time.Second)
-	r.RecordBlocked(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com", "A", "hagezi-pro")
 	c.advance(30 * time.Second)
-	r.RecordBlocked(client, "ads.example.com", "AAAA", "hagezi-pro")
+	r.Record(client, "ads.example.com", "AAAA", "hagezi-pro")
 
 	require.NoError(t, r.Flush(t.Context()))
 
@@ -121,18 +121,18 @@ func TestRecorder_AggregatesByKey(t *testing.T) {
 	a, ok := findEntry(chunk.Entries, "ads.example.com")
 	require.True(t, ok)
 	assert.Equal(t, client, a.ClientIP)
-	assert.Equal(t, "hagezi-pro", a.List)
+	assert.Equal(t, "hagezi-pro", a.Label)
 }
 
 func TestRecorder_RecordsOffsets(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.RecordBlocked(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com", "A", "list")
 	c.advance(12 * time.Second)
-	r.RecordBlocked(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com", "A", "list")
 	c.advance(33 * time.Second)
-	r.RecordBlocked(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com", "A", "list")
 
 	require.NoError(t, r.Flush(t.Context()))
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
@@ -147,9 +147,9 @@ func TestRecorder_RotatesOnChunkBoundary(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{ChunkDuration: time.Hour})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.RecordBlocked(client, "first.example.com", "A", "list")
+	r.Record(client, "first.example.com", "A", "list")
 	c.advance(time.Hour)
-	r.RecordBlocked(client, "second.example.com", "A", "list")
+	r.Record(client, "second.example.com", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 
 	firstRange := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
@@ -170,12 +170,12 @@ func TestRecorder_EntryCapFoldsIntoOverflow(t *testing.T) {
 	client := types.MustParseIPv4("192.168.1.42")
 
 	for _, domain := range []string{"a.example.com", "b.example.com", "c.example.com"} {
-		r.RecordBlocked(client, domain, "A", "list")
+		r.Record(client, domain, "A", "list")
 	}
 	for _, domain := range []string{"d.example.com", "e.example.com"} {
-		r.RecordBlocked(client, domain, "A", "list")
+		r.Record(client, domain, "A", "list")
 	}
-	r.RecordBlocked(client, "a.example.com", "A", "list")
+	r.Record(client, "a.example.com", "A", "list")
 
 	require.NoError(t, r.Flush(t.Context()))
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
@@ -196,7 +196,7 @@ func TestRecorder_OffsetCapKeepsCountAuthoritative(t *testing.T) {
 
 	const hits = maxOffsets + 500
 	for range hits {
-		r.RecordBlocked(client, "loop.example.com", "A", "list")
+		r.Record(client, "loop.example.com", "A", "list")
 	}
 
 	require.NoError(t, r.Flush(t.Context()))
@@ -213,7 +213,7 @@ func TestRecorder_FlushIsIdempotentWhenIdle(t *testing.T) {
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Zero(t, store.saves, "nothing recorded means nothing to write")
 
-	r.RecordBlocked(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, 1, store.saves)
 }
@@ -223,12 +223,12 @@ func TestRecorder_RewritesCurrentChunkOnEachFlush(t *testing.T) {
 	client := types.MustParseIPv4("192.168.1.42")
 	tr := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
 
-	r.RecordBlocked(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, uint32(1), store.chunk(t, tr).Entries[0].Count)
 
 	c.advance(time.Minute)
-	r.RecordBlocked(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, uint32(2), store.chunk(t, tr).Entries[0].Count)
 	assert.Equal(t, 2, store.saves)
@@ -236,7 +236,7 @@ func TestRecorder_RewritesCurrentChunkOnEachFlush(t *testing.T) {
 
 func TestRecorder_CloseFlushesWithCancelledContext(t *testing.T) {
 	r, store, _ := newTestRecorder(t, Config{})
-	r.RecordBlocked(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
 
 	require.NoError(t, r.Close())
 	assert.Equal(t, 1, store.saves, "shutdown must not drop unflushed history")
@@ -244,7 +244,7 @@ func TestRecorder_CloseFlushesWithCancelledContext(t *testing.T) {
 
 func TestRecorder_CloseLeavesStoreOpen(t *testing.T) {
 	r, store, _ := newTestRecorder(t, Config{})
-	r.RecordBlocked(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
 
 	require.NoError(t, r.Close())
 
@@ -262,8 +262,8 @@ func TestRecorder_ConcurrentRecording(t *testing.T) {
 	for i := range 8 {
 		wg.Go(func() {
 			for range 200 {
-				r.RecordBlocked(client, "ads.example.com", "A", "list")
-				r.RecordBlocked(client, "other"+string(rune('a'+i))+".example.com", "A", "list")
+				r.Record(client, "ads.example.com", "A", "list")
+				r.Record(client, "other"+string(rune('a'+i))+".example.com", "A", "list")
 			}
 		})
 	}
@@ -289,6 +289,17 @@ func TestRecorderConfig_Defaults(t *testing.T) {
 	assert.Equal(t, time.Duration(maxChunkSeconds)*time.Second, cfg.ChunkDuration)
 }
 
+func TestRecorderConfig_Validate(t *testing.T) {
+	cfg := Config{Enabled: true, DataDir: "stats", FlushInterval: 2 * time.Hour, ChunkDuration: time.Hour}
+	require.ErrorContains(t, cfg.Validate("blockstats"), "blockstats: flush_interval")
+
+	cfg = Config{Enabled: true, ChunkDuration: time.Hour, FlushInterval: time.Minute}
+	require.ErrorContains(t, cfg.Validate("blockstats"), "blockstats: data_dir")
+
+	cfg.Enabled = false
+	assert.NoError(t, cfg.Validate("blockstats"), "a disabled section is not checked")
+}
+
 func TestRecorder_WritesThroughFileStore(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
@@ -300,9 +311,9 @@ func TestRecorder_WritesThroughFileStore(t *testing.T) {
 	r.now = c.Now
 
 	client := types.MustParseIPv4("192.168.1.42")
-	r.RecordBlocked(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com", "A", "hagezi-pro")
 	c.advance(time.Second)
-	r.RecordBlocked(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com", "A", "hagezi-pro")
 	require.NoError(t, r.Flush(t.Context()))
 
 	tr := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
@@ -322,9 +333,9 @@ func TestRecorder_FlushKeepsChunksWhoseSaveFailed(t *testing.T) {
 	r, store, clk := newTestRecorder(t, Config{})
 
 	store.err = errors.New("disk full")
-	r.RecordBlocked(types.MustParseIPv4("192.168.1.1"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.1"), "ads.example.com", "A", "list")
 	clk.advance(2 * time.Hour)
-	r.RecordBlocked(types.MustParseIPv4("192.168.1.1"), "other.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.1"), "other.example.com", "A", "list")
 
 	require.Error(t, r.Flush(t.Context()))
 

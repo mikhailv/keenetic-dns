@@ -27,6 +27,36 @@ func GetResolverInfo(ctx context.Context) (types.ResolverInfo, bool) {
 	return *v, true
 }
 
+type QueryStatus struct {
+	Blocked bool
+	Routed  bool
+}
+
+type contextKeyQueryStatus struct{}
+
+func WithQueryStatus(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKeyQueryStatus{}, &QueryStatus{})
+}
+
+func SetQueryBlocked(ctx context.Context) {
+	if v, ok := ctx.Value(contextKeyQueryStatus{}).(*QueryStatus); ok {
+		v.Blocked = true
+	}
+}
+
+func SetQueryRouted(ctx context.Context) {
+	if v, ok := ctx.Value(contextKeyQueryStatus{}).(*QueryStatus); ok {
+		v.Routed = true
+	}
+}
+
+func GetQueryStatus(ctx context.Context) QueryStatus {
+	if v, ok := ctx.Value(contextKeyQueryStatus{}).(*QueryStatus); ok {
+		return *v
+	}
+	return QueryStatus{}
+}
+
 type QueryInfo struct {
 	Lookup     *types.DomainLookup
 	IPRoutings types.IPRoutings

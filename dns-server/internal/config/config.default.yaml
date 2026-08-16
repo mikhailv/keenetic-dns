@@ -74,3 +74,10 @@ blocking:
     chunk_duration: 1h
     flush_interval: 5m
     max_entries: 50000
+
+query_stats:
+  enabled: false
+  data_dir: querystats
+  chunk_duration: 1h
+  flush_interval: 5m
+  max_entries: 50000

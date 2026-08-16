@@ -1,4 +1,4 @@
-package blockstats
+package domainstats
 
 import (
 	"bufio"

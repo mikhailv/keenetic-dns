@@ -15,7 +15,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/blockstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
@@ -27,19 +26,20 @@ type Config struct {
 	Addr     string `yaml:"addr"`
 	HTTPAddr string `yaml:"http_addr"`
 
-	Logging   Logging   `yaml:"logging"`
-	Agent     Agent     `yaml:"agent"`
-	DNS       DNS       `yaml:"dns"`
-	MDNS      MDNS      `yaml:"mdns"`
-	Storage   Storage   `yaml:"storage"`
-	Routing   Routing   `yaml:"routing"`
-	Conntrack Conntrack `yaml:"conntrack"`
-	Blocking  Blocking  `yaml:"blocking"`
+	Logging    Logging     `yaml:"logging"`
+	Agent      Agent       `yaml:"agent"`
+	DNS        DNS         `yaml:"dns"`
+	MDNS       MDNS        `yaml:"mdns"`
+	Storage    Storage     `yaml:"storage"`
+	Routing    Routing     `yaml:"routing"`
+	Conntrack  Conntrack   `yaml:"conntrack"`
+	Blocking   Blocking    `yaml:"blocking"`
+	QueryStats DomainStats `yaml:"query_stats"`
 }
 
 type Blocking struct {
 	blocklist.Config `yaml:",inline"`
-	Stats            blockstats.Config `yaml:"stats"`
+	Stats            DomainStats `yaml:"stats"`
 }
 
 func (c *Blocking) SetDefaults() {
@@ -50,7 +50,7 @@ func (c *Blocking) SetDefaults() {
 func (c *Blocking) Validate() error {
 	return cmp.Or(
 		c.Config.Validate(),
-		c.Stats.Validate(),
+		c.Stats.Validate("blocking stats"),
 	)
 }
 
@@ -165,7 +165,10 @@ func (c *Config) init() {
 }
 
 func (c *Config) Validate() error {
-	return c.Blocking.Validate()
+	return cmp.Or(
+		c.Blocking.Validate(),
+		c.QueryStats.Validate("query stats"),
+	)
 }
 
 func (c *Config) setDefaults() {
@@ -173,6 +176,7 @@ func (c *Config) setDefaults() {
 		c.HTTPAddr = c.Addr
 	}
 	c.Blocking.SetDefaults()
+	c.QueryStats.SetDefaults()
 }
 
 func DefaultConfig() *Config {
