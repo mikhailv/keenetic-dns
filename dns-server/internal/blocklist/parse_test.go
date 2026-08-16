@@ -1,8 +1,11 @@
 package blocklist
 
 import (
+	"bufio"
+	"iter"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -414,4 +417,68 @@ func TestScan_SmallAdGuardList(t *testing.T) {
 	assert.Equal(t, 7, rules)
 	assert.Equal(t, 7, attempts)
 	assert.GreaterOrEqual(t, float64(rules)/float64(attempts), minListValidRulesFraction)
+}
+
+func TestLineScanner_SplitsLikeBufioScanner(t *testing.T) {
+	inputs := map[string]string{
+		"trailing newline":    "0.0.0.0 a.example.com\n||b.example.com^\n",
+		"no trailing newline": "0.0.0.0 a.example.com\n||b.example.com^",
+		"crlf":                "0.0.0.0 a.example.com\r\n||b.example.com^\r\n",
+		"blank lines":         "\n\n0.0.0.0 a.example.com\n\n\n",
+		"empty":               "",
+		"only newlines":       "\n\n\n",
+		"comments":            "! header\n# note\r\nads.example.com\n",
+		"prose":               "service\ntemporarily\nunavailable",
+	}
+	for name, input := range inputs {
+		t.Run(name, func(t *testing.T) {
+			wantRules, wantAttempts := scanWithBufio(input)
+			for _, size := range []int{1, 2, 3, 7, 64, len(input) + 1} {
+				rules, attempts, err := Scan(iotest.OneByteReader(strings.NewReader(input)))
+				require.NoError(t, err)
+				assert.Equal(t, wantRules, rules, "rules")
+				assert.Equal(t, wantAttempts, attempts, "attempts")
+
+				var sc lineScanner
+				for chunk := range chunks(input, size) {
+					_, err := sc.Write([]byte(chunk))
+					require.NoError(t, err)
+				}
+				sc.Flush()
+				require.NoError(t, sc.err)
+				assert.Equal(t, wantRules, sc.rules, "rules, written in %d-byte chunks", size)
+				assert.Equal(t, wantAttempts, sc.attempts, "attempts, written in %d-byte chunks", size)
+			}
+		})
+	}
+}
+
+func TestLineScanner_LineTooLong(t *testing.T) {
+	_, _, err := Scan(strings.NewReader(strings.Repeat("a", maxLineSize+1)))
+	assert.ErrorIs(t, err, bufio.ErrTooLong)
+}
+
+func chunks(s string, size int) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for len(s) > 0 {
+			n := min(size, len(s))
+			if !yield(s[:n]) {
+				return
+			}
+			s = s[n:]
+		}
+	}
+}
+
+func scanWithBufio(input string) (rules, attempts int) {
+	sc := bufio.NewScanner(strings.NewReader(input))
+	sc.Buffer(make([]byte, 0, 4096), maxLineSize)
+	var buf []Rule
+	for sc.Scan() {
+		var n int
+		buf, n = parseLine(sc.Text(), buf[:0])
+		rules += len(buf)
+		attempts += n
+	}
+	return rules, attempts
 }

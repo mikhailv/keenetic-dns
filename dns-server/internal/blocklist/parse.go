@@ -2,6 +2,7 @@ package blocklist
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"iter"
@@ -66,19 +67,60 @@ func Parse(r io.Reader) iter.Seq2[Rule, error] {
 }
 
 func Scan(r io.Reader) (rules, attempts int, err error) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 4096), maxLineSize)
-	var buf []Rule
-	for sc.Scan() {
-		var n int
-		buf, n = parseLine(sc.Text(), buf[:0])
-		rules += len(buf)
-		attempts += n
-	}
-	if err := sc.Err(); err != nil {
+	var sc lineScanner
+	if _, err := io.Copy(&sc, r); err != nil {
 		return 0, 0, err
 	}
-	return rules, attempts, nil
+	sc.Flush()
+	if sc.err != nil {
+		return 0, 0, sc.err
+	}
+	return sc.rules, sc.attempts, nil
+}
+
+type lineScanner struct {
+	line     []byte
+	buf      []Rule
+	rules    int
+	attempts int
+	err      error
+}
+
+func (s *lineScanner) Write(p []byte) (int, error) {
+	n := len(p)
+	for s.err == nil && len(p) > 0 {
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			s.hold(p)
+			break
+		}
+		s.hold(p[:i])
+		s.flushLine()
+		p = p[i+1:]
+	}
+	return n, nil
+}
+
+func (s *lineScanner) Flush() {
+	if s.err == nil && len(s.line) > 0 {
+		s.flushLine()
+	}
+}
+
+func (s *lineScanner) hold(p []byte) {
+	if len(s.line)+len(p) > maxLineSize {
+		s.err = bufio.ErrTooLong
+		return
+	}
+	s.line = append(s.line, p...)
+}
+
+func (s *lineScanner) flushLine() {
+	var n int
+	s.buf, n = parseLine(string(s.line), s.buf[:0])
+	s.line = s.line[:0]
+	s.rules += len(s.buf)
+	s.attempts += n
 }
 
 var sinkIPs = map[string]bool{

@@ -21,7 +21,6 @@ import (
 const (
 	maxListSize = 256 << 20
 
-	//
 	minListValidRulesFraction = 0.25
 )
 
@@ -180,49 +179,44 @@ func (d *Downloader) fetchOne(
 }
 
 func (d *Downloader) saveBody(path string, body io.Reader) (int, error) {
-	var rules int
+	var v listValidator
 	err := util.SaveToFile(path, util.SaveFileConfig{
-		Reader: body,
-		Limit:  maxListSize,
-		BeforeCommit: func(tmpFile string) error {
-			var err error
-			rules, err = validateList(tmpFile)
-			return err
-		},
+		Reader:       io.TeeReader(body, &v),
+		Limit:        maxListSize,
+		BeforeCommit: func(string) error { return v.check() },
 	})
-	return rules, err
+	return v.rules, err
 }
 
-func validateList(path string) (int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
+const htmlSniffSize = 512
 
-	head := make([]byte, 512)
-	n, err := f.Read(head)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return 0, err
-	}
-	if looksLikeHTML(string(head[:n])) {
-		return 0, errors.New("response body is an HTML document")
-	}
-	if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
-		return 0, seekErr
-	}
+type listValidator struct {
+	lineScanner
+	head []byte
+}
 
-	rules, attempts, err := Scan(f)
-	if err != nil {
-		return 0, err
+func (v *listValidator) Write(p []byte) (int, error) {
+	if n := htmlSniffSize - len(v.head); n > 0 {
+		v.head = append(v.head, p[:min(n, len(p))]...)
 	}
-	if attempts == 0 {
-		return 0, errors.New("response body holds no rules at all")
+	return v.lineScanner.Write(p)
+}
+
+func (v *listValidator) check() error {
+	v.Flush()
+	if looksLikeHTML(string(v.head)) {
+		return errors.New("response body is an HTML document")
 	}
-	if fraction := float64(rules) / float64(attempts); fraction < minListValidRulesFraction {
-		return 0, fmt.Errorf("only %d rules parsed from %d candidates (%.1f%%)", rules, attempts, fraction*100)
+	if v.err != nil {
+		return v.err
 	}
-	return rules, nil
+	if v.attempts == 0 {
+		return errors.New("response body holds no rules at all")
+	}
+	if fraction := float64(v.rules) / float64(v.attempts); fraction < minListValidRulesFraction {
+		return fmt.Errorf("only %d rules parsed from %d candidates (%.1f%%)", v.rules, v.attempts, fraction*100)
+	}
+	return nil
 }
 
 func isHTML(contentType string) bool {
