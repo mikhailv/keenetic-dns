@@ -112,13 +112,18 @@ func (m *Manager) Start(ctx context.Context) util.Waiter {
 		m.logger.Warn("no usable blocklist index at startup, blocking inactive until refresh", "err", err)
 	}
 
-	go m.startupRefresh(ctx)
+	startup, startupDone := util.NewWaiter()
+	go func() {
+		defer startupDone()
+		m.startupRefresh(ctx)
+	}()
 
-	return util.RunPeriodically(ctx.Done(), m.cfg.RefreshInterval, func() {
+	periodic := util.RunPeriodically(ctx.Done(), m.cfg.RefreshInterval, func() {
 		if err := m.Refresh(ctx); err != nil && ctx.Err() == nil {
 			m.logger.Error("blocklist refresh failed", "err", err)
 		}
 	})
+	return util.WaitAll(startup, periodic)
 }
 
 func (m *Manager) startupRefresh(ctx context.Context) {

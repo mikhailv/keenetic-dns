@@ -4,25 +4,26 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type Cursor uint64
 
 var cursorEpoch = time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-const cursorCounterBits = 20
+const cursorCounterBits uint = 20
 
 type CursorAware interface {
 	SetCursor(cursor Cursor)
 }
 
 func NewCursor(now time.Time, counter uint64) Cursor {
-	ms := max(now.Sub(cursorEpoch).Milliseconds(), 0)
-	return Cursor(uint64(ms)<<cursorCounterBits | counter&(1<<cursorCounterBits-1))
+	return Cursor(util.PackEventID(cursorEpoch, now, cursorCounterBits, counter))
 }
 
 func (c Cursor) Time() time.Time {
-	return cursorEpoch.Add(time.Duration(uint64(c)>>cursorCounterBits) * time.Millisecond)
+	return util.EventIDTime(cursorEpoch, cursorCounterBits, uint64(c))
 }
 
 func (c Cursor) String() string {

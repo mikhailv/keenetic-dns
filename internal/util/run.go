@@ -13,6 +13,18 @@ func NewWaiter() (waiter Waiter, signal func()) {
 	return sw, sw.signal
 }
 
+func WaitAll(waiters ...Waiter) Waiter {
+	return waitAll(waiters)
+}
+
+type waitAll []Waiter
+
+func (w waitAll) Wait() {
+	for _, it := range w {
+		it.Wait()
+	}
+}
+
 func RunPeriodically(stopCh <-chan struct{}, interval time.Duration, fn func()) Waiter {
 	waiter, signal := NewWaiter()
 	go func() {

@@ -3,17 +3,18 @@ package types
 import (
 	"strconv"
 	"time"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type QueryID uint64
 
 var queryIDEpoch = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-const queryIDCounterBits = 24
+const queryIDCounterBits uint = 24
 
 func NewQueryID(now time.Time, counter uint64) QueryID {
-	ms := max(now.Sub(queryIDEpoch).Milliseconds(), 0)
-	return QueryID(uint64(ms)<<queryIDCounterBits | counter&(1<<queryIDCounterBits-1))
+	return QueryID(util.PackEventID(queryIDEpoch, now, queryIDCounterBits, counter))
 }
 
 func (id QueryID) Time() time.Time {

@@ -624,3 +624,29 @@ func TestManager_StartStopsRetryingAtBackoffCeiling(t *testing.T) {
 	assert.True(t, m.Degraded(), "it gave up while still degraded")
 	assert.LessOrEqual(t, attempts.Load(), int32(6), "retries must be bounded, not endless")
 }
+
+func TestManager_StartWaiterCoversStartupRefresh(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		io.WriteString(w, listOf("ads.example.com")) //nolint:errcheck // test
+	}))
+	defer srv.Close()
+
+	m := newTestManager(t, blockList("ads", srv.URL))
+	ctx, cancel := context.WithCancel(t.Context())
+	waiter := m.Start(ctx)
+
+	var done atomic.Bool
+	go func() {
+		waiter.Wait()
+		done.Store(true)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	require.False(t, done.Load(), "waiter must not return while the startup refresh is in flight")
+
+	cancel()
+	close(release)
+	require.Eventually(t, done.Load, 5*time.Second, 5*time.Millisecond)
+}
