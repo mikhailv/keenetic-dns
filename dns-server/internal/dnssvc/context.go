@@ -7,8 +7,6 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
-//
-
 type contextKeyResolverInfo struct{}
 
 func WithResolverInfo(ctx context.Context) context.Context {
@@ -21,16 +19,18 @@ func SetResolverInfo(ctx context.Context, resolver string, duration time.Duratio
 	}
 }
 
-func GetResolverInfo(ctx context.Context) types.ResolverInfo {
-	if v, ok := ctx.Value(contextKeyResolverInfo{}).(*types.ResolverInfo); ok {
-		return *v
+func GetResolverInfo(ctx context.Context) (types.ResolverInfo, bool) {
+	v, ok := ctx.Value(contextKeyResolverInfo{}).(*types.ResolverInfo)
+	if !ok || v.Name == "" {
+		return types.ResolverInfo{}, false
 	}
-	return types.ResolverInfo{}
+	return *v, true
 }
 
 type QueryInfo struct {
 	Lookup     *types.DomainLookup
 	IPRoutings types.IPRoutings
+	ReusedFrom types.QueryID
 }
 
 type contextKeyQueryInfo struct{}

@@ -61,3 +61,8 @@ func TestQueryID_MarshalsAsText(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &back))
 	assert.Equal(t, id, back.ID, "round-trips without losing precision")
 }
+
+func TestQueryID_ClampsPreEpoch(t *testing.T) {
+	before := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
+	assert.Zero(t, uint64(NewQueryID(before, 0)))
+}

@@ -15,10 +15,8 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/storage"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
-	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -26,10 +24,9 @@ func NewIPRoutingHandler(
 	handler dnssvc.Handler,
 	dnsStore *storage.DNSStore,
 	ipRoutes *routing.IPRouteController,
-	stream stream.Stream[types.DNSQuery],
 	logger *slog.Logger,
 ) dnssvc.Handler {
-	return &ipRoutingHandler{handler, dnsStore, ipRoutes, stream, logger}
+	return &ipRoutingHandler{handler, dnsStore, ipRoutes, logger}
 }
 
 var _ dnssvc.Handler = (*ipRoutingHandler)(nil)
@@ -38,16 +35,16 @@ type ipRoutingHandler struct {
 	handler  dnssvc.Handler
 	dnsStore *storage.DNSStore
 	ipRoutes *routing.IPRouteController
-	stream   stream.Stream[types.DNSQuery]
 	logger   *slog.Logger
 }
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	resolveTime := types.TimestampFromTime(time.Now())
-	ctx = dnssvc.WithResolverInfoContext(ctx)
+	ctx = dnssvc.WithResolverInfo(ctx)
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		s.processTypeAResponse(ctx, resp, resolveTime, dnssvc.GetResolverInfo(ctx))
+		resolver, _ := dnssvc.GetResolverInfo(ctx)
+		s.processTypeAResponse(ctx, resp, resolveTime, resolver)
 	}
 	return resp, err
 }
@@ -156,13 +153,13 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 	req.SetQuestion(domain, dns.TypePTR)
 	req.RecursionDesired = true
 
-	ctx = dnssvc.WithResolverInfoContext(ctx)
+	ctx = dnssvc.WithResolverInfo(ctx)
 	resp, err := s.handler.Handle(ctx, req)
 	if err != nil {
 		s.logger.Error("failed PTR request", "err", err, "domain", domain, "ip", ip.String())
 		return
 	}
-	dip.PTRResolver = dnssvc.GetResolverInfo(ctx)
+	dip.PTRResolver, _ = dnssvc.GetResolverInfo(ctx)
 
 	for _, it := range resp.Answer {
 		if v, ok := it.(*dns.PTR); ok {
@@ -192,14 +189,9 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 
 	s.dnsStore.Add(dl)
 
-	ipRoutingSet := s.ipRoutes.AddRoutes(ctx, dl)
-
-	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
-	s.stream.Append(types.DNSQuery{
-		ClientIP:     clientIP,
-		DomainLookup: *dl,
-		Duration:     time.Since(dl.Time.Time()).Seconds(),
-		IPRoutings:   ipRoutingSet,
+	dnssvc.SetQueryInfo(ctx, dnssvc.QueryInfo{
+		Lookup:     dl,
+		IPRoutings: s.ipRoutes.AddRoutes(ctx, dl),
 	})
 }
 

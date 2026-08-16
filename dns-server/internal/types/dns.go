@@ -50,9 +50,11 @@ var _ stream.CursorAware = (*DNSQuery)(nil)
 
 type DNSQuery struct {
 	Cursor     stream.Cursor `json:"cursor,omitempty"`
+	ID         QueryID       `json:"id"`
 	ClientIP   IPv4          `json:"client_ip"`
 	Duration   float64       `json:"duration"`
 	IPRoutings IPRoutings    `json:"ip_routings,omitempty"`
+	ReusedFrom QueryID       `json:"reused_from,omitempty"`
 	DomainLookup
 }
 
@@ -173,6 +175,7 @@ var _ stream.CursorAware = (*DNSRawQuery)(nil)
 
 type DNSRawQuery struct {
 	Cursor   stream.Cursor `json:"cursor,omitempty"`
+	ID       QueryID       `json:"id"`
 	Time     Timestamp     `json:"time"`
 	ClientIP IPv4          `json:"client_ip"`
 	Response bool          `json:"response,omitempty"`

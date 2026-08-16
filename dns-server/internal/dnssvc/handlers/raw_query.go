@@ -32,8 +32,10 @@ func (s rawQueryHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, er
 }
 
 func (s rawQueryHandler) appendQuery(ctx context.Context, msg *dns.Msg, err error) {
+	id, _ := ctxutil.GetDNSQueryID(ctx)
 	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 	q := types.DNSRawQuery{
+		ID:       id,
 		Time:     types.TimestampFromTime(time.Now()),
 		ClientIP: clientIP,
 		Response: (msg != nil && msg.Response) || err != nil,

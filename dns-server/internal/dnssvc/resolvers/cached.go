@@ -34,7 +34,7 @@ func (s cachedResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, er
 		if resp := s.cache.Get(ctx, req.Question[0]); resp != nil {
 			metrics.TrackStatus("dns_cache", "hit")
 			resp.SetReply(req)
-			dnssvc.SetResolverInfoInContext(ctx, s.Name(), time.Since(st))
+			dnssvc.SetResolverInfo(ctx, s.Name(), time.Since(st))
 			return resp, nil
 		}
 		metrics.TrackStatus("dns_cache", "miss")

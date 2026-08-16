@@ -16,7 +16,7 @@ var _ Stream[string] = (*Buffered[string])(nil)
 type Buffered[T any] struct {
 	mu           sync.RWMutex
 	buf          *util.RingBuf[streamEntry[T]]
-	index        int32
+	lastCursor   Cursor
 	listeners    map[uint16]Listener[T]
 	nextListener uint16
 }
@@ -47,8 +47,11 @@ func NewBufferedStream[T any](bufferSize int) *Buffered[T] {
 
 func (s *Buffered[T]) Append(value T) {
 	s.mu.Lock()
-	cursor := Cursor((uint64(time.Now().UnixMilli()) << 32) | uint64(s.index))
-	s.index++
+	cursor := NewCursor(time.Now(), 0)
+	if cursor <= s.lastCursor {
+		cursor = s.lastCursor + 1
+	}
+	s.lastCursor = cursor
 	if c, ok := any(value).(CursorAware); ok {
 		c.SetCursor(cursor)
 	} else if c, ok := any(&value).(CursorAware); ok {

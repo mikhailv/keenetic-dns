@@ -49,13 +49,34 @@ func TestBuffered_CursorsAlwaysIncrease(t *testing.T) {
 	s := NewBufferedStream[testEntry](8)
 
 	var last Cursor
-	for i := range 1000 {
+	for i := range 1<<cursorCounterBits + 100 {
 		s.Append(testEntry{})
-		res := s.QueryBackward(^Cursor(0), 1, nil)
-		require.Len(t, res.Items, 1, "append %d", i)
-		require.Greater(t, uint64(res.LastCursor), uint64(last), "cursor went backwards at append %d", i)
-		last = res.LastCursor
+		if s.lastCursor <= last {
+			t.Fatalf("cursor went backwards at append %d: %016x <= %016x", i, uint64(s.lastCursor), uint64(last))
+		}
+		last = s.lastCursor
 	}
+}
+
+func TestBuffered_CursorsIncreaseWhenClockGoesBackwards(t *testing.T) {
+	s := NewBufferedStream[testEntry](8)
+
+	s.Append(testEntry{})
+	first := s.QueryBackward(^Cursor(0), 1, nil).LastCursor
+
+	s.lastCursor = NewCursor(time.Now().Add(time.Hour), 0)
+	ahead := s.lastCursor
+
+	s.Append(testEntry{})
+	after := s.QueryBackward(^Cursor(0), 1, nil).LastCursor
+
+	require.Greater(t, uint64(after), uint64(ahead), "an earlier clock must not produce an earlier cursor")
+	require.Greater(t, uint64(ahead), uint64(first))
+}
+
+func TestNewCursor_ClampsPreEpoch(t *testing.T) {
+	before := time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC)
+	assert.Zero(t, uint64(NewCursor(before, 0)), "a clock before the epoch must not wrap to the top of the range")
 }
 
 type testEntry struct {

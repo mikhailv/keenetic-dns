@@ -25,21 +25,24 @@ type queryLogHandler struct {
 
 func (s queryLogHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
 	start := time.Now()
-	ctx = dnssvc.WithQueryObservationContext(ctx)
+	ctx = dnssvc.WithQueryInfo(ctx)
 
 	resp, err := s.handler.Handle(ctx, msg)
 
-	obs, ok := dnssvc.GetQueryObservation(ctx)
+	info, ok := dnssvc.GetQueryInfo(ctx)
 	if !ok {
 		return resp, err
 	}
 
+	id, _ := ctxutil.GetDNSQueryID(ctx)
 	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 	s.stream.Append(types.DNSQuery{
+		ID:           id,
 		ClientIP:     clientIP,
-		DomainLookup: *obs.Lookup,
+		DomainLookup: *info.Lookup,
 		Duration:     time.Since(start).Seconds(),
-		IPRoutings:   obs.IPRoutings,
+		IPRoutings:   info.IPRoutings,
+		ReusedFrom:   info.ReusedFrom,
 	})
 	return resp, err
 }

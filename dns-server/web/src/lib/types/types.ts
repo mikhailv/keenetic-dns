@@ -16,6 +16,7 @@ export interface DNSRecord {
 
 export interface DNSQuery {
 	cursor: string;
+	id: string;
 	time: Date;
 	client_ip: string;
 	duration: number;
@@ -24,6 +25,7 @@ export interface DNSQuery {
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];
 	ip_routings?: Record<string, IPRouting>;
+	reused_from?: string;
 }
 
 export interface ResolverInfo {
@@ -63,6 +65,7 @@ export interface LogEntry {
 
 export interface DNSRawQuery {
 	cursor: string;
+	id: string;
 	time: Date;
 	client_ip: string;
 	response?: boolean;

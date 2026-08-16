@@ -83,6 +83,9 @@
 						</div>
 						<div class="font-light text-sm2" title="resolver">
 							{query.resolver.name} / {formatMilli(query.resolver.duration)} ms
+							{#if query.reused_from}
+								<span class="badge badge-sm ml-2" title="from query {query.reused_from}">reused</span>
+							{/if}
 						</div>
 					</td>
 					<td class="font-light text-sm1">

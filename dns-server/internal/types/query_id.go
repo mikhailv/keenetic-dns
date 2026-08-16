@@ -12,8 +12,8 @@ var queryIDEpoch = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 const queryIDCounterBits = 24
 
 func NewQueryID(now time.Time, counter uint64) QueryID {
-	ms := uint64(now.Sub(queryIDEpoch).Milliseconds())
-	return QueryID(ms<<queryIDCounterBits | counter&(1<<queryIDCounterBits-1))
+	ms := max(now.Sub(queryIDEpoch).Milliseconds(), 0)
+	return QueryID(uint64(ms)<<queryIDCounterBits | counter&(1<<queryIDCounterBits-1))
 }
 
 func (id QueryID) Time() time.Time {

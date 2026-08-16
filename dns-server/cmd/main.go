@@ -157,14 +157,15 @@ func main() { //nolint:funlen // ignore
 
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			NewRawQueryMiddleware(rawQueryStream),                  // pre+post
-			blockingMiddleware,                                     // pre+post
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),          // post
-			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),   // post
-			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA), // post
-			SingleInflightMiddleware,                               // pre
-			NewIPRoutingMiddleware(dnsStore, ipRoutes, dnsQueryStream, log.WithPrefix(logger, "ip_routing")), // post
-			ErrorSafeResponseMiddleware, // post
+			NewRawQueryMiddleware(rawQueryStream),                                            // pre+post
+			blockingMiddleware,                                                               // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                    // post
+			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                             // post
+			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA),                           // post
+			NewQueryLogMiddleware(dnsQueryStream),                                            // post
+			SingleFlightMiddleware,                                                           // pre
+			NewIPRoutingMiddleware(dnsStore, ipRoutes, log.WithPrefix(logger, "ip_routing")), // post
+			ErrorSafeResponseMiddleware,                                                      // post
 		},
 		NewCachedResolver("cache", settableResolver, dnsCache),
 	)

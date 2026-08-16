@@ -12,7 +12,6 @@ import (
 
 	"github.com/miekg/dns"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
@@ -56,7 +55,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 				continue
 			}
 			if isSucceededResponse(r.resp) {
-				SetResolverInfoInContext(ctx, r.resolver.Name(), r.duration)
+				SetResolverInfo(ctx, r.resolver.Name(), r.duration)
 				return r.resp, nil
 			}
 			badResult = &r
@@ -64,7 +63,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 	}
 
 	if badResult != nil {
-		SetResolverInfoInContext(ctx, badResult.resolver.Name(), badResult.duration)
+		SetResolverInfo(ctx, badResult.resolver.Name(), badResult.duration)
 		return badResult.resp, nil
 	}
 	return RefusedResponse(msg), errors.Join(errs...)
@@ -127,27 +126,4 @@ func resolveInParallel(ctx context.Context, resolvers []Resolver, msg *dns.Msg) 
 			}
 		}
 	}
-}
-
-type contextKeyResolvedBy struct{}
-
-// WithResolverInfoContext returns a context that can track which resolver handled a query.
-// Use SetResolverInfoInContext to set the resolver name.
-func WithResolverInfoContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKeyResolvedBy{}, &types.ResolverInfo{})
-}
-
-// SetResolverInfoInContext sets the resolver name and resolution duration in the context.
-// The context must be initialized with WithResolverInfoContext first.
-func SetResolverInfoInContext(ctx context.Context, resolver string, duration time.Duration) {
-	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolverInfo); ok {
-		*v = types.ResolverInfo{Name: resolver, Duration: duration.Seconds()}
-	}
-}
-
-func GetResolverInfo(ctx context.Context) types.ResolverInfo {
-	if v, ok := ctx.Value(contextKeyResolvedBy{}).(*types.ResolverInfo); ok {
-		return *v
-	}
-	return types.ResolverInfo{}
 }
