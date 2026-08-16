@@ -2,6 +2,7 @@ package blockstats
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -131,22 +132,25 @@ func (r *Recorder) Flush(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 
-	var firstErr error
+	var errs []error
+	var failed []Chunk
 	for _, chunk := range pending {
 		if err := r.store.Save(ctx, chunk); err != nil {
 			r.logger.Error("failed to save blockstats chunk", "range", chunk.TimeRange, "err", err)
-			if firstErr == nil {
-				firstErr = err
-			}
+			errs = append(errs, err)
+			failed = append(failed, chunk)
 		}
+	}
+	if len(failed) > 0 {
+		r.mu.Lock()
+		r.pending = append(failed, r.pending...)
+		r.mu.Unlock()
 	}
 	if current != nil {
 		if err := r.store.Save(ctx, *current); err != nil {
 			r.logger.Error("failed to save blockstats chunk", "range", current.TimeRange, "err", err)
-			if firstErr == nil {
-				firstErr = err
-			}
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
 }

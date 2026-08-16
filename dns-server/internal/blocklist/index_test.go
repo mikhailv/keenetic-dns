@@ -220,29 +220,23 @@ func TestReverseLabels(t *testing.T) {
 }
 
 func TestPackValueRoundTrip(t *testing.T) {
-	tests := []struct {
-		blockMask  uint32
-		allowMask  uint32
-		subdomains bool
-	}{
-		{0, 0, false},
-		{1, 0, true},
-		{0, 1, true},
-		{0b1010, 0b0101, false},
-		{1 << 30, 1 << 30, true},
-		{maskBits32, maskBits32, true},
+	tests := []listMasks{
+		{},
+		{blockSub: 1},
+		{blockExact: 1},
+		{allowSub: 1},
+		{allowExact: 1},
+		{blockSub: 0b1010, blockExact: 0b0101, allowSub: 0b1100, allowExact: 0b0011},
+		{blockSub: maskBits32, blockExact: maskBits32, allowSub: maskBits32, allowExact: maskBits32},
 	}
 	for _, tt := range tests {
-		blockMask, allowMask, subdomains := unpackValue(packValue(tt.blockMask, tt.allowMask, tt.subdomains))
-		assert.Equal(t, tt.blockMask, blockMask)
-		assert.Equal(t, tt.allowMask, allowMask)
-		assert.Equal(t, tt.subdomains, subdomains)
+		assert.Equal(t, tt, unpackValue(packValue(tt)))
 	}
 }
 
 func TestPackValueStaysSmallForCommonRule(t *testing.T) {
-	assert.Equal(t, uint64(3), packValue(1<<0, 0, true))
-	assert.Less(t, packValue(1<<3, 0, true), uint64(128))
+	assert.Equal(t, uint64(1), packValue(listMasks{blockSub: 1 << 0}))
+	assert.Less(t, packValue(listMasks{blockSub: 1 << 3}), uint64(128))
 }
 
 func TestIndex_ClientMaskHidesForeignLists(t *testing.T) {
@@ -367,4 +361,65 @@ func TestIndex_RegexRuleRespectsClientMask(t *testing.T) {
 	match, ok := idx.Lookup("ads1.example.com", maskOf(ads, other))
 	require.True(t, ok)
 	assert.True(t, match.Blocked())
+}
+
+func TestIndex_SubdomainsIsPerList(t *testing.T) {
+	b := NewBuilder()
+	hosts, err := b.AddList("hosts-list", "")
+	require.NoError(t, err)
+	wildcard, err := b.AddList("wildcard-list", "")
+	require.NoError(t, err)
+
+	b.Add(Rule{Domain: "example.com", Action: Block, Subdomains: false}, hosts)
+	b.Add(Rule{Domain: "example.com", Action: Block, Subdomains: true}, wildcard)
+	idx := writeAndOpen(t, b)
+
+	_, ok := idx.Lookup("www.example.com", maskOf(hosts))
+	assert.False(t, ok, "an exact-only list must not block a subdomain")
+
+	m, ok := idx.Lookup("example.com", maskOf(hosts))
+	require.True(t, ok, "the exact rule still matches the domain itself")
+	assert.True(t, m.Blocked())
+	assert.Equal(t, "hosts-list", m.List)
+
+	m, ok = idx.Lookup("www.example.com", maskOf(wildcard))
+	require.True(t, ok)
+	assert.True(t, m.Blocked())
+	assert.Equal(t, "wildcard-list", m.List)
+}
+
+func TestIndex_ExactAllowDoesNotRescueSubdomains(t *testing.T) {
+	b := NewBuilder()
+	id, err := b.AddList("list", "")
+	require.NoError(t, err)
+
+	b.Add(Rule{Domain: "example.com", Action: Block, Subdomains: true}, id)
+	b.Add(Rule{Domain: "example.com", Action: Allow, Subdomains: false}, id)
+	idx := writeAndOpen(t, b)
+
+	m, ok := idx.Lookup("example.com", allLists)
+	require.True(t, ok)
+	assert.False(t, m.Blocked(), "the exact allow wins on the domain itself")
+
+	m, ok = idx.Lookup("www.example.com", allLists)
+	require.True(t, ok)
+	assert.True(t, m.Blocked(), "but it must not reach subdomains")
+}
+
+func TestIndex_RejectsOtherFormatVersion(t *testing.T) {
+	dir := t.TempDir()
+	b := NewBuilder()
+	id, err := b.AddList("test", "")
+	require.NoError(t, err)
+	b.Add(block("ads.example.com", true), id)
+	indexPath := filepath.Join(dir, "blocklist.fst")
+	require.NoError(t, b.Write(indexPath, time.Unix(1754784000, 0)))
+
+	m, err := loadManifest(ManifestPath(indexPath))
+	require.NoError(t, err)
+	m.Version = manifestVersion + 1
+	require.NoError(t, m.save(ManifestPath(indexPath)))
+
+	_, err = Open(indexPath)
+	require.ErrorContains(t, err, "index format")
 }

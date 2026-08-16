@@ -2,6 +2,7 @@ package blockstats
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"log/slog"
 	"slices"
@@ -315,4 +316,26 @@ func TestRecorder_WritesThroughFileStore(t *testing.T) {
 	assert.Equal(t, uint32(2), got[0].Count)
 	assert.Equal(t, Offsets{0, 1}, got[0].Ts)
 	assert.NotContains(t, got[0].Domain, "\t")
+}
+
+func TestRecorder_FlushKeepsChunksWhoseSaveFailed(t *testing.T) {
+	r, store, clk := newTestRecorder(t, Config{})
+
+	store.err = errors.New("disk full")
+	r.RecordBlocked(types.MustParseIPv4("192.168.1.1"), "ads.example.com", "A", "list")
+	clk.advance(2 * time.Hour)
+	r.RecordBlocked(types.MustParseIPv4("192.168.1.1"), "other.example.com", "A", "list")
+
+	require.Error(t, r.Flush(t.Context()))
+
+	store.err = nil
+	require.NoError(t, r.Flush(t.Context()))
+
+	var domains []string
+	for _, c := range store.chunks {
+		for _, e := range c.Entries {
+			domains = append(domains, e.Domain)
+		}
+	}
+	assert.Contains(t, domains, "ads.example.com", "a chunk whose save failed must be retried, not dropped")
 }

@@ -15,29 +15,44 @@ import (
 )
 
 const (
-	flagSubdomains uint64 = 1 << 0
-	blockMaskShift        = 1
-	allowMaskShift        = 32
-	MaxLists              = 31
+	MaxLists = 15
+
+	blockSubShift   = 0
+	blockExactShift = MaxLists
+	allowSubShift   = MaxLists * 2
+	allowExactShift = MaxLists * 3
 
 	maskBits   = uint64(1<<MaxLists) - 1
 	maskBits32 = uint32(1<<MaxLists) - 1
 )
 
-func packValue(blockMask, allowMask uint32, subdomains bool) uint64 {
-	var v uint64
-	if subdomains {
-		v |= flagSubdomains
-	}
-	v |= (uint64(blockMask) & maskBits) << blockMaskShift
-	v |= (uint64(allowMask) & maskBits) << allowMaskShift
-	return v
+type listMasks struct {
+	blockSub, blockExact, allowSub, allowExact uint32
 }
 
-func unpackValue(v uint64) (blockMask, allowMask uint32, subdomains bool) {
-	blockMask = uint32((v >> blockMaskShift) & maskBits)
-	allowMask = uint32((v >> allowMaskShift) & maskBits)
-	return blockMask, allowMask, v&flagSubdomains != 0
+func (m listMasks) or(o listMasks) listMasks {
+	return listMasks{
+		blockSub:   m.blockSub | o.blockSub,
+		blockExact: m.blockExact | o.blockExact,
+		allowSub:   m.allowSub | o.allowSub,
+		allowExact: m.allowExact | o.allowExact,
+	}
+}
+
+func packValue(m listMasks) uint64 {
+	return uint64(m.blockSub)&maskBits<<blockSubShift |
+		uint64(m.blockExact)&maskBits<<blockExactShift |
+		uint64(m.allowSub)&maskBits<<allowSubShift |
+		uint64(m.allowExact)&maskBits<<allowExactShift
+}
+
+func unpackValue(v uint64) listMasks {
+	return listMasks{
+		blockSub:   uint32(v >> blockSubShift & maskBits),
+		blockExact: uint32(v >> blockExactShift & maskBits),
+		allowSub:   uint32(v >> allowSubShift & maskBits),
+		allowExact: uint32(v >> allowExactShift & maskBits),
+	}
 }
 
 type Match struct {
@@ -48,7 +63,10 @@ type Match struct {
 
 func (m Match) Blocked() bool { return m.Action == Block }
 
+const manifestVersion = 1
+
 type Manifest struct {
+	Version int               `json:"version"`
 	Lists   []string          `json:"lists"`
 	Regexps []ManifestRegexp  `json:"regexps,omitempty"`
 	Domains int               `json:"domains"`
@@ -115,6 +133,9 @@ func Open(path string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	if manifest.Version != manifestVersion {
+		return nil, fmt.Errorf("index format %d, want %d", manifest.Version, manifestVersion)
+	}
 	fst, err := vellum.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open index: %w", err)
@@ -160,8 +181,8 @@ func (idx *Index) Lookup(domain string, clientMask uint32) (Match, bool) {
 	if rev == "" {
 		return Match{}, false
 	}
-	if value, ok := idx.lookupFST(rev, clientMask); ok {
-		return idx.match(value, clientMask), true
+	if value, exact, ok := idx.lookupFST(rev, clientMask); ok {
+		return idx.match(value, exact, clientMask), true
 	}
 	for _, r := range idx.regexps {
 		if clientMask&(uint32(1)<<r.listID) == 0 {
@@ -174,44 +195,52 @@ func (idx *Index) Lookup(domain string, clientMask uint32) (Match, bool) {
 	return Match{}, false
 }
 
-func (idx *Index) match(value uint64, clientMask uint32) Match {
-	blockMask, allowMask, _ := unpackValue(value)
-	blockMask &= clientMask
-	allowMask &= clientMask
+func (idx *Index) match(value uint64, exact bool, clientMask uint32) Match {
+	block, allow := applicableMasks(unpackValue(value), exact)
+	block &= clientMask
+	allow &= clientMask
 
-	if allowMask != 0 {
-		return Match{List: idx.listName(lowestBit(allowMask)), Action: Allow}
+	if allow != 0 {
+		return Match{List: idx.listName(lowestBit(allow)), Action: Allow}
 	}
-	return Match{List: idx.listName(lowestBit(blockMask)), Action: Block}
+	return Match{List: idx.listName(lowestBit(block)), Action: Block}
+}
+
+func applicableMasks(m listMasks, exact bool) (block, allow uint32) {
+	block, allow = m.blockSub, m.allowSub
+	if exact {
+		block |= m.blockExact
+		allow |= m.allowExact
+	}
+	return block, allow
 }
 
 func lowestBit(mask uint32) int {
 	return bits.TrailingZeros32(mask)
 }
 
-func (idx *Index) lookupFST(rev string, clientMask uint32) (uint64, bool) {
+func (idx *Index) lookupFST(rev string, clientMask uint32) (value uint64, exact, found bool) {
 	addr := idx.fst.Start()
-	var acc, best uint64
-	var found bool
+	var acc uint64
 
 	for i := 0; ; i++ {
 		atEnd := i == len(rev)
 		if atEnd || rev[i] == '.' {
 			if matched, out := idx.fst.IsMatchWithVal(addr); matched {
-				value := acc + out
-				blockMask, allowMask, subdomains := unpackValue(value)
-				if (atEnd || subdomains) && (blockMask|allowMask)&clientMask != 0 {
-					best, found = value, true
+				v := acc + out
+				block, allow := applicableMasks(unpackValue(v), atEnd)
+				if (block|allow)&clientMask != 0 {
+					value, exact, found = v, atEnd, true
 				}
 			}
 		}
 		if atEnd {
-			return best, found
+			return value, exact, found
 		}
 		var out uint64
 		addr, out = idx.fst.AcceptWithVal(addr, rev[i])
 		if !idx.fst.CanMatch(addr) {
-			return best, found
+			return value, exact, found
 		}
 		acc += out
 	}

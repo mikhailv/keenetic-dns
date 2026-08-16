@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -103,7 +104,7 @@ func (s *fileStore) chunkPath(tr TimeRange) string {
 
 func (s *fileStore) listChunks(tr TimeRange) ([]string, error) {
 	s.mu.RLock()
-	files := s.files
+	files := maps.Clone(s.files)
 	s.mu.RUnlock()
 
 	if files == nil {
@@ -115,6 +116,7 @@ func (s *fileStore) listChunks(tr TimeRange) ([]string, error) {
 		s.mu.Lock()
 		s.files = files
 		s.mu.Unlock()
+		files = maps.Clone(files)
 	}
 
 	ranges := make([]TimeRange, 0, 8)

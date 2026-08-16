@@ -203,23 +203,29 @@ func (m *Manager) Refresh(ctx context.Context) error {
 
 	var changed, degraded bool
 	var errs []error
+	var failedLists int
 	for _, src := range m.lists {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		var listFailed bool
 		for _, set := range urlSets(src) {
 			status, _, err := m.downloader.Fetch(ctx, set.label, set.urls)
 			if err != nil {
 				errs = append(errs, err)
+				listFailed = true
 				continue
 			}
 			changed = changed || status.Changed
 			degraded = degraded || status.Degraded
 		}
+		if listFailed {
+			failedLists++
+		}
 	}
 	m.setDegraded(degraded || len(errs) > 0)
 
-	if len(errs) == len(m.lists) {
+	if failedLists == len(m.lists) {
 		return fmt.Errorf("all blocklists failed: %w", errors.Join(errs...))
 	}
 	changed = changed || !m.stateMatchesIndex()

@@ -31,10 +31,8 @@ type listInfo struct {
 }
 
 type entry struct {
-	key        string // reversed labels
-	blockMask  uint32
-	allowMask  uint32
-	subdomains bool
+	key   string // reversed labels
+	masks listMasks
 }
 
 func NewBuilder() *Builder {
@@ -66,13 +64,19 @@ func (b *Builder) Add(rule Rule, listID int) {
 		b.addRegex(rule, listID)
 		return
 	}
-	e := entry{key: reverseLabels(rule.Domain), subdomains: rule.Subdomains}
-	if rule.Action == Allow {
-		e.allowMask = uint32(1) << listID
-	} else {
-		e.blockMask = uint32(1) << listID
+	bit := uint32(1) << listID
+	var masks listMasks
+	switch {
+	case rule.Action == Allow && rule.Subdomains:
+		masks.allowSub = bit
+	case rule.Action == Allow:
+		masks.allowExact = bit
+	case rule.Subdomains:
+		masks.blockSub = bit
+	default:
+		masks.blockExact = bit
 	}
-	b.entries = append(b.entries, e)
+	b.entries = append(b.entries, entry{key: reverseLabels(rule.Domain), masks: masks})
 }
 
 func (b *Builder) addRegex(rule Rule, listID int) {
@@ -111,6 +115,7 @@ func (b *Builder) Write(indexPath string, builtAt time.Time) error {
 		}
 	}
 	manifest := &Manifest{
+		Version: manifestVersion,
 		Lists:   names,
 		Regexps: b.regexps,
 		Domains: len(b.entries),
@@ -131,9 +136,7 @@ func (b *Builder) dedupe() {
 	merged := b.entries[:0]
 	for _, e := range b.entries {
 		if n := len(merged); n > 0 && merged[n-1].key == e.key {
-			merged[n-1].blockMask |= e.blockMask
-			merged[n-1].allowMask |= e.allowMask
-			merged[n-1].subdomains = merged[n-1].subdomains || e.subdomains
+			merged[n-1].masks = merged[n-1].masks.or(e.masks)
 			continue
 		}
 		merged = append(merged, e)
@@ -150,7 +153,7 @@ func (b *Builder) writeFST(path string, beforeCommit func() error) error {
 				return fmt.Errorf("create index builder: %w", err)
 			}
 			for _, e := range b.entries {
-				value := packValue(e.blockMask, e.allowMask, e.subdomains)
+				value := packValue(e.masks)
 				if err := builder.Insert([]byte(e.key), value); err != nil {
 					return fmt.Errorf("insert %q: %w", e.key, err)
 				}
