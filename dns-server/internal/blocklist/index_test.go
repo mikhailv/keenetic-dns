@@ -2,6 +2,7 @@ package blocklist
 
 import (
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -422,4 +423,32 @@ func TestIndex_RejectsOtherFormatVersion(t *testing.T) {
 
 	_, err = Open(indexPath)
 	require.ErrorContains(t, err, "index format")
+}
+
+func TestIndex_ConcurrentLookups(t *testing.T) {
+	b := NewBuilder()
+	id, err := b.AddList("test", "")
+	require.NoError(t, err)
+	b.Add(block("ads.example.com", true), id)
+	b.Add(Rule{Domain: "cdn.ads.example.com", Action: Allow, Subdomains: true}, id)
+	idx := writeAndOpen(t, b)
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			for range 200 {
+				m, ok := idx.Lookup("deep.ads.example.com", allLists)
+				assert.True(t, ok)
+				assert.True(t, m.Blocked())
+
+				m, ok = idx.Lookup("x.cdn.ads.example.com", allLists)
+				assert.True(t, ok)
+				assert.False(t, m.Blocked())
+
+				_, ok = idx.Lookup("nothing.example.invalid", allLists)
+				assert.False(t, ok)
+			}
+		})
+	}
+	wg.Wait()
 }

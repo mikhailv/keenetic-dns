@@ -1,6 +1,7 @@
 package blocklist
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/blevesearch/vellum"
 
@@ -126,6 +128,12 @@ type Index struct {
 	fst      *vellum.FST
 	manifest *Manifest
 	regexps  []regexRule
+	lookups  sync.Pool
+}
+
+type lookupState struct {
+	reader *vellum.Reader
+	key    []byte
 }
 
 func Open(path string) (*Index, error) {
@@ -141,6 +149,10 @@ func Open(path string) (*Index, error) {
 		return nil, fmt.Errorf("open index: %w", err)
 	}
 	idx := &Index{fst: fst, manifest: manifest}
+	idx.lookups.New = func() any {
+		reader, _ := fst.Reader()
+		return &lookupState{reader: reader, key: make([]byte, 0, 256)}
+	}
 	for _, r := range manifest.Regexps {
 		re, err := regexp.Compile(r.Pattern)
 		if err != nil {
@@ -177,11 +189,14 @@ func (idx *Index) ListIDs() map[string]int {
 }
 
 func (idx *Index) Lookup(domain string, clientMask uint32) (Match, bool) {
-	rev := reverseLabels(normalizeLookup(domain))
-	if rev == "" {
+	st, _ := idx.lookups.Get().(*lookupState)
+	defer idx.lookups.Put(st)
+
+	st.key = appendReversed(st.key[:0], normalizeLookup(domain))
+	if len(st.key) == 0 {
 		return Match{}, false
 	}
-	if value, exact, ok := idx.lookupFST(rev, clientMask); ok {
+	if value, exact, ok := idx.lookupFST(st, clientMask); ok {
 		return idx.match(value, exact, clientMask), true
 	}
 	for _, r := range idx.regexps {
@@ -219,31 +234,23 @@ func lowestBit(mask uint32) int {
 	return bits.TrailingZeros32(mask)
 }
 
-func (idx *Index) lookupFST(rev string, clientMask uint32) (value uint64, exact, found bool) {
-	addr := idx.fst.Start()
-	var acc uint64
-
-	for i := 0; ; i++ {
-		atEnd := i == len(rev)
-		if atEnd || rev[i] == '.' {
-			if matched, out := idx.fst.IsMatchWithVal(addr); matched {
-				v := acc + out
-				block, allow := applicableMasks(unpackValue(v), atEnd)
-				if (block|allow)&clientMask != 0 {
-					value, exact, found = v, atEnd, true
-				}
+func (idx *Index) lookupFST(st *lookupState, clientMask uint32) (value uint64, exact, found bool) {
+	for end := len(st.key); end > 0; {
+		v, ok, err := st.reader.Get(st.key[:end])
+		if err == nil && ok {
+			atEnd := end == len(st.key)
+			block, allow := applicableMasks(unpackValue(v), atEnd)
+			if (block|allow)&clientMask != 0 {
+				return v, atEnd, true
 			}
 		}
-		if atEnd {
-			return value, exact, found
+		i := bytes.LastIndexByte(st.key[:end], '.')
+		if i < 0 {
+			break
 		}
-		var out uint64
-		addr, out = idx.fst.AcceptWithVal(addr, rev[i])
-		if !idx.fst.CanMatch(addr) {
-			return value, exact, found
-		}
-		acc += out
+		end = i
 	}
+	return 0, false, false
 }
 
 func (idx *Index) listName(listID int) string {
@@ -254,7 +261,31 @@ func (idx *Index) listName(listID int) string {
 }
 
 func normalizeLookup(domain string) string {
-	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	return strings.TrimSuffix(strings.TrimSpace(domain), ".")
+}
+
+func appendReversed(dst []byte, domain string) []byte {
+	end := len(domain)
+	for i := len(domain) - 1; i >= 0; i-- {
+		if domain[i] != '.' {
+			continue
+		}
+		dst = appendLower(dst, domain[i+1:end])
+		dst = append(dst, '.')
+		end = i
+	}
+	return appendLower(dst, domain[:end])
+}
+
+func appendLower(dst []byte, s string) []byte {
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		dst = append(dst, c)
+	}
+	return dst
 }
 
 func reverseLabels(domain string) string {
