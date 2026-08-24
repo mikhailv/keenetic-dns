@@ -19,13 +19,27 @@ export interface DNSQuery {
 	id: string;
 	time: Date;
 	client_ip: string;
+	domain: string;
+	qtype?: string;
 	duration: number;
+	reused_from?: string;
+	blocked?: BlockInfo;
+	lookup?: DomainLookup;
+	ip_routings?: Record<string, IPRouting>;
+}
+
+export interface BlockInfo {
+	list: string;
+	domain: string;
+	pattern?: string;
+}
+
+export interface DomainLookup {
+	time: Date;
 	resolver: ResolverInfo;
 	domain: string;
 	cnames?: DomainEntry<string>[];
 	ips: DomainIP[];
-	ip_routings?: Record<string, IPRouting>;
-	reused_from?: string;
 }
 
 export interface ResolverInfo {
@@ -47,7 +61,6 @@ export interface DomainIP {
 }
 
 export interface IPRouting {
-	ip: string;
 	action: 'routed' | 'ignored';
 	static: boolean;
 	iface?: string;

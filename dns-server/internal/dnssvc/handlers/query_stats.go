@@ -35,9 +35,8 @@ func (s queryStatsHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, 
 	resp, err := s.handler.Handle(ctx, req)
 
 	question := req.Question[0]
-	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
 	s.recorder.Record(
-		clientIP,
+		ctxutil.GetDNSQueryClientIP(ctx),
 		strings.TrimSuffix(question.Name, "."),
 		dns.TypeToString[question.Qtype],
 		label(dnssvc.GetQueryStatus(ctx)),

@@ -68,8 +68,8 @@ func (s *singleFlightHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Ms
 			s.mu.Unlock()
 
 			req.Resp, req.Err = s.handler.Handle(ctx, msg)
-			req.Info, _ = dnssvc.GetQueryInfo(ctx)
-			req.ID, _ = ctxutil.GetDNSQueryID(ctx)
+			req.Info = dnssvc.GetQueryInfo(ctx)
+			req.ID = ctxutil.GetDNSQueryID(ctx)
 			close(req.Done)
 
 			s.mu.Lock()

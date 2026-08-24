@@ -19,12 +19,11 @@ func SetResolverInfo(ctx context.Context, resolver string, duration time.Duratio
 	}
 }
 
-func GetResolverInfo(ctx context.Context) (types.ResolverInfo, bool) {
-	v, ok := ctx.Value(contextKeyResolverInfo{}).(*types.ResolverInfo)
-	if !ok || v.Name == "" {
-		return types.ResolverInfo{}, false
+func GetResolverInfo(ctx context.Context) types.ResolverInfo {
+	if v, ok := ctx.Value(contextKeyResolverInfo{}).(*types.ResolverInfo); ok {
+		return *v
 	}
-	return *v, true
+	return types.ResolverInfo{}
 }
 
 type QueryStatus struct {
@@ -61,6 +60,11 @@ type QueryInfo struct {
 	Lookup     *types.DomainLookup
 	IPRoutings types.IPRoutings
 	ReusedFrom types.QueryID
+	Blocked    *types.BlockInfo
+}
+
+func (i QueryInfo) Empty() bool {
+	return i.Lookup == nil && i.Blocked == nil
 }
 
 type contextKeyQueryInfo struct{}
@@ -75,10 +79,15 @@ func SetQueryInfo(ctx context.Context, info QueryInfo) {
 	}
 }
 
-func GetQueryInfo(ctx context.Context) (QueryInfo, bool) {
-	v, ok := ctx.Value(contextKeyQueryInfo{}).(*QueryInfo)
-	if !ok || v.Lookup == nil {
-		return QueryInfo{}, false
+func SetQueryBlockInfo(ctx context.Context, info types.BlockInfo) {
+	if v, ok := ctx.Value(contextKeyQueryInfo{}).(*QueryInfo); ok {
+		v.Blocked = &info
 	}
-	return *v, true
+}
+
+func GetQueryInfo(ctx context.Context) QueryInfo {
+	if v, ok := ctx.Value(contextKeyQueryInfo{}).(*QueryInfo); ok {
+		return *v
+	}
+	return QueryInfo{}
 }

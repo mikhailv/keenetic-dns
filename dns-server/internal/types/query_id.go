@@ -22,7 +22,7 @@ func (id QueryID) Time() time.Time {
 }
 
 func (id QueryID) String() string {
-	return strconv.FormatUint(uint64(id), 10)
+	return strconv.FormatUint(uint64(id), 36)
 }
 
 func (id QueryID) MarshalText() ([]byte, error) {
@@ -30,7 +30,7 @@ func (id QueryID) MarshalText() ([]byte, error) {
 }
 
 func (id *QueryID) UnmarshalText(b []byte) error {
-	v, err := strconv.ParseUint(string(b), 10, 64)
+	v, err := strconv.ParseUint(string(b), 36, 64)
 	if err != nil {
 		return err
 	}

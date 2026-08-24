@@ -12,11 +12,19 @@ func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc
 	domain := strings.TrimSpace(query.Get("domain"))
 	search := strings.TrimSpace(query.Get("search"))
 	excludeRouted := queryParamSet(query, "exclude_routed")
-	if domain == "" && search == "" && !excludeRouted {
+	excludeBlocked := queryParamSet(query, "exclude_blocked")
+	onlyBlocked := queryParamSet(query, "blocked")
+	if domain == "" && search == "" && !excludeRouted && !excludeBlocked && !onlyBlocked {
 		return nil
 	}
 	return func(val types.DNSQuery) bool {
 		if excludeRouted && val.IPRoutings.Has(types.ActionRouted) {
+			return false
+		}
+		if excludeBlocked && val.Blocked != nil {
+			return false
+		}
+		if onlyBlocked && val.Blocked == nil {
 			return false
 		}
 		if search != "" && !strings.Contains(val.Domain, search) {

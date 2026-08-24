@@ -75,7 +75,7 @@ func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 	res := make([]IPRouteDNS, 0, s.routes.Size())
 	for route, info := range s.routes.Snapshot() {
 		lookups := s.lookups.LookupByIP(route.Addr)
-		recordSet := make(map[string]types.DNSRecord, len(lookups))
+		recordSet := make(map[string]DNSRecord, len(lookups))
 		for _, l := range lookups {
 			if _, ok := recordSet[l.Domain]; ok {
 				continue
@@ -84,12 +84,12 @@ func (s *IPRouteController) Routes(withLookups bool) []IPRouteDNS {
 				if it.IP != route.Addr {
 					continue
 				}
-				recordSet[l.Domain] = types.NewDNSRecord(l.Domain, it.IP, l.Time, int(it.TTL))
+				recordSet[l.Domain] = newDNSRecord(l.Domain, it.IP, l.Time, int(it.TTL))
 				break
 			}
 		}
 		records := util.SeqToSlice(len(recordSet), maps.Values(recordSet))
-		slices.SortFunc(records, func(a, b types.DNSRecord) int {
+		slices.SortFunc(records, func(a, b DNSRecord) int {
 			return cmp.Compare(a.Domain, b.Domain)
 		})
 		if withLookups {

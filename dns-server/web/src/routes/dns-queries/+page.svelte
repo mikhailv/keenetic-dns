@@ -68,7 +68,10 @@
 			{#each $stream.items as query (query.cursor)}
 				{@const host = $hosts.byIP[query.client_ip]}
 				<tr class="hover animate-new-row">
-					<td title={query.time.toLocaleString()} class="font-light text-sm1">{formatTime(query.time)}</td>
+					<td class="font-light">
+						<div class="text-sm1" title={query.time.toLocaleString()}>{formatTime(query.time)}</div>
+						<div class="text-sm2 text-gray-400">{query.id}</div>
+					</td>
 					<td class="text-sm1">
 						{#if host}
 							{host.name}
@@ -82,24 +85,33 @@
 							{shortenDomain(query.domain)}
 						</div>
 						<div class="font-light text-sm2" title="resolver">
-							{query.resolver.name} / {formatMilli(query.resolver.duration)} ms
+							{#if query.lookup}
+								{query.lookup.resolver.name} / {formatMilli(query.lookup.resolver.duration)} ms
+							{/if}
+							{#if query.blocked}
+								<span
+									class="badge badge-sm mt-1 bg-red-600/5 text-red-400 border-none"
+									title="blocked by {query.blocked.domain} ({query.blocked.list})">
+									blocked
+								</span>
+							{/if}
 							{#if query.reused_from}
 								<span class="badge badge-sm ml-2" title="from query {query.reused_from}">reused</span>
 							{/if}
 						</div>
 					</td>
 					<td class="font-light text-sm1">
-						{#each query.ips as ip (ip.ip)}
+						{#each query.lookup?.ips ?? [] as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ttl}</div>
 						{/each}
 					</td>
 					<td class="font-light text-sm1">
-						{#each query.ips as ip (ip.ip)}
+						{#each query.lookup?.ips ?? [] as ip (ip.ip)}
 							<div title={ipTitle(ip)}>{ip.ip}</div>
 						{/each}
 					</td>
 					<td class="font-light text-sm1 whitespace-nowrap">
-						{#each query.ips as it (it.ip)}
+						{#each query.lookup?.ips ?? [] as it (it.ip)}
 							{@const route = query.ip_routings?.[it.ip]}
 							<div>
 								{#if route}

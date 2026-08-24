@@ -3,6 +3,7 @@ package routing
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
@@ -29,7 +30,7 @@ type IPRouteInfo struct {
 type IPRouteDNS struct {
 	IPRoute
 	IPRouteInfo
-	DNSRecord []types.DNSRecord     `json:"dns_records,omitempty"`
+	DNSRecord []DNSRecord           `json:"dns_records,omitempty"`
 	Lookups   []*types.DomainLookup `json:"lookups,omitempty"`
 }
 
@@ -57,5 +58,41 @@ func (r IPRoutingRule) LogValue() slog.Value {
 		slog.Int("table", r.Table),
 		slog.String("from", r.From),
 		slog.Int("priority", r.Priority),
+	)
+}
+
+type DNSRecord struct {
+	IP       types.IPv4      `json:"ip"`
+	Domain   string          `json:"domain"`
+	Resolved types.Timestamp `json:"resolved"`
+	Expires  types.Timestamp `json:"expires"`
+}
+
+func newDNSRecord(domain string, ip types.IPv4, resolveTime types.Timestamp, ttlSeconds int) DNSRecord {
+	return DNSRecord{
+		IP:       ip,
+		Domain:   domain,
+		Resolved: resolveTime,
+		Expires:  resolveTime.Add(time.Duration(ttlSeconds) * time.Second),
+	}
+}
+
+func (r DNSRecord) Expired(extraTTL time.Duration) bool {
+	return time.Now().After(r.Expires.Time().Add(extraTTL))
+}
+
+func (r DNSRecord) TTL() time.Duration {
+	if r.Expired(0) {
+		return 0
+	}
+	return time.Until(r.Expires.Time()).Truncate(time.Second)
+}
+
+func (r DNSRecord) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("domain", r.Domain),
+		slog.String("ip", r.IP.String()),
+		slog.Time("resolved", r.Resolved.Time()),
+		slog.Duration("ttl", r.TTL()),
 	)
 }

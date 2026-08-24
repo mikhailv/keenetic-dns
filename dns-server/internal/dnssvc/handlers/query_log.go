@@ -29,20 +29,28 @@ func (s queryLogHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, er
 
 	resp, err := s.handler.Handle(ctx, msg)
 
-	info, ok := dnssvc.GetQueryInfo(ctx)
-	if !ok {
+	info := dnssvc.GetQueryInfo(ctx)
+	if info.Empty() {
 		return resp, err
 	}
 
-	id, _ := ctxutil.GetDNSQueryID(ctx)
-	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
+	var domain, qtype string
+	if dnssvc.HasSingleQuestion(msg) {
+		domain = msg.Question[0].Name
+		qtype = dns.TypeToString[msg.Question[0].Qtype]
+	}
+
 	s.stream.Append(types.DNSQuery{
-		ID:           id,
-		ClientIP:     clientIP,
-		DomainLookup: *info.Lookup,
-		Duration:     time.Since(start).Seconds(),
-		IPRoutings:   info.IPRoutings,
-		ReusedFrom:   info.ReusedFrom,
+		ID:         ctxutil.GetDNSQueryID(ctx),
+		Time:       types.TimestampFromTime(start),
+		ClientIP:   ctxutil.GetDNSQueryClientIP(ctx),
+		Domain:     domain,
+		QType:      qtype,
+		Duration:   time.Since(start).Seconds(),
+		ReusedFrom: info.ReusedFrom,
+		Blocked:    info.Blocked,
+		Lookup:     info.Lookup,
+		IPRoutings: info.IPRoutings,
 	})
 	return resp, err
 }

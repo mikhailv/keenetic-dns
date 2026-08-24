@@ -108,6 +108,9 @@ function parseIPRoute(it: IPRoute): IPRoute {
 
 function parseDNSQuery(it: DNSQuery): DNSQuery {
 	it.time = new Date(it.time);
+	if (it.lookup) {
+		it.lookup.time = new Date(it.lookup.time);
+	}
 	return it;
 }
 

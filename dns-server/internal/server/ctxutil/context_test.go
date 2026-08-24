@@ -12,15 +12,11 @@ import (
 func TestClientIPRoundTrip(t *testing.T) {
 	ctx := WithDNSQueryClientIP(t.Context(), types.MustParseIPv4("192.168.1.42"))
 
-	ip, ok := GetDNSQueryClientIP(ctx)
-	assert.True(t, ok)
-	assert.Equal(t, "192.168.1.42", ip.String())
+	assert.Equal(t, "192.168.1.42", GetDNSQueryClientIP(ctx).String())
 }
 
 func TestClientIPAbsent(t *testing.T) {
-	ip, ok := GetDNSQueryClientIP(t.Context())
-	assert.False(t, ok)
-	assert.Equal(t, types.IPv4{}, ip)
+	assert.Equal(t, types.IPv4{}, GetDNSQueryClientIP(t.Context()))
 }
 
 func TestParseClientIP(t *testing.T) {
@@ -52,20 +48,14 @@ func TestParseClientIPUnsupported(t *testing.T) {
 func TestClientAddrStringLeavesUnsupportedUnset(t *testing.T) {
 	ctx := WithDNSQueryClientAddrString(t.Context(), "[fd00::10]:38422")
 
-	_, ok := GetDNSQueryClientIP(ctx)
-	assert.False(t, ok, "an address that is not IPv4 must not read as the zero client")
-
-	id, ok := GetDNSQueryID(ctx)
-	require.True(t, ok, "the query is still identified")
-	assert.NotZero(t, id)
+	assert.Equal(t, types.IPv4{}, GetDNSQueryClientIP(ctx), "an address that is not IPv4 leaves no client")
+	assert.NotZero(t, GetDNSQueryID(ctx), "the query is still identified")
 }
 
 func TestWithDNSQueryClientAddrString(t *testing.T) {
 	ctx := WithDNSQueryClientAddrString(t.Context(), "192.168.1.42:53124")
 
-	ip, ok := GetDNSQueryClientIP(ctx)
-	assert.True(t, ok)
-	assert.Equal(t, "192.168.1.42", ip.String())
+	assert.Equal(t, "192.168.1.42", GetDNSQueryClientIP(ctx).String())
 }
 
 func TestParseClientIPDropsPort(t *testing.T) {
@@ -76,24 +66,16 @@ func TestParseClientIPDropsPort(t *testing.T) {
 
 func TestDNSQueryID(t *testing.T) {
 	ctx := WithNewDNSQueryID(t.Context())
-	id, ok := GetDNSQueryID(ctx)
-	require.True(t, ok)
+	id := GetDNSQueryID(ctx)
 	assert.NotZero(t, id)
-
-	other, ok := GetDNSQueryID(WithNewDNSQueryID(t.Context()))
-	require.True(t, ok)
-	assert.NotEqual(t, id, other)
+	assert.NotEqual(t, id, GetDNSQueryID(WithNewDNSQueryID(t.Context())))
 }
 
 func TestDNSQueryIDAbsent(t *testing.T) {
-	id, ok := GetDNSQueryID(t.Context())
-	assert.False(t, ok)
-	assert.Zero(t, id)
+	assert.Zero(t, GetDNSQueryID(t.Context()))
 }
 
 func TestClientAddrStringAssignsQueryID(t *testing.T) {
 	ctx := WithDNSQueryClientAddrString(t.Context(), "192.168.1.10:5353")
-	id, ok := GetDNSQueryID(ctx)
-	require.True(t, ok)
-	assert.NotZero(t, id)
+	assert.NotZero(t, GetDNSQueryID(ctx))
 }

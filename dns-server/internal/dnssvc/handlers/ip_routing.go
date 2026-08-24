@@ -43,8 +43,7 @@ func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, 
 	ctx = dnssvc.WithResolverInfo(ctx)
 	resp, err := s.handler.Handle(ctx, msg)
 	if err == nil && dnssvc.HasSingleQuestion(msg, dns.TypeA) {
-		resolver, _ := dnssvc.GetResolverInfo(ctx)
-		s.processTypeAResponse(ctx, resp, resolveTime, resolver)
+		s.processTypeAResponse(ctx, resp, resolveTime, dnssvc.GetResolverInfo(ctx))
 	}
 	return resp, err
 }
@@ -159,7 +158,7 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 		s.logger.Error("failed PTR request", "err", err, "domain", domain, "ip", ip.String())
 		return
 	}
-	dip.PTRResolver, _ = dnssvc.GetResolverInfo(ctx)
+	dip.PTRResolver = dnssvc.GetResolverInfo(ctx)
 
 	for _, it := range resp.Answer {
 		if v, ok := it.(*dns.PTR); ok {

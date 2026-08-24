@@ -16,18 +16,16 @@ import (
 )
 
 type stubResolver struct {
-	mu        sync.Mutex
-	clientIP  types.IPv4
-	hasClient bool
+	mu       sync.Mutex
+	clientIP types.IPv4
 }
 
 func (*stubResolver) Name() string { return "stub" }
 func (*stubResolver) Close() error { return nil }
 
 func (s *stubResolver) Resolve(ctx context.Context, req *dns.Msg) (*dns.Msg, error) {
-	ip, ok := ctxutil.GetDNSQueryClientIP(ctx)
 	s.mu.Lock()
-	s.clientIP, s.hasClient = ip, ok
+	s.clientIP = ctxutil.GetDNSQueryClientIP(ctx)
 	s.mu.Unlock()
 
 	resp := new(dns.Msg)
@@ -72,11 +70,8 @@ func TestDNSServer_ServesUDPAndTCP(t *testing.T) {
 			}
 
 			resolver.mu.Lock()
-			clientIP, hasClient := resolver.clientIP, resolver.hasClient
+			clientIP := resolver.clientIP
 			resolver.mu.Unlock()
-			if !hasClient {
-				t.Fatalf("no client IP in context over %s", network)
-			}
 			if got := clientIP.String(); got != "127.0.0.1" {
 				t.Fatalf("client IP over %s = %q, want 127.0.0.1", network, got)
 			}

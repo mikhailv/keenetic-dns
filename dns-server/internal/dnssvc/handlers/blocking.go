@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 	"net"
@@ -49,10 +50,10 @@ func (s blockingHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, er
 	}
 	question := req.Question[0]
 	domain := strings.TrimSuffix(question.Name, ".")
-	clientIP, _ := ctxutil.GetDNSQueryClientIP(ctx)
+	clientIP := ctxutil.GetDNSQueryClientIP(ctx)
 
 	if match, ok := s.blocked(domain, clientIP); ok {
-		return s.block(ctx, req, domain, match, clientIP), nil
+		return s.block(ctx, req, domain, "", match, clientIP), nil
 	}
 
 	resp, err := s.handler.Handle(ctx, req)
@@ -62,7 +63,7 @@ func (s blockingHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, er
 
 	if target, match, ok := s.blockedCNAME(resp, clientIP); ok {
 		s.logger.Debug("blocked cname target", "domain", domain, "target", target, "list", match.List)
-		return s.block(ctx, req, target, match, clientIP), nil
+		return s.block(ctx, req, domain, target, match, clientIP), nil
 	}
 	return resp, nil
 }
@@ -89,19 +90,26 @@ func (s blockingHandler) blockedCNAME(resp *dns.Msg, clientIP types.IPv4) (strin
 	return "", blocklist.Match{}, false
 }
 
+// block answers from the blocklist. target is the CNAME the answer pointed at when that is what matched, and
+// domain is always the domain the client asked for.
 func (s blockingHandler) block(
 	ctx context.Context,
 	req *dns.Msg,
 	domain string,
+	target string,
 	match blocklist.Match,
 	clientIP types.IPv4,
 ) *dns.Msg {
 	qtype := dns.TypeToString[req.Question[0].Qtype]
+	matched := cmp.Or(target, domain)
+
 	dnssvc.SetQueryBlocked(ctx)
+	// the lookup works in bare domains, the query log names them as the question does
+	dnssvc.SetQueryBlockInfo(ctx, types.BlockInfo{List: match.List, Domain: dns.Fqdn(matched), Pattern: match.Pattern})
 	if s.recorder != nil {
-		s.recorder.Record(clientIP, domain, qtype, match.List)
+		s.recorder.Record(clientIP, matched, qtype, match.List)
 	}
-	s.logger.Debug("query blocked", "domain", domain, "qtype", qtype, "list", match.List)
+	s.logger.Debug("query blocked", "domain", domain, "matched", matched, "qtype", qtype, "list", match.List)
 	return s.response(req)
 }
 

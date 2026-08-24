@@ -135,7 +135,10 @@ func main() { //nolint:funlen // ignore
 
 	dnsLogger := log.WithPrefix(logger, "dns")
 	dnsQueryStream.Listen(func(cursor stream.Cursor, query types.DNSQuery) {
-		dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.IPs), "client_ip", query.ClientIP)
+		// `.Lookup` is nil for blocked queries as they resolve nothing
+		if query.Lookup != nil {
+			dnsLogger.Debug("domain resolved", "domain", query.Domain, "ips", len(query.Lookup.IPs), "client_ip", query.ClientIP)
+		}
 	})
 
 	resolver, err := createResolver(cfg.DNS.Providers, logger)
@@ -181,11 +184,11 @@ func main() { //nolint:funlen // ignore
 		[]Middleware{
 			NewRawQueryMiddleware(rawQueryStream),                                            // pre+post
 			queryStatsMiddleware,                                                             // post
+			NewQueryLogMiddleware(dnsQueryStream),                                            // post
 			blockingMiddleware,                                                               // pre+post
 			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                    // post
 			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                             // post
 			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA),                           // post
-			NewQueryLogMiddleware(dnsQueryStream),                                            // post
 			SingleFlightMiddleware,                                                           // pre
 			NewIPRoutingMiddleware(dnsStore, ipRoutes, log.WithPrefix(logger, "ip_routing")), // post
 			ErrorSafeResponseMiddleware,                                                      // post

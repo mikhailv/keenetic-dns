@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -156,4 +157,66 @@ func TestSingleFlight_FollowersKeepLeaderRcode(t *testing.T) {
 	for _, c := range codes {
 		assert.Equal(t, dns.RcodeNameError, c, "a follower must not be told the name exists")
 	}
+}
+
+func TestQueryLog_ReportsBlockedQuery(t *testing.T) {
+	queries := stream.NewBufferedStream[types.DNSQuery](10)
+	upstream := &stubUpstream{}
+	blocking := NewBlockingHandler(upstream, blockedDomains("ads.example.com"), nil, slog.New(slog.DiscardHandler))
+	handler := NewQueryLogHandler(blocking, queries)
+
+	client := types.MustParseIPv4("192.168.1.10")
+	ctx := ctxutil.WithNewDNSQueryID(ctxutil.WithDNSQueryClientIP(t.Context(), client))
+	resp, err := handler.Handle(ctx, queryFor("ads.example.com"))
+	require.NoError(t, err)
+	require.Equal(t, dns.RcodeNameError, resp.Rcode)
+	require.False(t, upstream.called)
+
+	res := queries.Query(0, 10, nil)
+	require.Len(t, res.Items, 1, "a blocked query is reported exactly once")
+	item := res.Items[0]
+	assert.Equal(t, client, item.ClientIP)
+	assert.Equal(t, "ads.example.com.", item.Domain, "a blocked row names the domain the same way a resolved one does")
+	assert.Equal(t, "A", item.QType)
+	assert.NotZero(t, item.ID)
+	assert.Nil(t, item.Lookup, "a blocked query resolved nothing")
+	require.NotNil(t, item.Blocked)
+	assert.Equal(t, "test", item.Blocked.List)
+	assert.Equal(t, "ads.example.com.", item.Blocked.Domain, "the question is what the blocklist matched")
+}
+
+func TestQueryLog_BlockedCNAMEIsOneRowCarryingBoth(t *testing.T) {
+	queries := stream.NewBufferedStream[types.DNSQuery](10)
+	resolved := dnssvc.HandlerFunc(func(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
+		dnssvc.SetQueryInfo(ctx, dnssvc.QueryInfo{
+			Lookup: &types.DomainLookup{
+				Domain: "www.example.com.",
+				IPs:    []types.DomainIP{{IP: types.MustParseIPv4("1.2.3.4")}},
+			},
+		})
+		resp := &dns.Msg{}
+		resp.SetReply(msg)
+		resp.Answer = []dns.RR{&dns.CNAME{
+			Hdr:    dns.RR_Header{Name: "www.example.com.", Rrtype: dns.TypeCNAME, Class: dns.ClassINET},
+			Target: "tracker.example.net.",
+		}}
+		return resp, nil
+	})
+	blocking := NewBlockingHandler(resolved, blockedDomains("tracker.example.net"), nil, slog.New(slog.DiscardHandler))
+	handler := NewQueryLogHandler(blocking, queries)
+
+	ctx := ctxutil.WithNewDNSQueryID(t.Context())
+	resp, err := handler.Handle(ctx, queryFor("www.example.com"))
+	require.NoError(t, err)
+	require.Equal(t, dns.RcodeNameError, resp.Rcode)
+
+	res := queries.Query(0, 10, nil)
+	require.Len(t, res.Items, 1, "the resolved answer and the block verdict belong to one query")
+	item := res.Items[0]
+	assert.Equal(t, "www.example.com.", item.Domain, "the row names the domain the client asked for")
+	require.NotNil(t, item.Lookup)
+	assert.Len(t, item.Lookup.IPs, 1, "what upstream answered is kept")
+	require.NotNil(t, item.Blocked)
+	assert.Equal(t, "tracker.example.net.", item.Blocked.Domain, "the cname that matched is named")
+	assert.Equal(t, "test", item.Blocked.List)
 }
