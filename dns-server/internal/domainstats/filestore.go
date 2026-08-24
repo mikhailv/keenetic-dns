@@ -71,6 +71,9 @@ func decodeChunk(r io.Reader, tr TimeRange) (chunk Chunk, resErr error) {
 		if err != nil {
 			return chunk, fmt.Errorf("%w: read entry: %w", chunkstore.ErrCorrupt, err)
 		}
+		if entry.Domain != OverflowDomain {
+			entry.Domain = util.FQDN(entry.Domain)
+		}
 		chunk.Entries = append(chunk.Entries, entry)
 	}
 	return chunk, nil

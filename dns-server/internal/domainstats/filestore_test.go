@@ -35,7 +35,7 @@ func sampleChunk(start Timestamp) Chunk {
 			{
 				Key: Key{
 					ClientIP: types.MustParseIPv4("192.168.1.42"),
-					Domain:   "ads.example.com",
+					Domain:   "ads.example.com.",
 					QType:    "A",
 					Label:    "hagezi-pro",
 				},
@@ -45,7 +45,7 @@ func sampleChunk(start Timestamp) Chunk {
 			{
 				Key: Key{
 					ClientIP: types.MustParseIPv4("192.168.1.50"),
-					Domain:   "tracker.example.net",
+					Domain:   "tracker.example.net.",
 					QType:    "AAAA",
 					Label:    "hagezi-pro",
 				},
@@ -205,7 +205,7 @@ func TestFileStore_FileIsReadableTSV(t *testing.T) {
 
 	require.Len(t, lines, 3, "header plus one line per entry")
 	assert.Equal(t, "client_ip\tdomain\tqtype\tlabel\tcount\tts", lines[0])
-	assert.Equal(t, "192.168.1.42\tads.example.com\tA\thagezi-pro\t3\t12,45,3511", lines[1])
+	assert.Equal(t, "192.168.1.42\tads.example.com.\tA\thagezi-pro\t3\t12,45,3511", lines[1])
 	assert.True(t, strings.HasPrefix(lines[2], "192.168.1.50\t"))
 }
 
@@ -238,4 +238,15 @@ func TestOffsets_UnmarshalRejectsGarbage(t *testing.T) {
 		var got Offsets
 		assert.Error(t, got.UnmarshalText([]byte(text)), text)
 	}
+}
+
+func TestFileStore_ReadsDomainsWrittenWithoutTrailingDot(t *testing.T) {
+	s, _ := newTestStore(t)
+	chunk := sampleChunk(1754784000)
+	chunk.Entries[0].Domain = "ads.example.com"
+	require.NoError(t, s.Save(t.Context(), chunk))
+
+	chunks := collect(t, s, chunk.TimeRange)
+	require.Len(t, chunks, 1)
+	assert.Equal(t, "ads.example.com.", chunks[0].Entries[0].Domain)
 }

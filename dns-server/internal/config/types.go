@@ -7,6 +7,7 @@ import (
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type DomainStats = domainstats.Config
@@ -76,10 +77,7 @@ func (u *URL) MarshalText() ([]byte, error) {
 }
 
 func normalizeFQDN(domain string) string {
-	if !strings.HasPrefix(domain, ".") && strings.HasSuffix(domain, ".") {
-		return domain
-	}
-	return strings.Trim(domain, ".") + "."
+	return util.FQDN(strings.Trim(domain, "."))
 }
 
 func isDomainSuffix(domain string, suffix string) bool {

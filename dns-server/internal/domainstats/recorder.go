@@ -58,6 +58,7 @@ func (r *Recorder) Close() error {
 
 func (r *Recorder) Record(clientIP types.IPv4, domain, qtype, label string) {
 	now := r.now()
+	domain = util.FQDN(domain)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

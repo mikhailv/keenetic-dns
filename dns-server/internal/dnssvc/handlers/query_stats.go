@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"strings"
 
 	"github.com/miekg/dns"
 
@@ -37,7 +36,7 @@ func (s queryStatsHandler) Handle(ctx context.Context, req *dns.Msg) (*dns.Msg, 
 	question := req.Question[0]
 	s.recorder.Record(
 		ctxutil.GetDNSQueryClientIP(ctx),
-		strings.TrimSuffix(question.Name, "."),
+		question.Name,
 		dns.TypeToString[question.Qtype],
 		label(dnssvc.GetQueryStatus(ctx)),
 	)

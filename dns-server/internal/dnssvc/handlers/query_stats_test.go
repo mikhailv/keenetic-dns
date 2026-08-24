@@ -41,7 +41,7 @@ func TestQueryStats_RecordsEveryQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, recorder.records, 1)
-	assert.Equal(t, recordedBlock{types.MustParseIPv4("192.168.1.5"), "example.com", "A", ""}, recorder.records[0])
+	assert.Equal(t, recordedBlock{types.MustParseIPv4("192.168.1.5"), "example.com.", "A", ""}, recorder.records[0])
 }
 
 func TestQueryStats_Labels(t *testing.T) {

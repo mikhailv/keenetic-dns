@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/miekg/dns"
@@ -23,7 +24,7 @@ type stubBlocklist struct {
 }
 
 func (s stubBlocklist) Lookup(domain string, _ types.IPv4) (blocklist.Match, bool) {
-	match, ok := s.matches[domain]
+	match, ok := s.matches[strings.TrimSuffix(domain, ".")]
 	return match, ok
 }
 
@@ -157,8 +158,9 @@ func TestBlocking_CNAMECloaking(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, dns.RcodeNameError, resp.Rcode)
 	require.Len(t, recorder.records, 1)
-	assert.Equal(t, "tracker.example.net", recorder.records[0].domain,
-		"the blocked cname target is what should be recorded")
+	assert.Equal(t, "metrics.example.com.", recorder.records[0].domain,
+		"stats are keyed by the domain the client asked for, not by the cname it resolved to")
+	assert.Equal(t, "test", recorder.records[0].label)
 }
 
 func TestBlocking_CleanCNAMEPassesThrough(t *testing.T) {
@@ -197,7 +199,7 @@ func TestBlocking_RecordsClientAndQuestion(t *testing.T) {
 
 	require.Len(t, recorder.records, 1)
 	assert.Equal(t, "192.168.1.42", recorder.records[0].clientIP.String())
-	assert.Equal(t, "ads.example.com", recorder.records[0].domain)
+	assert.Equal(t, "ads.example.com.", recorder.records[0].domain)
 	assert.Equal(t, "AAAA", recorder.records[0].qtype)
 	assert.Equal(t, "test", recorder.records[0].label)
 }

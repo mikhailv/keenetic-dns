@@ -7,6 +7,8 @@ import (
 	"io"
 	"iter"
 	"strings"
+
+	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type Action uint8
@@ -303,8 +305,7 @@ func trimInlineComment(line string) string {
 }
 
 func normalizeDomain(s string) (string, bool) {
-	s = strings.ToLower(strings.TrimSpace(s))
-	s = strings.TrimSuffix(s, ".")
+	s = util.TrimFQDN(strings.ToLower(strings.TrimSpace(s)))
 	if s == "" || len(s) > 253 || localNames[s] {
 		return "", false
 	}

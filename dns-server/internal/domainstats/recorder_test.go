@@ -107,18 +107,18 @@ func TestRecorder_AggregatesByKey(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.Record(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com.", "A", "hagezi-pro")
 	c.advance(30 * time.Second)
-	r.Record(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com.", "A", "hagezi-pro")
 	c.advance(30 * time.Second)
-	r.Record(client, "ads.example.com", "AAAA", "hagezi-pro")
+	r.Record(client, "ads.example.com.", "AAAA", "hagezi-pro")
 
 	require.NoError(t, r.Flush(t.Context()))
 
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
 	require.Len(t, chunk.Entries, 2, "query type is part of the key")
 
-	a, ok := findEntry(chunk.Entries, "ads.example.com")
+	a, ok := findEntry(chunk.Entries, "ads.example.com.")
 	require.True(t, ok)
 	assert.Equal(t, client, a.ClientIP)
 	assert.Equal(t, "hagezi-pro", a.Label)
@@ -128,11 +128,11 @@ func TestRecorder_RecordsOffsets(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.Record(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com.", "A", "list")
 	c.advance(12 * time.Second)
-	r.Record(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com.", "A", "list")
 	c.advance(33 * time.Second)
-	r.Record(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com.", "A", "list")
 
 	require.NoError(t, r.Flush(t.Context()))
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
@@ -147,9 +147,9 @@ func TestRecorder_RotatesOnChunkBoundary(t *testing.T) {
 	r, store, c := newTestRecorder(t, Config{ChunkDuration: time.Hour})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	r.Record(client, "first.example.com", "A", "list")
+	r.Record(client, "first.example.com.", "A", "list")
 	c.advance(time.Hour)
-	r.Record(client, "second.example.com", "A", "list")
+	r.Record(client, "second.example.com.", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 
 	firstRange := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
@@ -157,11 +157,11 @@ func TestRecorder_RotatesOnChunkBoundary(t *testing.T) {
 
 	first := store.chunk(t, firstRange)
 	require.Len(t, first.Entries, 1)
-	assert.Equal(t, "first.example.com", first.Entries[0].Domain)
+	assert.Equal(t, "first.example.com.", first.Entries[0].Domain)
 
 	second := store.chunk(t, secondRange)
 	require.Len(t, second.Entries, 1)
-	assert.Equal(t, "second.example.com", second.Entries[0].Domain)
+	assert.Equal(t, "second.example.com.", second.Entries[0].Domain)
 	assert.Equal(t, Offsets{0}, second.Entries[0].Ts, "offsets restart at the new chunk")
 }
 
@@ -169,13 +169,13 @@ func TestRecorder_EntryCapFoldsIntoOverflow(t *testing.T) {
 	r, store, _ := newTestRecorder(t, Config{MaxEntries: 3})
 	client := types.MustParseIPv4("192.168.1.42")
 
-	for _, domain := range []string{"a.example.com", "b.example.com", "c.example.com"} {
+	for _, domain := range []string{"a.example.com.", "b.example.com.", "c.example.com."} {
 		r.Record(client, domain, "A", "list")
 	}
-	for _, domain := range []string{"d.example.com", "e.example.com"} {
+	for _, domain := range []string{"d.example.com.", "e.example.com."} {
 		r.Record(client, domain, "A", "list")
 	}
-	r.Record(client, "a.example.com", "A", "list")
+	r.Record(client, "a.example.com.", "A", "list")
 
 	require.NoError(t, r.Flush(t.Context()))
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
@@ -184,7 +184,7 @@ func TestRecorder_EntryCapFoldsIntoOverflow(t *testing.T) {
 	require.True(t, ok, "entries past the cap must be counted")
 	assert.Equal(t, uint32(2), overflow.Count)
 
-	a, ok := findEntry(chunk.Entries, "a.example.com")
+	a, ok := findEntry(chunk.Entries, "a.example.com.")
 	require.True(t, ok)
 	assert.Equal(t, uint32(2), a.Count, "an existing key keeps recording past the cap")
 	assert.Len(t, chunk.Entries, 4, "three keys plus the overflow entry")
@@ -196,7 +196,7 @@ func TestRecorder_OffsetCapKeepsCountAuthoritative(t *testing.T) {
 
 	const hits = maxOffsets + 500
 	for range hits {
-		r.Record(client, "loop.example.com", "A", "list")
+		r.Record(client, "loop.example.com.", "A", "list")
 	}
 
 	require.NoError(t, r.Flush(t.Context()))
@@ -213,7 +213,7 @@ func TestRecorder_FlushIsIdempotentWhenIdle(t *testing.T) {
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Zero(t, store.saves, "nothing recorded means nothing to write")
 
-	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com.", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, 1, store.saves)
 }
@@ -223,12 +223,12 @@ func TestRecorder_RewritesCurrentChunkOnEachFlush(t *testing.T) {
 	client := types.MustParseIPv4("192.168.1.42")
 	tr := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
 
-	r.Record(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com.", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, uint32(1), store.chunk(t, tr).Entries[0].Count)
 
 	c.advance(time.Minute)
-	r.Record(client, "ads.example.com", "A", "list")
+	r.Record(client, "ads.example.com.", "A", "list")
 	require.NoError(t, r.Flush(t.Context()))
 	assert.Equal(t, uint32(2), store.chunk(t, tr).Entries[0].Count)
 	assert.Equal(t, 2, store.saves)
@@ -236,7 +236,7 @@ func TestRecorder_RewritesCurrentChunkOnEachFlush(t *testing.T) {
 
 func TestRecorder_CloseFlushesWithCancelledContext(t *testing.T) {
 	r, store, _ := newTestRecorder(t, Config{})
-	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com.", "A", "list")
 
 	require.NoError(t, r.Close())
 	assert.Equal(t, 1, store.saves, "shutdown must not drop unflushed history")
@@ -244,7 +244,7 @@ func TestRecorder_CloseFlushesWithCancelledContext(t *testing.T) {
 
 func TestRecorder_CloseLeavesStoreOpen(t *testing.T) {
 	r, store, _ := newTestRecorder(t, Config{})
-	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.42"), "ads.example.com.", "A", "list")
 
 	require.NoError(t, r.Close())
 
@@ -262,8 +262,8 @@ func TestRecorder_ConcurrentRecording(t *testing.T) {
 	for i := range 8 {
 		wg.Go(func() {
 			for range 200 {
-				r.Record(client, "ads.example.com", "A", "list")
-				r.Record(client, "other"+string(rune('a'+i))+".example.com", "A", "list")
+				r.Record(client, "ads.example.com.", "A", "list")
+				r.Record(client, "other"+string(rune('a'+i))+".example.com.", "A", "list")
 			}
 		})
 	}
@@ -271,7 +271,7 @@ func TestRecorder_ConcurrentRecording(t *testing.T) {
 	require.NoError(t, r.Flush(t.Context()))
 
 	chunk := store.chunk(t, TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599})
-	shared, ok := findEntry(chunk.Entries, "ads.example.com")
+	shared, ok := findEntry(chunk.Entries, "ads.example.com.")
 	require.True(t, ok)
 	assert.Equal(t, uint32(8*200), shared.Count)
 	assert.Len(t, chunk.Entries, 9, "one shared domain plus one per goroutine")
@@ -311,9 +311,9 @@ func TestRecorder_WritesThroughFileStore(t *testing.T) {
 	r.now = c.Now
 
 	client := types.MustParseIPv4("192.168.1.42")
-	r.Record(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com.", "A", "hagezi-pro")
 	c.advance(time.Second)
-	r.Record(client, "ads.example.com", "A", "hagezi-pro")
+	r.Record(client, "ads.example.com.", "A", "hagezi-pro")
 	require.NoError(t, r.Flush(t.Context()))
 
 	tr := TimeRange{Start: Timestamp(hourStart.Unix()), End: Timestamp(hourStart.Unix()) + 3599}
@@ -323,7 +323,7 @@ func TestRecorder_WritesThroughFileStore(t *testing.T) {
 		got = append(got, chunk.Entries...)
 	}
 	require.Len(t, got, 1)
-	assert.Equal(t, "ads.example.com", got[0].Domain)
+	assert.Equal(t, "ads.example.com.", got[0].Domain, "reading a chunk normalizes domains to fqdn")
 	assert.Equal(t, uint32(2), got[0].Count)
 	assert.Equal(t, Offsets{0, 1}, got[0].Ts)
 	assert.NotContains(t, got[0].Domain, "\t")
@@ -333,9 +333,9 @@ func TestRecorder_FlushKeepsChunksWhoseSaveFailed(t *testing.T) {
 	r, store, clk := newTestRecorder(t, Config{})
 
 	store.err = errors.New("disk full")
-	r.Record(types.MustParseIPv4("192.168.1.1"), "ads.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.1"), "ads.example.com.", "A", "list")
 	clk.advance(2 * time.Hour)
-	r.Record(types.MustParseIPv4("192.168.1.1"), "other.example.com", "A", "list")
+	r.Record(types.MustParseIPv4("192.168.1.1"), "other.example.com.", "A", "list")
 
 	require.Error(t, r.Flush(t.Context()))
 
@@ -348,5 +348,5 @@ func TestRecorder_FlushKeepsChunksWhoseSaveFailed(t *testing.T) {
 			domains = append(domains, e.Domain)
 		}
 	}
-	assert.Contains(t, domains, "ads.example.com", "a chunk whose save failed must be retried, not dropped")
+	assert.Contains(t, domains, "ads.example.com.", "a chunk whose save failed must be retried, not dropped")
 }

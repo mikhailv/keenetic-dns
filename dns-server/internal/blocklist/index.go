@@ -192,7 +192,8 @@ func (idx *Index) Lookup(domain string, clientMask uint32) (Match, bool) {
 	st, _ := idx.lookups.Get().(*lookupState)
 	defer idx.lookups.Put(st)
 
-	st.key = appendReversed(st.key[:0], normalizeLookup(domain))
+	domain = normalizeLookup(domain)
+	st.key = appendReversed(st.key[:0], domain)
 	if len(st.key) == 0 {
 		return Match{}, false
 	}
@@ -261,7 +262,7 @@ func (idx *Index) listName(listID int) string {
 }
 
 func normalizeLookup(domain string) string {
-	return strings.TrimSuffix(strings.TrimSpace(domain), ".")
+	return util.TrimFQDN(strings.TrimSpace(domain))
 }
 
 func appendReversed(dst []byte, domain string) []byte {
