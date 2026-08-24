@@ -3,11 +3,17 @@
 	import { api } from '$lib/services/api';
 	import type { DNSQuery, DomainIP } from '$lib/types';
 	import { type StreamStore, createHostStore } from '$lib/stores';
+	import StatusFilter from '$lib/components/dns-queries/StatusFilter.svelte';
+	import type { QueryStatus } from '$lib/components/dns-queries/util';
 
 	const MAX_ITEMS = 200;
 
 	const stream: StreamStore<DNSQuery> = api.createDNSQueryStreamStore(MAX_ITEMS);
 	const hosts = createHostStore();
+
+	let statuses = $state<QueryStatus[]>([]);
+
+	$effect(() => stream.setParam('status', statuses.join(',')));
 
 	onMount(() => hosts.autoreload());
 	onMount(() => stream.start());
@@ -50,6 +56,10 @@
 {#if $stream.error}
 	<div class="alert alert-error" role="alert">{$stream.error}</div>
 {/if}
+
+<div class="mb-2 flex items-center gap-2">
+	<StatusFilter bind:selected={statuses} />
+</div>
 
 <div class="overflow-x-auto">
 	<table class="table">
@@ -115,7 +125,7 @@
 							{@const route = query.ip_routings?.[it.ip]}
 							<div>
 								{#if route}
-									{#if route.action === 'ignored'}
+									{#if route.action === 'excluded'}
 										<span class="text-base-content/60 italic">- ({route.reason})</span>
 									{:else}
 										{route.iface} ({route.reason}){route.added ? ' (added)' : ''}

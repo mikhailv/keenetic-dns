@@ -61,7 +61,7 @@ export interface DomainIP {
 }
 
 export interface IPRouting {
-	action: 'routed' | 'ignored';
+	action: 'routed' | 'excluded';
 	static: boolean;
 	iface?: string;
 	reason: string;

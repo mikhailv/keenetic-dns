@@ -3,8 +3,8 @@ package types
 type RoutingAction string
 
 const (
-	ActionRouted  RoutingAction = "routed"
-	ActionIgnored RoutingAction = "ignored"
+	ActionRouted   RoutingAction = "routed"
+	ActionExcluded RoutingAction = "excluded"
 )
 
 type IPRouting struct {
@@ -34,8 +34,8 @@ func (s *IPRoutings) AddStaticRoute(iface, reason string, ip IPv4) {
 	s.add(ActionRouted, true, iface, reason, ip)
 }
 
-func (s *IPRoutings) AddIgnored(reason string, ip IPv4) {
-	s.add(ActionIgnored, false, "", reason, ip)
+func (s *IPRoutings) AddExcluded(reason string, ip IPv4) {
+	s.add(ActionExcluded, false, "", reason, ip)
 }
 
 func (s *IPRoutings) add(action RoutingAction, static bool, iface, reason string, ip IPv4) {

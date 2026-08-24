@@ -8,23 +8,23 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
+var queryStatuses = map[string]func(*types.DNSQuery) bool{
+	"reused":   (*types.DNSQuery).Reused,
+	"blocked":  (*types.DNSQuery).IsBlocked,
+	"routed":   (*types.DNSQuery).Routed,
+	"excluded": (*types.DNSQuery).Excluded,
+	"direct":   (*types.DNSQuery).Direct,
+}
+
 func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc[types.DNSQuery] {
 	domain := strings.TrimSpace(query.Get("domain"))
 	search := strings.TrimSpace(query.Get("search"))
-	excludeRouted := queryParamSet(query, "exclude_routed")
-	excludeBlocked := queryParamSet(query, "exclude_blocked")
-	onlyBlocked := queryParamSet(query, "blocked")
-	if domain == "" && search == "" && !excludeRouted && !excludeBlocked && !onlyBlocked {
+	statuses := parseQueryStatuses(query.Get("status"))
+	if domain == "" && search == "" && len(statuses) == 0 {
 		return nil
 	}
 	return func(val types.DNSQuery) bool {
-		if excludeRouted && val.IPRoutings.Has(types.ActionRouted) {
-			return false
-		}
-		if excludeBlocked && val.Blocked != nil {
-			return false
-		}
-		if onlyBlocked && val.Blocked == nil {
+		if len(statuses) > 0 && !matchesAnyStatus(&val, statuses) {
 			return false
 		}
 		if search != "" && !strings.Contains(val.Domain, search) {
@@ -35,4 +35,23 @@ func (s *HTTPServer) filterQueries(_ *http.Request, query url.Values) FilterFunc
 		}
 		return true
 	}
+}
+
+func parseQueryStatuses(value string) []func(*types.DNSQuery) bool {
+	var res []func(*types.DNSQuery) bool
+	for name := range strings.SplitSeq(value, ",") {
+		if match, ok := queryStatuses[strings.TrimSpace(name)]; ok {
+			res = append(res, match)
+		}
+	}
+	return res
+}
+
+func matchesAnyStatus(val *types.DNSQuery, statuses []func(*types.DNSQuery) bool) bool {
+	for _, match := range statuses {
+		if match(val) {
+			return true
+		}
+	}
+	return false
 }

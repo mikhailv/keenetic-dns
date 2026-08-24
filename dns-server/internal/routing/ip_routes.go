@@ -357,7 +357,7 @@ func (s *IPRouteController) resolveRouting(dl *types.DomainLookup) types.IPRouti
 
 	allIgnored := func(reason string, ips []types.DomainIP) types.IPRoutings {
 		for _, it := range ips {
-			res.AddIgnored(reason, it.IP)
+			res.AddExcluded(reason, it.IP)
 		}
 		return res
 	}
@@ -387,7 +387,7 @@ loop:
 		}
 		for _, ptr := range it.PTR {
 			if ok, pattern := s.lookupIgnoredHost(ptr.Name); ok {
-				res.AddIgnored("PTR "+pattern, ip)
+				res.AddExcluded("PTR "+pattern, ip)
 				continue loop
 			}
 			if ok, pattern, iface := s.lookupHost(ptr.Name); ok {
@@ -397,7 +397,7 @@ loop:
 		}
 		for _, soa := range it.SOA {
 			if ok, pattern := s.lookupIgnoredHost(soa.Name); ok {
-				res.AddIgnored("SOA "+pattern, ip)
+				res.AddExcluded("SOA "+pattern, ip)
 				continue loop
 			}
 			if ok, pattern, iface := s.lookupHost(soa.Name); ok {

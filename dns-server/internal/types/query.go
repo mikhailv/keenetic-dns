@@ -27,6 +27,26 @@ func (s *DNSQuery) SetCursor(cursor stream.Cursor) {
 	s.Cursor = cursor
 }
 
+func (s *DNSQuery) Reused() bool {
+	return s.ReusedFrom != 0
+}
+
+func (s *DNSQuery) IsBlocked() bool {
+	return s.Blocked != nil
+}
+
+func (s *DNSQuery) Routed() bool {
+	return s.IPRoutings.Has(ActionRouted)
+}
+
+func (s *DNSQuery) Excluded() bool {
+	return s.IPRoutings.Has(ActionExcluded)
+}
+
+func (s *DNSQuery) Direct() bool {
+	return s.Lookup != nil && !s.Routed() && !s.Excluded()
+}
+
 // BlockInfo records why a query was answered from the blocklist instead of from upstream. Domain is what the
 // blocklist matched, which is the queried domain itself unless the answer pointed at a blocked CNAME.
 type BlockInfo struct {
