@@ -215,7 +215,7 @@ func TestManager_StaleCachedIndexRejected(t *testing.T) {
 	id, err := b.AddList("ads", "")
 	require.NoError(t, err)
 	b.Add(Rule{Domain: "ads.example.com", Action: Block, Subdomains: true}, id)
-	require.NoError(t, b.Write(m.IndexPath(), time.Now()))
+	require.NoError(t, b.Write(m.IndexPath(), time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)))
 
 	require.Error(t, m.loadCached())
 	assert.False(t, m.Loaded())

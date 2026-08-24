@@ -11,8 +11,8 @@ import (
 func TestCursor_TimestampFits(t *testing.T) {
 	const msBits = 64 - cursorCounterBits
 
-	now := NewCursor(time.Now(), 0)
-	assert.Equal(t, time.Now().UnixMilli()/1000, now.Time().Unix(), "today round-trips")
+	ts := time.Date(2026, time.August, 10, 12, 34, 56, 0, time.UTC)
+	assert.Equal(t, ts.Unix(), NewCursor(ts, 0).Time().Unix(), "a timestamp round-trips")
 
 	years := float64(uint64(1)<<msBits-1) / 1000 / 86400 / 365.25
 	assert.Greater(t, years, 500.0, "the layout must not expire in service")

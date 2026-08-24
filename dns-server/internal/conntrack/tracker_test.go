@@ -21,6 +21,9 @@ func (m *mockAgent) ListConntrack(_ context.Context) ([]agentclient.ConntrackEnt
 	return m.entries, nil
 }
 
+// testStart is an hour boundary, so a test can advance by minutes without rotating the chunk.
+var testStart = time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
+
 func newTestTracker(t *testing.T) (*Tracker, *mockAgent) {
 	t.Helper()
 	store := NewFileStore(t.TempDir(), slog.Default())
@@ -31,6 +34,8 @@ func newTestTracker(t *testing.T) (*Tracker, *mockAgent) {
 		ChunkInterval:  time.Hour,
 		CacheDuration:  time.Hour,
 	}, slog.Default(), agent, store)
+	tr.bucketRange = makeRange(testStart, tr.cfg.BucketInterval)
+	tr.chunkRange = makeRange(testStart, tr.cfg.ChunkInterval)
 	return tr, agent
 }
 
@@ -38,7 +43,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 	ctx := t.Context()
 
 	tracker, agent := newTestTracker(t)
-	now := time.Now().Truncate(time.Minute)
+	now := testStart
 
 	agent.entries = []agentclient.ConntrackEntry{
 		{
@@ -133,7 +138,7 @@ func TestTracker_BucketSeal(t *testing.T) {
 	ctx := t.Context()
 
 	tracker, agent := newTestTracker(t)
-	now := time.Now().Truncate(time.Minute)
+	now := testStart
 
 	agent.entries = []agentclient.ConntrackEntry{
 		{
