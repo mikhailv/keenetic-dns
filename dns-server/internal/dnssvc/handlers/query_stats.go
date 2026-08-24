@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	LabelBlocked = "blocked"
-	LabelRouted  = "routed"
+	LabelBlocked  = "blocked"
+	LabelRouted   = "routed"
+	LabelExcluded = "excluded"
 )
 
 func NewQueryStatsHandler(handler dnssvc.Handler, recorder StatsRecorder) dnssvc.Handler {
@@ -49,6 +50,8 @@ func label(status dnssvc.QueryStatus) string {
 		return LabelBlocked
 	case status.Routed:
 		return LabelRouted
+	case status.Excluded:
+		return LabelExcluded
 	default:
 		return ""
 	}

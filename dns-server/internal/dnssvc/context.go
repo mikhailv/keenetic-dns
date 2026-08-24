@@ -27,8 +27,9 @@ func GetResolverInfo(ctx context.Context) types.ResolverInfo {
 }
 
 type QueryStatus struct {
-	Blocked bool
-	Routed  bool
+	Blocked  bool
+	Routed   bool
+	Excluded bool
 }
 
 type contextKeyQueryStatus struct{}
@@ -46,6 +47,12 @@ func SetQueryBlocked(ctx context.Context) {
 func SetQueryRouted(ctx context.Context) {
 	if v, ok := ctx.Value(contextKeyQueryStatus{}).(*QueryStatus); ok {
 		v.Routed = true
+	}
+}
+
+func SetQueryExcluded(ctx context.Context) {
+	if v, ok := ctx.Value(contextKeyQueryStatus{}).(*QueryStatus); ok {
+		v.Excluded = true
 	}
 }
 

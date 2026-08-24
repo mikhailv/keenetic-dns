@@ -49,13 +49,18 @@ func TestQueryStats_Labels(t *testing.T) {
 		mark func(ctx context.Context)
 		want string
 	}{
-		"plain":   {nil, ""},
-		"blocked": {dnssvc.SetQueryBlocked, LabelBlocked},
-		"routed":  {dnssvc.SetQueryRouted, LabelRouted},
+		"plain":    {nil, ""},
+		"blocked":  {dnssvc.SetQueryBlocked, LabelBlocked},
+		"routed":   {dnssvc.SetQueryRouted, LabelRouted},
+		"excluded": {dnssvc.SetQueryExcluded, LabelExcluded},
 		"blocked wins": {func(ctx context.Context) {
 			dnssvc.SetQueryRouted(ctx)
 			dnssvc.SetQueryBlocked(ctx)
 		}, LabelBlocked},
+		"routed wins over excluded": {func(ctx context.Context) {
+			dnssvc.SetQueryExcluded(ctx)
+			dnssvc.SetQueryRouted(ctx)
+		}, LabelRouted},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {

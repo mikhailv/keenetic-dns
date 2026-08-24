@@ -192,6 +192,9 @@ func (s *ipRoutingHandler) processDomainLookup(ctx context.Context, dl *types.Do
 	if routings.Has(types.ActionRouted) {
 		dnssvc.SetQueryRouted(ctx)
 	}
+	if routings.Has(types.ActionExcluded) {
+		dnssvc.SetQueryExcluded(ctx)
+	}
 
 	dnssvc.SetQueryInfo(ctx, dnssvc.QueryInfo{
 		Lookup:     dl,
