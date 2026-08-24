@@ -9,3 +9,13 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Build artifacts and editor leftovers
+/ipinfo/ipinfo
+/dns-server/dns-server
+/agent/agent
+*~
+*.bak
+
+# Local notes and plans
+*.md
