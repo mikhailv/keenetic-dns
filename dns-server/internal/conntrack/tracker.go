@@ -119,11 +119,10 @@ func (s *Tracker) IterateChunks(ctx context.Context, tr TimeRange) iter.Seq2[Chu
 			loaded = append(loaded, chunk)
 			tr.End = s.chunkRange.Start - 1
 		}
-		for i := len(s.cached) - 1; i >= 0; i-- {
+		for _, it := range slices.Backward(s.cached) {
 			if !tr.Valid() {
 				break
 			}
-			it := s.cached[i]
 			if it.TimeRange.Intersects(tr) {
 				loaded = append(loaded, it)
 				tr.End = it.TimeRange.Start - 1

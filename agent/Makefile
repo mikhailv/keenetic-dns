@@ -13,7 +13,7 @@ build: generate
 
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.3 run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run
 
 .PHONY: generate
 generate: $(OAPI_CODEGEN)

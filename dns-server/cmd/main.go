@@ -121,7 +121,7 @@ func main() { //nolint:funlen // ignore
 			logger.Info("blockstats enabled", "dir", statsCfg.DataDir, "flush_interval", statsCfg.FlushInterval)
 		}
 
-		blockingMiddleware = NewBlockingMiddleware(blocklistManager, cfg.Blocking.Mode, blockRecorder, log.WithPrefix(logger, "blocking"))
+		blockingMiddleware = NewBlockingMiddleware(blocklistManager, blockRecorder, log.WithPrefix(logger, "blocking"))
 
 		logger.Info("blocking enabled", "lists", len(cfg.Blocking.EnabledLists()),
 			"mode", cfg.Blocking.Mode.String(), "groups", len(cfg.Blocking.Groups))

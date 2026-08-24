@@ -65,8 +65,8 @@ func (m *Manager) config() *activeConfig {
 	return m.cfg.Load()
 }
 
-// UpdateConfig applies the lists and groups of an updated config. The rest of the config, along with anything
-// derived from it at startup, keeps its original value.
+// UpdateConfig applies the mode, lists and groups of an updated config. The rest of the config, along with
+// anything derived from it at startup, keeps its original value.
 func (m *Manager) UpdateConfig(cfg Config) {
 	cfg.SetDefaults()
 
@@ -79,28 +79,35 @@ func (m *Manager) UpdateConfig(cfg Config) {
 	}
 
 	merged := cur.Config
+	merged.Mode = cfg.Mode
 	merged.Lists = cfg.Lists
 	merged.Groups = cfg.Groups
 	next := newActiveConfig(merged)
 
+	modeChanged := next.Mode != cur.Mode
 	listsChanged := !slices.EqualFunc(next.state, cur.state, listStateEqual)
 	groupsChanged := !slices.EqualFunc(next.Groups, cur.Groups, groupEqual)
-	if !listsChanged && !groupsChanged {
+	if !modeChanged && !listsChanged && !groupsChanged {
 		return
 	}
 	m.cfg.Store(next)
 
-	if listsChanged {
+	if modeChanged {
+		m.logger.Info("blocking mode updated", "mode", next.Mode)
+	}
+	switch {
+	case listsChanged && len(next.lists) == 0:
+		m.dropIndex()
+	case listsChanged:
 		m.logger.Info("blocking lists changed, refreshing", "lists", len(next.lists))
 		select {
 		case m.reload <- struct{}{}:
 		default:
 		}
-		return
+	case groupsChanged:
+		m.applyGroups(next)
+		m.logger.Info("blocking groups updated", "groups", len(next.Groups))
 	}
-
-	m.applyGroups(next)
-	m.logger.Info("blocking groups updated", "groups", len(next.Groups))
 }
 
 func fixedSettingsChanged(cur, next Config) []string {
@@ -111,7 +118,6 @@ func fixedSettingsChanged(cur, next Config) []string {
 		}
 	}
 	add("enabled", cur.Enabled != next.Enabled)
-	add("mode", cur.Mode != next.Mode)
 	add("data_dir", cur.DataDir != next.DataDir)
 	add("refresh_interval", cur.RefreshInterval != next.RefreshInterval)
 	add("download_timeout", cur.DownloadTimeout != next.DownloadTimeout)
@@ -139,6 +145,10 @@ func (m *Manager) applyGroups(cfg *activeConfig) {
 
 func (m *Manager) IndexPath() string {
 	return filepath.Join(m.config().DataDir, IndexFileName)
+}
+
+func (m *Manager) Mode() Mode {
+	return m.config().Mode
 }
 
 func (m *Manager) Lookup(domain string, clientIP types.IPv4) (Match, bool) {
@@ -245,6 +255,10 @@ func (m *Manager) startupRefresh(ctx context.Context) {
 			return
 		}
 
+		if len(m.config().lists) == 0 {
+			return
+		}
+
 		switch {
 		case !m.Loaded():
 			m.logger.Warn("blocking inactive, retrying", "retry_in", delay)
@@ -318,6 +332,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 
 	cfg := m.config()
 	if len(cfg.lists) == 0 {
+		m.dropIndex()
 		return nil
 	}
 
@@ -496,6 +511,17 @@ func (m *Manager) buildClientMasks(cfg *activeConfig, listIDs map[string]int) (l
 		}
 	}
 	return tb.Build(), all
+}
+
+// dropIndex stops blocking until an index is built again, which is what a config left without enabled lists
+// asks for: the index already in memory answers for lists that are no longer configured.
+func (m *Manager) dropIndex() {
+	if !m.Loaded() {
+		return
+	}
+	m.swap(nil, lookup.IPTree[uint32]{}, 0)
+	m.setDegraded(false)
+	m.logger.Info("no blocking lists enabled, index dropped")
 }
 
 func (m *Manager) swap(index *Index, masks lookup.IPTree[uint32], defaultMask uint32) {

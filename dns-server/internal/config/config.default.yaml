@@ -45,7 +45,7 @@ conntrack:
   history_size: 1000
 
 blocking:
-  # `lists` and `groups` are picked up while running, the settings around them only on restart
+  # `mode`, `lists` and `groups` are picked up while running, the rest only on restart
   enabled: false
   mode: nxdomain # nxdomain | null | nodata
   data_dir: blocklist

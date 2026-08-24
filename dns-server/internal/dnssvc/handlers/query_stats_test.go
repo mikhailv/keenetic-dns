@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/server/ctxutil"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -99,7 +98,6 @@ func TestQueryStats_BlockedQueryIsLabelled(t *testing.T) {
 	blocking := NewBlockingHandler(
 		&stubUpstream{},
 		blockedDomains("ads.example.com"),
-		blocklist.ModeNXDomain,
 		nil,
 		slog.New(slog.DiscardHandler),
 	)

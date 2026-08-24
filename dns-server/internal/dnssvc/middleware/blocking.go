@@ -12,11 +12,10 @@ var _ handlers.Blocklist = (*blocklist.Manager)(nil)
 
 func NewBlockingMiddleware(
 	list handlers.Blocklist,
-	mode blocklist.Mode,
 	recorder handlers.StatsRecorder,
 	logger *slog.Logger,
 ) dnssvc.Middleware {
 	return func(handler dnssvc.Handler) dnssvc.Handler {
-		return handlers.NewBlockingHandler(handler, list, mode, recorder, logger)
+		return handlers.NewBlockingHandler(handler, list, recorder, logger)
 	}
 }

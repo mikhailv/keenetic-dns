@@ -2,6 +2,7 @@ package dnssvc
 
 import (
 	"context"
+	"slices"
 
 	"github.com/miekg/dns"
 )
@@ -29,8 +30,8 @@ type Middleware func(handler Handler) Handler
 func NopMiddleware(handler Handler) Handler { return handler }
 
 func NewMiddlewareChainHandler(middlewares []Middleware, handler Handler) Handler {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		handler = middlewares[i](handler)
+	for _, middleware := range slices.Backward(middlewares) {
+		handler = middleware(handler)
 	}
 	return handler
 }

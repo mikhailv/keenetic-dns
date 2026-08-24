@@ -746,3 +746,42 @@ func TestManager_UpdateConfigKeepsFixedSettings(t *testing.T) {
 	assert.Equal(t, indexPath, m.IndexPath(), "data_dir must keep the value it had at startup")
 	assert.Equal(t, time.Hour, m.config().RefreshInterval)
 }
+
+func TestManager_UpdateConfigAppliesMode(t *testing.T) {
+	cfg := Config{Mode: ModeNXDomain, Lists: []List{denyList("ads", "ads.example.com")}}
+	m := newTestManagerCfg(t, cfg)
+	require.NoError(t, m.Refresh(t.Context()))
+	require.Equal(t, ModeNXDomain, m.Mode())
+
+	updated := cfg
+	updated.Mode = ModeNull
+	m.UpdateConfig(updated)
+
+	assert.Equal(t, ModeNull, m.Mode())
+	assert.Empty(t, m.reload, "a mode change must not ask for a refresh")
+}
+
+func TestManager_UpdateConfigDropsIndexWhenNoListsRemain(t *testing.T) {
+	m := newTestManagerCfg(t, Config{Lists: []List{denyList("ads", "ads.example.com")}})
+	require.NoError(t, m.Refresh(t.Context()))
+	_, ok := m.Lookup("ads.example.com", testClient)
+	require.True(t, ok)
+
+	m.UpdateConfig(Config{})
+
+	assert.False(t, m.Loaded(), "a config left without lists must drop the index")
+	_, ok = m.Lookup("ads.example.com", testClient)
+	assert.False(t, ok, "nothing may be blocked once the lists are gone")
+	assert.Empty(t, m.reload, "an empty list set has nothing to download")
+}
+
+func TestManager_RefreshDropsIndexWhenNoListsRemain(t *testing.T) {
+	m := newTestManagerCfg(t, Config{Lists: []List{denyList("ads", "ads.example.com")}})
+	require.NoError(t, m.Refresh(t.Context()))
+	require.True(t, m.Loaded())
+
+	m.cfg.Store(newActiveConfig(Config{DataDir: m.config().DataDir}))
+	require.NoError(t, m.Refresh(t.Context()))
+
+	assert.False(t, m.Loaded())
+}

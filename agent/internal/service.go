@@ -158,8 +158,7 @@ func (s *networkService) runCmd(cmd *exec.Cmd) (cmdRunResult, error) {
 		Output: string(output),
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		res.ExitCode = exitErr.ExitCode()
 		res.ErrOutput = string(exitErr.Stderr)
 	}

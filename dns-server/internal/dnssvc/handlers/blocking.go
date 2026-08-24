@@ -17,6 +17,7 @@ import (
 const blockedTTL = 60
 
 type Blocklist interface {
+	Mode() blocklist.Mode
 	Lookup(domain string, clientIP types.IPv4) (blocklist.Match, bool)
 }
 
@@ -27,11 +28,10 @@ type StatsRecorder interface {
 func NewBlockingHandler(
 	handler dnssvc.Handler,
 	list Blocklist,
-	mode blocklist.Mode,
 	recorder StatsRecorder,
 	logger *slog.Logger,
 ) dnssvc.Handler {
-	return blockingHandler{handler: handler, list: list, mode: mode, recorder: recorder, logger: logger}
+	return blockingHandler{handler: handler, list: list, recorder: recorder, logger: logger}
 }
 
 var _ dnssvc.Handler = blockingHandler{}
@@ -39,7 +39,6 @@ var _ dnssvc.Handler = blockingHandler{}
 type blockingHandler struct {
 	handler  dnssvc.Handler
 	list     Blocklist
-	mode     blocklist.Mode
 	recorder StatsRecorder
 	logger   *slog.Logger
 }
@@ -108,7 +107,7 @@ func (s blockingHandler) block(
 
 func (s blockingHandler) response(req *dns.Msg) *dns.Msg {
 	resp := &dns.Msg{}
-	switch s.mode {
+	switch s.list.Mode() {
 	case blocklist.ModeNXDomain:
 		resp.SetRcode(req, dns.RcodeNameError)
 	case blocklist.ModeNull:

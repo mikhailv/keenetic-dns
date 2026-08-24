@@ -17,17 +17,24 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
-type stubBlocklist map[string]blocklist.Match
+type stubBlocklist struct {
+	matches map[string]blocklist.Match
+	mode    blocklist.Mode
+}
 
 func (s stubBlocklist) Lookup(domain string, _ types.IPv4) (blocklist.Match, bool) {
-	match, ok := s[domain]
+	match, ok := s.matches[domain]
 	return match, ok
 }
 
+func (s stubBlocklist) Mode() blocklist.Mode {
+	return s.mode
+}
+
 func blockedDomains(domains ...string) stubBlocklist {
-	s := stubBlocklist{}
+	s := stubBlocklist{matches: map[string]blocklist.Match{}}
 	for _, d := range domains {
-		s[d] = blocklist.Match{List: "test", Action: blocklist.Block}
+		s.matches[d] = blocklist.Match{List: "test", Action: blocklist.Block}
 	}
 	return s
 }
@@ -68,11 +75,12 @@ func query(domain string, qtype uint16) *dns.Msg {
 	return req
 }
 
-func newHandler(t *testing.T, list Blocklist, mode blocklist.Mode) (dnssvc.Handler, *stubUpstream, *stubRecorder) {
+func newHandler(t *testing.T, list stubBlocklist, mode blocklist.Mode) (dnssvc.Handler, *stubUpstream, *stubRecorder) {
 	t.Helper()
+	list.mode = mode
 	upstream := &stubUpstream{}
 	recorder := &stubRecorder{}
-	h := NewBlockingHandler(upstream, list, mode, recorder, slog.New(slog.DiscardHandler))
+	h := NewBlockingHandler(upstream, list, recorder, slog.New(slog.DiscardHandler))
 	return h, upstream, recorder
 }
 
@@ -169,7 +177,9 @@ func TestBlocking_CleanCNAMEPassesThrough(t *testing.T) {
 }
 
 func TestBlocking_AllowRuleIsNotBlocked(t *testing.T) {
-	list := stubBlocklist{"cdn.example.com": {List: "test", Action: blocklist.Allow}}
+	list := stubBlocklist{matches: map[string]blocklist.Match{
+		"cdn.example.com": {List: "test", Action: blocklist.Allow},
+	}}
 	h, upstream, recorder := newHandler(t, list, blocklist.ModeNXDomain)
 
 	_, err := h.Handle(t.Context(), query("cdn.example.com", dns.TypeA))
@@ -216,8 +226,7 @@ func TestBlocking_NonSingleQuestionPassesThrough(t *testing.T) {
 
 func TestBlocking_NilRecorderIsSafe(t *testing.T) {
 	upstream := &stubUpstream{}
-	h := NewBlockingHandler(upstream, blockedDomains("ads.example.com"),
-		blocklist.ModeNXDomain, nil, slog.New(slog.DiscardHandler))
+	h := NewBlockingHandler(upstream, blockedDomains("ads.example.com"), nil, slog.New(slog.DiscardHandler))
 
 	resp, err := h.Handle(t.Context(), query("ads.example.com", dns.TypeA))
 	require.NoError(t, err)
