@@ -120,7 +120,7 @@ func freezeDomainNode[V any](bn *domainBuildNode[V]) domainNode[V] {
 // splitDomainReversed splits a domain into labels in reverse order.
 // "foo.youtube.com." → ["com", "youtube", "foo"].
 func splitDomainReversed(domain string) []string {
-	domain = strings.Trim(domain, ".")
+	domain = strings.ToLower(strings.Trim(domain, "."))
 	if domain == "" {
 		return nil
 	}

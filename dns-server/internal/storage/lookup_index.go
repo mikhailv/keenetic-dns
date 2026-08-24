@@ -142,7 +142,7 @@ func makeLookupKey(dl *types.DomainLookup) lookupKey {
 	})
 	var sb strings.Builder
 	sb.Grow(len(dl.Domain) + 5*len(ips))
-	sb.WriteString(dl.Domain)
+	sb.WriteString(strings.ToLower(dl.Domain))
 	for _, ip := range ips {
 		sb.WriteByte(0)
 		sb.Write(ip[:])

@@ -99,6 +99,23 @@ func TestDomainTree_WithoutTrailingDot(t *testing.T) {
 	assert.Equal(t, "yt", v)
 }
 
+func TestDomainTree_IgnoresCase(t *testing.T) {
+	b := NewDomainTreeBuilder[string]()
+	b.Add("youtube.com", "yt")
+	b.Add("Ads.Example.COM", "ads")
+	tree := b.Build()
+
+	for _, domain := range []string{"WWW.YouTube.com.", "www.youtube.COM", "Www.YouTube.Com."} {
+		v, ok := tree.Get(domain)
+		assert.True(t, ok, domain)
+		assert.Equal(t, "yt", v, domain)
+	}
+
+	v, ok := tree.Get("ads.example.com.")
+	assert.True(t, ok, "a rule written with capitals matches a lowercase query")
+	assert.Equal(t, "ads", v)
+}
+
 func TestDomainTree_Empty(t *testing.T) {
 	tree := NewDomainTreeBuilder[string]().Build()
 	_, ok := tree.Get("anything.com.")

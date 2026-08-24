@@ -65,7 +65,7 @@ func (s *memDNSCache) startCleaner(interval time.Duration) {
 func (s *memDNSCache) Get(ctx context.Context, query dns.Question) *dns.Msg {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if entry, ok := s.entries[query]; ok && !entry.Expired() {
+	if entry, ok := s.entries[cacheKey(query)]; ok && !entry.Expired() {
 		return entry.Msg()
 	}
 	return nil
@@ -78,7 +78,7 @@ func (s *memDNSCache) Put(ctx context.Context, msg *dns.Msg) {
 			if b, err := msg.Pack(); err == nil {
 				s.mu.Lock()
 				now := time.Now()
-				s.entries[msg.Question[0]] = dnsCacheEntry{
+				s.entries[cacheKey(msg.Question[0])] = dnsCacheEntry{
 					Bytes:   b,
 					Added:   uint32(now.Unix()),
 					Expires: uint32(now.Add(time.Duration(ttl) * time.Second).Unix()),
@@ -87,6 +87,12 @@ func (s *memDNSCache) Put(ctx context.Context, msg *dns.Msg) {
 			}
 		}
 	}
+}
+
+// cacheKey folds the question name to its canonical form, so that queries differing only in case share an entry.
+func cacheKey(q dns.Question) dns.Question {
+	q.Name = dns.CanonicalName(q.Name)
+	return q
 }
 
 func (s *memDNSCache) Close() error {
