@@ -650,3 +650,99 @@ func TestManager_StartWaiterCoversStartupRefresh(t *testing.T) {
 	close(release)
 	require.Eventually(t, done.Load, 5*time.Second, 5*time.Millisecond)
 }
+
+func denyList(name string, domains ...string) List {
+	return List{Name: name, Enabled: true, Deny: domains}
+}
+
+func newTestManagerCfg(t *testing.T, cfg Config) *Manager {
+	t.Helper()
+	cfg.Enabled = true
+	cfg.DataDir = t.TempDir()
+	cfg.RefreshInterval = time.Hour
+	cfg.DownloadTimeout = 5 * time.Second
+	m := NewManager(cfg, slog.New(slog.DiscardHandler))
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	return m
+}
+
+func TestManager_UpdateConfigAppliesGroupsWithoutRebuilding(t *testing.T) {
+	cfg := Config{
+		Lists: []List{
+			denyList("ads", "ads.example.com"),
+			denyList("strict", "gaming.example.net"),
+		},
+		Groups: []Group{{Name: "relaxed", Clients: []string{"192.168.1.51"}, Lists: []string{"ads"}}},
+	}
+	m := newTestManagerCfg(t, cfg)
+	require.NoError(t, m.Refresh(t.Context()))
+
+	client := types.MustParseIPv4("192.168.1.51")
+	_, ok := m.Lookup("gaming.example.net", client)
+	require.False(t, ok)
+
+	built, err := os.Stat(m.IndexPath())
+	require.NoError(t, err)
+
+	updated := cfg
+	updated.Groups = []Group{{Name: "relaxed", Clients: []string{"192.168.1.51"}, Lists: []string{"ads", "strict"}}}
+	m.UpdateConfig(updated)
+
+	match, ok := m.Lookup("gaming.example.net", client)
+	require.True(t, ok, "a group change must apply without waiting for a refresh")
+	assert.True(t, match.Blocked())
+
+	rebuilt, err := os.Stat(m.IndexPath())
+	require.NoError(t, err)
+	assert.Equal(t, built.ModTime(), rebuilt.ModTime(), "a group change must not rebuild the index")
+	assert.Empty(t, m.reload, "a group change must not ask for a refresh")
+}
+
+func TestManager_UpdateConfigRefreshesOnListChange(t *testing.T) {
+	m := newTestManagerCfg(t, Config{Lists: []List{denyList("custom", "ads.example.com")}})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	waiter := m.Start(ctx)
+	require.Eventually(t, m.Loaded, 5*time.Second, 5*time.Millisecond)
+
+	m.UpdateConfig(Config{Lists: []List{denyList("custom", "ads.example.com", "tracker.example.net")}})
+
+	require.Eventually(t, func() bool {
+		_, ok := m.Lookup("tracker.example.net", testClient)
+		return ok
+	}, 5*time.Second, 5*time.Millisecond, "a list change must rebuild the index")
+
+	match, ok := m.Lookup("ads.example.com", testClient)
+	require.True(t, ok)
+	assert.True(t, match.Blocked(), "the unchanged rules must survive the rebuild")
+
+	cancel()
+	waiter.Wait()
+}
+
+func TestManager_UpdateConfigIgnoresUnchangedListsAndGroups(t *testing.T) {
+	cfg := Config{
+		Lists:  []List{denyList("ads", "ADS.example.com ")},
+		Groups: []Group{{Name: "relaxed", Clients: []string{"192.168.1.51"}, Lists: []string{"ads"}}},
+	}
+	m := newTestManagerCfg(t, cfg)
+	require.NoError(t, m.Refresh(t.Context()))
+
+	m.UpdateConfig(cfg)
+	assert.Empty(t, m.reload, "an unchanged config must not ask for a refresh")
+}
+
+func TestManager_UpdateConfigKeepsFixedSettings(t *testing.T) {
+	m := newTestManagerCfg(t, Config{Lists: []List{denyList("ads", "ads.example.com")}})
+	indexPath := m.IndexPath()
+
+	m.UpdateConfig(Config{
+		DataDir:         t.TempDir(),
+		RefreshInterval: time.Minute,
+		Lists:           []List{denyList("ads", "ads.example.com")},
+	})
+
+	assert.Equal(t, indexPath, m.IndexPath(), "data_dir must keep the value it had at startup")
+	assert.Equal(t, time.Hour, m.config().RefreshInterval)
+}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
@@ -19,13 +20,15 @@ import (
 const IndexFileName = "blocklist.fst"
 
 type Manager struct {
-	cfg           Config
-	lists         []List
-	state         []ListState
+	cfg           atomic.Pointer[activeConfig]
 	downloader    *Downloader
 	logger        *slog.Logger
 	retryDelay    time.Duration
 	maxRetryDelay time.Duration
+	reload        chan struct{}
+
+	updateMu  sync.Mutex
+	refreshMu sync.Mutex
 
 	mu          sync.RWMutex
 	index       *Index
@@ -34,21 +37,108 @@ type Manager struct {
 	defaultMask uint32
 }
 
+// activeConfig pairs a config with the views derived from it, so that a reload publishes all three at once.
+type activeConfig struct {
+	Config
+	lists []List
+	state []ListState
+}
+
+func newActiveConfig(cfg Config) *activeConfig {
+	return &activeConfig{Config: cfg, lists: cfg.EnabledLists(), state: cfg.State()}
+}
+
 func NewManager(cfg Config, logger *slog.Logger) *Manager {
 	cfg.SetDefaults()
-	return &Manager{
-		cfg:           cfg,
-		lists:         cfg.EnabledLists(),
-		state:         cfg.State(),
+	m := &Manager{
 		downloader:    NewDownloader(filepath.Join(cfg.DataDir, "lists"), cfg.DownloadTimeout, logger),
 		logger:        logger,
 		retryDelay:    startupRetryDelay,
 		maxRetryDelay: maxStartupRetryDelay,
+		reload:        make(chan struct{}, 1),
+	}
+	m.cfg.Store(newActiveConfig(cfg))
+	return m
+}
+
+func (m *Manager) config() *activeConfig {
+	return m.cfg.Load()
+}
+
+// UpdateConfig applies the lists and groups of an updated config. The rest of the config, along with anything
+// derived from it at startup, keeps its original value.
+func (m *Manager) UpdateConfig(cfg Config) {
+	cfg.SetDefaults()
+
+	m.updateMu.Lock()
+	defer m.updateMu.Unlock()
+
+	cur := m.config()
+	if fixed := fixedSettingsChanged(cur.Config, cfg); len(fixed) > 0 {
+		m.logger.Warn("blocking settings changed that only apply on restart", "settings", fixed)
+	}
+
+	merged := cur.Config
+	merged.Lists = cfg.Lists
+	merged.Groups = cfg.Groups
+	next := newActiveConfig(merged)
+
+	listsChanged := !slices.EqualFunc(next.state, cur.state, listStateEqual)
+	groupsChanged := !slices.EqualFunc(next.Groups, cur.Groups, groupEqual)
+	if !listsChanged && !groupsChanged {
+		return
+	}
+	m.cfg.Store(next)
+
+	if listsChanged {
+		m.logger.Info("blocking lists changed, refreshing", "lists", len(next.lists))
+		select {
+		case m.reload <- struct{}{}:
+		default:
+		}
+		return
+	}
+
+	m.applyGroups(next)
+	m.logger.Info("blocking groups updated", "groups", len(next.Groups))
+}
+
+func fixedSettingsChanged(cur, next Config) []string {
+	var changed []string
+	add := func(name string, differs bool) {
+		if differs {
+			changed = append(changed, name)
+		}
+	}
+	add("enabled", cur.Enabled != next.Enabled)
+	add("mode", cur.Mode != next.Mode)
+	add("data_dir", cur.DataDir != next.DataDir)
+	add("refresh_interval", cur.RefreshInterval != next.RefreshInterval)
+	add("download_timeout", cur.DownloadTimeout != next.DownloadTimeout)
+	return changed
+}
+
+// applyGroups recomputes the client masks against the index the caller already sees, and drops them if a rebuild
+// swapped in a new index meanwhile: that rebuild computed masks from its own list ids and they are the newer ones.
+func (m *Manager) applyGroups(cfg *activeConfig) {
+	m.mu.RLock()
+	index := m.index
+	m.mu.RUnlock()
+	if index == nil {
+		return
+	}
+	masks, defaultMask := m.buildClientMasks(cfg, index.ListIDs())
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.index == index {
+		m.clientMasks = masks
+		m.defaultMask = defaultMask
 	}
 }
 
 func (m *Manager) IndexPath() string {
-	return filepath.Join(m.cfg.DataDir, IndexFileName)
+	return filepath.Join(m.config().DataDir, IndexFileName)
 }
 
 func (m *Manager) Lookup(domain string, clientIP types.IPv4) (Match, bool) {
@@ -85,13 +175,13 @@ func (m *Manager) setDegraded(degraded bool) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) stateMatchesIndex() bool {
+func (m *Manager) stateMatchesIndex(cfg *activeConfig) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if m.index == nil {
 		return true
 	}
-	return slices.EqualFunc(m.index.State(), m.state, listStateEqual)
+	return slices.EqualFunc(m.index.State(), cfg.state, listStateEqual)
 }
 
 func listStateEqual(a, b ListState) bool {
@@ -100,6 +190,10 @@ func listStateEqual(a, b ListState) bool {
 		slices.Equal(a.AllowURLs, b.AllowURLs) &&
 		slices.Equal(a.Allow, b.Allow) &&
 		slices.Equal(a.Deny, b.Deny)
+}
+
+func groupEqual(a, b Group) bool {
+	return a.Name == b.Name && slices.Equal(a.Clients, b.Clients) && slices.Equal(a.Lists, b.Lists)
 }
 
 const (
@@ -118,12 +212,28 @@ func (m *Manager) Start(ctx context.Context) util.Waiter {
 		m.startupRefresh(ctx)
 	}()
 
-	periodic := util.RunPeriodically(ctx.Done(), m.cfg.RefreshInterval, func() {
+	refresh, refreshDone := util.NewWaiter()
+	go func() {
+		defer refreshDone()
+		m.refreshLoop(ctx)
+	}()
+	return util.WaitAll(startup, refresh)
+}
+
+func (m *Manager) refreshLoop(ctx context.Context) {
+	ticker := time.NewTicker(m.config().RefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		case <-m.reload:
+		}
 		if err := m.Refresh(ctx); err != nil && ctx.Err() == nil {
 			m.logger.Error("blocklist refresh failed", "err", err)
 		}
-	})
-	return util.WaitAll(startup, periodic)
+	}
 }
 
 func (m *Manager) startupRefresh(ctx context.Context) {
@@ -145,7 +255,7 @@ func (m *Manager) startupRefresh(ctx context.Context) {
 		}
 		if delay > m.maxRetryDelay {
 			m.logger.Warn("giving up on the startup retries, leaving it to the refresh interval",
-				"refresh_interval", m.cfg.RefreshInterval)
+				"refresh_interval", m.config().RefreshInterval)
 			return
 		}
 
@@ -158,25 +268,26 @@ func (m *Manager) startupRefresh(ctx context.Context) {
 }
 
 func (m *Manager) loadCached() error {
-	if !m.indexIsFresh() {
+	cfg := m.config()
+	if !m.indexIsFresh(cfg) {
 		return errors.New("cached index is missing or older than its source lists")
 	}
 	index, err := Open(m.IndexPath())
 	if err != nil {
 		return err
 	}
-	if !slices.EqualFunc(index.State(), m.state, listStateEqual) {
+	if !slices.EqualFunc(index.State(), cfg.state, listStateEqual) {
 		_ = index.Close()
 		return errors.New("cached index was built from a different configuration")
 	}
-	masks, defaultMask := m.buildClientMasks(index.ListIDs())
+	masks, defaultMask := m.buildClientMasks(cfg, index.ListIDs())
 	m.swap(index, masks, defaultMask)
 	m.logger.Info("blocklist index loaded from cache",
 		"domains", index.Domains(), "built_at", index.BuiltAt())
 	return nil
 }
 
-func (m *Manager) indexIsFresh() bool {
+func (m *Manager) indexIsFresh(cfg *activeConfig) bool {
 	indexInfo, err := os.Stat(m.IndexPath())
 	if err != nil {
 		return false
@@ -184,7 +295,7 @@ func (m *Manager) indexIsFresh() bool {
 	if _, err := os.Stat(ManifestPath(m.IndexPath())); err != nil {
 		return false
 	}
-	for _, list := range m.lists {
+	for _, list := range cfg.lists {
 		for _, set := range urlSets(list) {
 			paths := m.downloader.CachedPaths(set.urls)
 			if len(paths) != len(set.urls) {
@@ -202,14 +313,18 @@ func (m *Manager) indexIsFresh() bool {
 }
 
 func (m *Manager) Refresh(ctx context.Context) error {
-	if len(m.lists) == 0 {
+	m.refreshMu.Lock()
+	defer m.refreshMu.Unlock()
+
+	cfg := m.config()
+	if len(cfg.lists) == 0 {
 		return nil
 	}
 
 	var changed, degraded bool
 	var errs []error
 	var failedLists int
-	for _, src := range m.lists {
+	for _, src := range cfg.lists {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -230,29 +345,29 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	}
 	m.setDegraded(degraded || len(errs) > 0)
 
-	if failedLists == len(m.lists) {
+	if failedLists == len(cfg.lists) {
 		return fmt.Errorf("all blocklists failed: %w", errors.Join(errs...))
 	}
-	changed = changed || !m.stateMatchesIndex()
+	changed = changed || !m.stateMatchesIndex(cfg)
 	if !changed && m.Loaded() {
 		m.logger.Debug("blocklists unchanged, keeping index")
 		return errors.Join(errs...)
 	}
 
-	if err := m.rebuild(ctx); err != nil {
+	if err := m.rebuild(ctx, cfg); err != nil {
 		return errors.Join(append(errs, err)...)
 	}
 	return errors.Join(errs...)
 }
 
-func (m *Manager) rebuild(ctx context.Context) error {
+func (m *Manager) rebuild(ctx context.Context, cfg *activeConfig) error {
 	start := time.Now()
 	builder := NewBuilder()
-	builder.SetState(m.state)
+	builder.SetState(cfg.state)
 
 	listIDs := map[string]int{}
 	var loaded int
-	for _, src := range m.lists {
+	for _, src := range cfg.lists {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -275,13 +390,13 @@ func (m *Manager) rebuild(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open rebuilt index: %w", err)
 	}
-	masks, defaultMask := m.buildClientMasks(listIDs)
+	masks, defaultMask := m.buildClientMasks(cfg, listIDs)
 	domains, regexps := index.Domains(), builder.RegexpCount()
 	m.swap(index, masks, defaultMask)
 
 	m.logger.Info("blocklist index rebuilt",
 		"lists", loaded, "domains", domains, "regexps", regexps,
-		"groups", len(m.cfg.Groups), "took", time.Since(start).Round(time.Millisecond))
+		"groups", len(cfg.Groups), "took", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -352,14 +467,14 @@ func addDomains(builder *Builder, domains []string, action Action, listID int) (
 	return rules
 }
 
-func (m *Manager) buildClientMasks(listIDs map[string]int) (lookup.IPTree[uint32], uint32) {
+func (m *Manager) buildClientMasks(cfg *activeConfig, listIDs map[string]int) (lookup.IPTree[uint32], uint32) {
 	var all uint32
 	for _, id := range listIDs {
 		all |= uint32(1) << id
 	}
 
 	tb := lookup.NewIPTreeBuilder[uint32]()
-	for _, group := range m.cfg.Groups {
+	for _, group := range cfg.Groups {
 		var mask uint32
 		for _, name := range group.Lists {
 			id, ok := listIDs[name]

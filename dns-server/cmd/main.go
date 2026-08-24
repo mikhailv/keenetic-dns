@@ -95,9 +95,10 @@ func main() { //nolint:funlen // ignore
 	defer util.RunPeriodically(ctx.Done(), 10*time.Minute, dnsCacheSave).Wait()
 
 	var blockingMiddleware Middleware
+	var blocklistManager *blocklist.Manager
 
 	if cfg.Blocking.Enabled {
-		blocklistManager := blocklist.NewManager(cfg.Blocking.Config, log.WithPrefix(logger, "blocklist"))
+		blocklistManager = blocklist.NewManager(cfg.Blocking.Config, log.WithPrefix(logger, "blocklist"))
 		defer closeCloser(blocklistManager, "blocklist", logger)
 		defer blocklistManager.Start(ctx).Wait()
 
@@ -148,6 +149,9 @@ func main() { //nolint:funlen // ignore
 	defer watchConfigUpdate(ctx, logger, *configFile, 5*time.Second, func(cfg config.Config) {
 		routingCfg.Set(&cfg.Routing)
 		mdnsServicesCfg.Set(cfg.MDNS.Services)
+		if blocklistManager != nil {
+			blocklistManager.UpdateConfig(cfg.Blocking.Config)
+		}
 		if newResolver, err := createResolver(cfg.DNS.Providers, logger); err != nil {
 			logger.Error("failed to create resolver after config update", "err", err)
 		} else if err := settableResolver.SetResolver(newResolver); err != nil {
@@ -304,14 +308,18 @@ func watchConfigUpdate(
 	}
 
 	reloadConfig := func() bool {
-		if cfg, err := config.LoadConfig(configFile); err != nil {
+		cfg, err := config.LoadConfig(configFile)
+		if err != nil {
 			logger.Error("failed to load config", "err", err)
 			return false
-		} else {
-			logger.Info("config change detected")
-			onUpdate(*cfg)
-			return true
 		}
+		if err := cfg.Validate(); err != nil {
+			logger.Error("invalid config, keeping the running one", "err", err)
+			return false
+		}
+		logger.Info("config change detected")
+		onUpdate(*cfg)
+		return true
 	}
 
 	modTime, _ := getModTime()
