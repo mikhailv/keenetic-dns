@@ -4,16 +4,27 @@
 	import type { DNSQuery, DomainIP } from '$lib/types';
 	import { type StreamStore, createHostStore } from '$lib/stores';
 	import StatusFilter from '$lib/components/dns-queries/StatusFilter.svelte';
+	import ClientFilter from '$lib/components/dns-queries/ClientFilter.svelte';
 	import type { QueryStatus } from '$lib/components/dns-queries/util';
 
 	const MAX_ITEMS = 200;
+	const SEARCH_DEBOUNCE = 300;
 
 	const stream: StreamStore<DNSQuery> = api.createDNSQueryStreamStore(MAX_ITEMS);
 	const hosts = createHostStore();
 
 	let statuses = $state<QueryStatus[]>([]);
+	let client = $state('');
+	let search = $state('');
 
 	$effect(() => stream.setParam('status', statuses.join(',')));
+	$effect(() => stream.setParam('client', client));
+
+	$effect(() => {
+		const value = search.trim();
+		const timeout = setTimeout(() => stream.setParam('search', value), SEARCH_DEBOUNCE);
+		return () => clearTimeout(timeout);
+	});
 
 	onMount(() => hosts.autoreload());
 	onMount(() => stream.start());
@@ -59,6 +70,13 @@
 
 <div class="mb-2 flex items-center gap-2">
 	<StatusFilter bind:selected={statuses} />
+	<ClientFilter hosts={$hosts.items} bind:selected={client} />
+	<input
+		class="input input-sm w-full max-w-xs focus:outline-none"
+		type="search"
+		placeholder="Search..."
+		aria-label="Search queries"
+		bind:value={search} />
 </div>
 
 <div class="overflow-x-auto">

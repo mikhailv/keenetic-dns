@@ -12,6 +12,15 @@ This file provides guidance for AI assistants working with this codebase.
 - iter.Seq2 for two-value iterators (Go 1.22+)
 
 ## Comment Style
+**Do not add comments unless the user asks for them.** Write the code alone: no
+doc comments on new types, functions or fields, no explanatory comments inside
+function bodies. Leave existing comments alone unless the code under them
+changed and made them wrong. When something genuinely needs explaining — a
+non-obvious ordering constraint, a rejected alternative — say it in the reply,
+and let the user decide whether it belongs in the file.
+
+The rules below apply to comments the user did ask for.
+
 **NEVER add comments that restate what the code obviously does.**
 
 **Only comment complex algorithmic logic or non-obvious business rules. Omit all

@@ -42,14 +42,14 @@
 </svelte:head>
 
 <div class="flex items-center gap-3 mb-3">
-	<button class="btn btn-outline btn-primary btn-refresh" onclick={reload} disabled={loading}>
+	<button class="btn btn-sm btn-outline btn-primary btn-refresh" onclick={reload} disabled={loading}>
 		{#if loading}
 			<span class="loading loading-spinner loading-sm" aria-hidden="true"></span>
 		{/if}
 		Refresh
 	</button>
 	<input
-		class="input me-auto focus:outline-none"
+		class="input input-sm me-auto focus:outline-none"
 		type="text"
 		placeholder="Filter..."
 		aria-label="Filter"

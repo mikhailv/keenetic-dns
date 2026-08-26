@@ -27,12 +27,16 @@ export function createHostStore(): HostStore {
 
 	async function reload(): Promise<void> {
 		const { items, error } = await api.getHosts();
-		hosts.update(() => ({
-			items,
-			byIP: items.reduce<Record<string, HostInfo>>((r, v) => ((r[v.ip!] = v), r), {}),
-			total: items.length,
-			error
-		}));
+		hosts.update((prev) => {
+			if (error) {
+				return { ...prev, error };
+			}
+			return {
+				items,
+				byIP: items.reduce<Record<string, HostInfo>>((r, v) => ((r[v.ip!] = v), r), {}),
+				total: items.length
+			};
+		});
 	}
 
 	return {

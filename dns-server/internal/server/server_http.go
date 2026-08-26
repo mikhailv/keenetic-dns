@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/klauspost/compress/gzhttp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -39,6 +40,7 @@ type HTTPServer struct {
 	queryStream      *stream.Buffered[types.DNSQuery]
 	rawQueryStream   *stream.Buffered[types.DNSRawQuery]
 	conntrackTracker *conntrack.Tracker
+	hosts            atomic.Pointer[[]agentclient.HostInfo]
 }
 
 func NewHTTPServer(
@@ -67,6 +69,7 @@ func NewHTTPServer(
 
 func (s *HTTPServer) Serve(ctx context.Context) error {
 	s.server.Handler = s.createHandler()
+	defer s.startHostRefresh(ctx).Wait()
 	return s.server.Serve(ctx)
 }
 
