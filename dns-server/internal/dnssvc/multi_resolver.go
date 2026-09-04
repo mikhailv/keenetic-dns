@@ -54,7 +54,7 @@ func (s multiProviderResolver) Resolve(ctx context.Context, msg *dns.Msg) (*dns.
 				errs = append(errs, r.err)
 				continue
 			}
-			if isSucceededResponse(r.resp) {
+			if isSucceededResponse(r.resp, msg.Question[0].Qtype) {
 				SetResolverInfo(ctx, r.resolver.Name(), r.duration)
 				return r.resp, nil
 			}
