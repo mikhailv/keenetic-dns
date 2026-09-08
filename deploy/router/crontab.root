@@ -1,0 +1,2 @@
+PATH=/opt/bin:/opt/sbin:/sbin:/bin:/usr/sbin:/usr/bin
+*/2 * * * * /opt/keenetic-dns/router/sshd-watchdog.sh
