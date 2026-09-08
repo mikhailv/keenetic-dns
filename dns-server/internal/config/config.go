@@ -132,16 +132,6 @@ type RoutingReconcile struct {
 	Timeout  time.Duration `yaml:"timeout"`
 }
 
-type Conntrack struct {
-	PollInterval   time.Duration `yaml:"poll_interval"`
-	BucketInterval time.Duration `yaml:"bucket_interval"`
-	ChunkInterval  time.Duration `yaml:"chunk_interval"`
-	CacheDuration  time.Duration `yaml:"cache_duration"`
-	SaveInterval   time.Duration `yaml:"save_interval"`
-	DataDir        string        `yaml:"data_dir"`
-	HistorySize    int           `yaml:"history_size"`
-}
-
 func (c *Routing) LookupHost(host string) (pattern string) {
 	return c.Hosts.Match(host)
 }
@@ -168,6 +158,7 @@ func (c *Config) Validate() error {
 	return cmp.Or(
 		c.Blocking.Validate(),
 		c.QueryStats.Validate("query stats"),
+		c.Conntrack.Validate(),
 	)
 }
 
@@ -177,6 +168,7 @@ func (c *Config) setDefaults() {
 	}
 	c.Blocking.SetDefaults()
 	c.QueryStats.SetDefaults()
+	c.Conntrack.SetDefaults()
 }
 
 func DefaultConfig() *Config {

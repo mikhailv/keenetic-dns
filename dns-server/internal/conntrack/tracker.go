@@ -15,19 +15,10 @@ import (
 
 const keepTrackMissCount = 10
 
-// TrackerConfig holds configuration for the conntrack tracker.
-type TrackerConfig struct {
-	PollInterval   time.Duration
-	BucketInterval time.Duration
-	ChunkInterval  time.Duration
-	SaveInterval   time.Duration
-	CacheDuration  time.Duration
-}
-
 // Tracker polls conntrack periodically, computes deltas, aggregates into time buckets,
 // groups buckets into chunks, and persists completed chunks via Store.
 type Tracker struct {
-	cfg    TrackerConfig
+	cfg    Config
 	logger *slog.Logger
 	agent  agentclient.NetworkServiceClient
 	store  Store
@@ -43,7 +34,7 @@ type Tracker struct {
 
 // NewTracker creates a new Tracker with the given configuration.
 func NewTracker(
-	cfg TrackerConfig,
+	cfg Config,
 	logger *slog.Logger,
 	agent agentclient.NetworkServiceClient,
 	store Store,

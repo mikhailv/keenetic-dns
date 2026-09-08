@@ -79,13 +79,7 @@ func main() { //nolint:funlen // ignore
 	}
 	defer closeCloser(conntrackStore, "conntrack store", logger)
 
-	conntrackTracker := conntrack.NewTracker(conntrack.TrackerConfig{
-		PollInterval:   cfg.Conntrack.PollInterval,
-		BucketInterval: cfg.Conntrack.BucketInterval,
-		ChunkInterval:  cfg.Conntrack.ChunkInterval,
-		CacheDuration:  cfg.Conntrack.CacheDuration,
-		SaveInterval:   cfg.Conntrack.SaveInterval,
-	}, log.WithPrefix(logger, "conntrack"), networkService, conntrackStore)
+	conntrackTracker := conntrack.NewTracker(cfg.Conntrack, log.WithPrefix(logger, "conntrack"), networkService, conntrackStore)
 	defer conntrackTracker.Start(ctx).Wait()
 
 	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))

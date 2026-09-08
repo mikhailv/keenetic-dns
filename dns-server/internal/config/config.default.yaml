@@ -42,7 +42,6 @@ conntrack:
   cache_duration: 3h
   save_interval: 10m
   data_dir: conntrack
-  history_size: 1000
 
 blocking:
   # `mode`, `lists` and `groups` are picked up while running, the rest only on restart

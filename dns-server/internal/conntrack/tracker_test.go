@@ -28,7 +28,7 @@ func newTestTracker(t *testing.T) (*Tracker, *mockAgent) {
 	t.Helper()
 	store := NewFileStore(t.TempDir(), slog.Default())
 	agent := &mockAgent{}
-	tr := NewTracker(TrackerConfig{
+	tr := NewTracker(Config{
 		PollInterval:   time.Second,
 		BucketInterval: time.Minute,
 		ChunkInterval:  time.Hour,
