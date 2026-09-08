@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"crypto/tls"
 	"time"
 
 	"github.com/miekg/dns"
@@ -25,6 +26,21 @@ func NewDNSClient(name string, net string, address string, timeout time.Duration
 		client: dns.Client{
 			Net:     net,
 			Timeout: timeout,
+		},
+	}
+}
+
+func NewDoTClient(name string, address string, serverName string, timeout time.Duration) dnssvc.Resolver {
+	return &dnsClient{
+		name:    name,
+		address: address,
+		client: dns.Client{
+			Net:     "tcp-tls",
+			Timeout: timeout,
+			TLSConfig: &tls.Config{
+				ServerName: serverName,
+				MinVersion: tls.VersionTLS12,
+			},
 		},
 	}
 }
