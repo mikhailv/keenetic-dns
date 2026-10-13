@@ -29,8 +29,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.21
 
 # Run as an unprivileged user.
-RUN addgroup -S app && adduser -S -G app app
-USER app
+RUN addgroup -S -g 10000 app && adduser -S -u 10000 -G app app
+USER 10000:10000
 
 WORKDIR /app
 
