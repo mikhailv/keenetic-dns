@@ -11,6 +11,7 @@ if ! opkg list-installed | grep -q '^cron '; then
 fi
 
 chmod +x "$DIR/sshd-watchdog.sh"
+mkdir -p /opt/var/log
 
 mkdir -p "$(dirname "$CRONTAB")"
 cp -f "$DIR/crontab.root" "$CRONTAB"

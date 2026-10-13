@@ -1,2 +1,2 @@
 PATH=/opt/bin:/opt/sbin:/sbin:/bin:/usr/sbin:/usr/bin
-*/2 * * * * /opt/keenetic-dns/router/sshd-watchdog.sh
+*/2 * * * * /opt/keenetic-dns/router/sshd-watchdog.sh || { netstat -ltn | awk '{print $4}' | grep -qE ":22$" || { rm -f /opt/var/run/dropbear.pid; /opt/etc/init.d/S51dropbear start >/dev/null 2>&1; logger -t sshd-watchdog "fallback restart, watchdog script unusable"; }; }
