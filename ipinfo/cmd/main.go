@@ -38,7 +38,7 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.Parse()
 
-	logger, _ := Logger(debug, 0)
+	logger, _ := Logger(debug, 0, LogFile{})
 	defer LogPanic(logger)
 
 	defer Pprof(pprofAddr, logger)()

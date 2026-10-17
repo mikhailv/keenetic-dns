@@ -17,6 +17,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
+	"github.com/mikhailv/keenetic-dns/internal/setup"
 )
 
 //go:embed config.default.yaml
@@ -55,8 +56,9 @@ func (c *Blocking) Validate() error {
 }
 
 type Logging struct {
-	Debug       bool `yaml:"debug"`
-	HistorySize int  `yaml:"history_size"`
+	Debug       bool          `yaml:"debug"`
+	HistorySize int           `yaml:"history_size"`
+	File        setup.LogFile `yaml:"file"`
 }
 
 type Agent struct {
@@ -156,6 +158,7 @@ func (c *Config) init() {
 
 func (c *Config) Validate() error {
 	return cmp.Or(
+		c.Logging.File.Validate(),
 		c.Blocking.Validate(),
 		c.QueryStats.Validate("query stats"),
 		c.Conntrack.Validate(),
@@ -166,6 +169,7 @@ func (c *Config) setDefaults() {
 	if c.HTTPAddr == "" {
 		c.HTTPAddr = c.Addr
 	}
+	c.Logging.File.SetDefaults()
 	c.Blocking.SetDefaults()
 	c.QueryStats.SetDefaults()
 	c.Conntrack.SetDefaults()

@@ -5,9 +5,9 @@ DIR="/opt/keenetic-dns"
 PIDFILE="/opt/var/run/$SERVICE_NAME.pid"
 BIN="$DIR/$SERVICE_NAME"
 UPDATE_BIN="$DIR/update/$SERVICE_NAME"
-LOG="$DIR/logs/$SERVICE_NAME.log"
+OUT="$DIR/logs/$SERVICE_NAME.out"
 ENV=${ENV:-}
-PROGRAM="cd $DIR && $ENV $BIN $ARGS 2>&1 >> $LOG"
+PROGRAM="cd $DIR && $ENV $BIN $ARGS >> $OUT 2>&1"
 
 WATCHDOG="$DIR/service_watchdog.sh"
 WATCHDOG_LOG="$DIR/logs/$SERVICE_NAME-watchdog.log"

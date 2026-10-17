@@ -49,7 +49,7 @@ func main() { //nolint:funlen // ignore
 		ExitWithError(fmt.Errorf("invalid config: %w", err))
 	}
 
-	logger, logStream, logFlush := LoggerStream(cfg.Logging.Debug, 300, cfg.Logging.HistorySize)
+	logger, logStream, logFlush := LoggerStream(cfg.Logging.Debug, 300, cfg.Logging.HistorySize, cfg.Logging.File)
 	defer LogPanic(logger)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()

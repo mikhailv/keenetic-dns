@@ -20,13 +20,16 @@ func main() {
 	var httpServerAddr string
 	var pprofAddr string
 	var debug bool
+	var logFile LogFile
 
 	flag.StringVar(&httpServerAddr, "addr", "0.0.0.0:5332", "http server address")
 	flag.StringVar(&pprofAddr, "pprof", "", "pprof handler address")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.StringVar(&logFile.Path, "log-file", "", "log file path, rotated and compressed by size (default stdout)")
 	flag.Parse()
 
-	logger, logFlush := Logger(debug, 300)
+	logFile.SetDefaults()
+	logger, logFlush := Logger(debug, 300, logFile)
 	defer LogPanic(logger)
 	defer logFlush()
 	defer util.RunPeriodically(ctx.Done(), 10*time.Second, logFlush).Wait()

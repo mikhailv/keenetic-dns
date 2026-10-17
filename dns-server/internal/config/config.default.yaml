@@ -4,6 +4,10 @@ http_addr: '' # if empty the same value as `addr` will be used
 logging:
   debug: false
   history_size: 2000
+  file:
+    path: ''
+    max_size_mb: 20
+    max_backups: 10
 
 agent:
   base_url: 'http://127.0.0.1:5332/'
