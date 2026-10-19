@@ -75,6 +75,17 @@ type Chunk struct {
 	TimeRange      TimeRange `json:"time_range"`
 	BucketDuration uint      `json:"bucket_duration"` // seconds
 	Buckets        []Bucket  `json:"buckets"`
+	ConnState      ConnState `json:"conn_state"`
+}
+
+type ConnState struct {
+	ConnIndex uint64     `json:"conn_index"`
+	Conns     []LiveConn `json:"conns"`
+}
+
+type LiveConn struct {
+	ID    uint32 `json:"id"`
+	Index uint64 `json:"index"`
 }
 
 func (s *Chunk) IsValid() bool {
@@ -91,6 +102,7 @@ func (s *Chunk) Clone() Chunk {
 	for i, bucket := range s.Buckets {
 		c.Buckets[i] = bucket.Clone()
 	}
+	c.ConnState.Conns = slices.Clone(s.ConnState.Conns)
 	return c
 }
 
@@ -120,7 +132,7 @@ type BucketEntry struct {
 	_ struct{} `cbor:",toarray"`
 	ConnKey
 	ConnStat
-	ConnIDs []uint32 `json:"conn_ids"`
+	ConnIDs []uint64 `json:"conn_ids"`
 }
 
 func (s *BucketEntry) Clone() BucketEntry {
@@ -185,6 +197,7 @@ type snapshotEntry struct {
 	ConnStat
 	State     string
 	MissCount uint8
+	Index     uint64
 }
 
 func (s snapshotEntry) LogValue() slog.Value {
@@ -201,7 +214,7 @@ func (s snapshotEntry) LogValue() slog.Value {
 // bucketEntryAccumulator accumulates deltas for a single ConnKey within the current bucket.
 type bucketEntryAccumulator struct {
 	ConnStat
-	ConnIDs util.Set[uint32]
+	ConnIDs util.Set[uint64]
 }
 
 func (s *bucketEntryAccumulator) toBucketEntry(key ConnKey) BucketEntry {

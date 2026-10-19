@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
@@ -18,13 +19,15 @@ const (
 	// version 1: SrcPorts []uint16 per entry.
 	// version 2: ConnIDs []uvarint per entry.
 	// version 3: ConnIDs []uint32 per entry.
-	encodingVersion = 3
+	// version 4: ConnIDs are connection indices, sorted per entry and stored as uvarint deltas.
+	encodingVersion = 4
 )
 
 type chunkEncoder struct {
-	w   io.Writer
-	err error
-	buf []byte
+	w    io.Writer
+	err  error
+	buf  []byte
+	base uint64
 }
 
 func newChunkEncoder(w io.Writer) chunkEncoder {
@@ -37,15 +40,23 @@ func newChunkEncoder(w io.Writer) chunkEncoder {
 func (e *chunkEncoder) Encode(chunk *Chunk) error {
 	entryCount := 0
 	connIDCount := 0
+	e.base = math.MaxUint64
 	for _, bucket := range chunk.Buckets {
 		entryCount += len(bucket.Entries)
 		for _, entry := range bucket.Entries {
 			connIDCount += len(entry.ConnIDs)
+			for _, id := range entry.ConnIDs {
+				e.base = min(e.base, id)
+			}
 		}
+	}
+	if connIDCount == 0 {
+		e.base = 0
 	}
 	e.writeByte(encodingVersion)
 	e.writeUVarint(uint64(entryCount))
 	e.writeUVarint(uint64(connIDCount))
+	e.writeUVarint(e.base)
 	e.writeTimeRange(chunk.TimeRange)
 	e.writeUVarint(uint64(chunk.BucketDuration))
 	e.writeUVarint(uint64(len(chunk.Buckets)))
@@ -56,7 +67,19 @@ func (e *chunkEncoder) Encode(chunk *Chunk) error {
 		e.writeUVarint(uint64(len(buf))) // write encoded bucket size for fast skip
 		e.write(buf)
 	}
+	e.encodeConnState(&chunk.ConnState)
 	return e.err
+}
+
+func (e *chunkEncoder) encodeConnState(state *ConnState) {
+	e.writeUVarint(state.ConnIndex)
+	e.writeUVarint(uint64(len(state.Conns)))
+	var prev uint64
+	for _, conn := range state.Conns {
+		e.writeUVarint(conn.Index - prev)
+		e.writeUint32(conn.ID)
+		prev = conn.Index
+	}
 }
 
 func (e *chunkEncoder) encodeBucket(bucket *Bucket) {
@@ -77,8 +100,10 @@ func (e *chunkEncoder) encodeEntry(entry *BucketEntry) {
 	e.writeUVarint(uint64(entry.PacketsOrig))
 	e.writeUVarint(uint64(entry.PacketsReply))
 	e.writeUVarint(uint64(len(entry.ConnIDs)))
+	prev := e.base
 	for _, id := range entry.ConnIDs {
-		e.writeUint32(id)
+		e.writeUVarint(id - prev)
+		prev = id
 	}
 }
 
@@ -144,8 +169,9 @@ type chunkDecoder struct {
 	err        error
 	buf        []byte
 	version    byte
+	base       uint64
 	entryPool  []BucketEntry
-	connIDPool []uint32
+	connIDPool []uint64
 }
 
 func newChunkDecoder(r io.Reader) chunkDecoder {
@@ -164,7 +190,10 @@ func (d *chunkDecoder) Decode(chunk *Chunk, onlyVersion bool) error {
 		return nil
 	}
 	d.entryPool = make([]BucketEntry, d.readUVarint())
-	d.connIDPool = make([]uint32, d.readUVarint())
+	d.connIDPool = make([]uint64, d.readUVarint())
+	if d.version >= 4 {
+		d.base = d.readUVarint()
+	}
 	chunk.TimeRange = d.readTimeRange()
 	if d.version == 1 || d.version == 2 {
 		chunk.BucketDuration = uint(d.readUint16())
@@ -177,7 +206,24 @@ func (d *chunkDecoder) Decode(chunk *Chunk, onlyVersion bool) error {
 		_ = d.readUVarint() // encoded bucket size, ignore for now
 		d.decodeBucket(&chunk.Buckets[i])
 	}
+	if d.version >= 4 {
+		d.decodeConnState(&chunk.ConnState)
+	}
 	return d.err
+}
+
+func (d *chunkDecoder) decodeConnState(state *ConnState) {
+	state.ConnIndex = d.readUVarint()
+	n := d.readUVarint()
+	if d.err != nil || n == 0 {
+		return
+	}
+	state.Conns = make([]LiveConn, n)
+	var index uint64
+	for i := range state.Conns {
+		index += d.readUVarint()
+		state.Conns[i] = LiveConn{ID: d.readUint32(), Index: index}
+	}
 }
 
 func (d *chunkDecoder) decodeBucket(bucket *Bucket) {
@@ -199,18 +245,26 @@ func (d *chunkDecoder) decodeEntry(entry *BucketEntry) {
 	entry.PacketsOrig = uint32(d.readUVarint())
 	entry.PacketsReply = uint32(d.readUVarint())
 	entry.ConnIDs = d.connIDPool[:d.readUVarint()]
-	for i := range entry.ConnIDs {
+	d.readConnIDs(entry.ConnIDs, entry.DstPort)
+	d.connIDPool = d.connIDPool[len(entry.ConnIDs):]
+}
+
+func (d *chunkDecoder) readConnIDs(ids []uint64, dstPort uint16) {
+	id := d.base
+	for i := range ids {
 		switch d.version {
 		case 1:
 			srcPort := d.readUint16()
-			entry.ConnIDs[i] = (uint32(entry.DstPort) << 16) | uint32(srcPort)
+			ids[i] = uint64(dstPort)<<16 | uint64(srcPort)
 		case 2:
-			entry.ConnIDs[i] = uint32(d.readUVarint())
+			ids[i] = d.readUVarint()
+		case 3:
+			ids[i] = uint64(d.readUint32())
 		default:
-			entry.ConnIDs[i] = d.readUint32()
+			id += d.readUVarint()
+			ids[i] = id
 		}
 	}
-	d.connIDPool = d.connIDPool[len(entry.ConnIDs):]
 }
 
 func (d *chunkDecoder) read(b []byte) {
@@ -279,6 +333,9 @@ type byteReader interface {
 }
 
 func newByteReader(r io.Reader) byteReader {
+	if br, ok := r.(byteReader); ok {
+		return br
+	}
 	return &byteReaderImpl{r, make([]byte, 1)}
 }
 

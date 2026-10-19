@@ -1,6 +1,7 @@
 package conntrack
 
 import (
+	"cmp"
 	"context"
 	"iter"
 	"log/slog"
@@ -13,7 +14,10 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-const keepTrackMissCount = 10
+const (
+	keepTrackMissCount = 10
+	connIndexPerSecond = 1000
+)
 
 // Tracker polls conntrack periodically, computes deltas, aggregates into time buckets,
 // groups buckets into chunks, and persists completed chunks via Store.
@@ -30,6 +34,8 @@ type Tracker struct {
 	chunkRange    TimeRange
 	chunkBuckets  map[Timestamp]Bucket
 	cached        []Chunk
+	connIndex     uint64
+	restoredIndex map[uint32]uint64
 }
 
 // NewTracker creates a new Tracker with the given configuration.
@@ -71,6 +77,7 @@ func (s *Tracker) start(ctx context.Context, onStop func()) {
 	defer onStop()
 	s.loadCurrent(ctx)
 	s.loadCached(ctx)
+	s.loadConnState(ctx)
 
 	pollTicker := time.NewTicker(s.cfg.PollInterval)
 	defer pollTicker.Stop()
@@ -87,7 +94,7 @@ func (s *Tracker) start(ctx context.Context, onStop func()) {
 			s.poll(ctx, now)
 		case <-saveTicker.C:
 			s.mu.RLock()
-			chunk := s.snapshotCurrentChunk()
+			chunk := s.snapshotChunkToSave()
 			s.mu.RUnlock()
 			s.saveChunk(ctx, chunk)
 		}
@@ -175,7 +182,7 @@ func (s *Tracker) sealBucket() {
 	clear(s.bucketEntries)
 }
 
-func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,gocognit // ignore
+func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,gocognit,cyclop // ignore
 	entries, err := s.agent.ListConntrack(ctx)
 	if err != nil {
 		s.logger.Error("failed to poll conntrack", "err", err)
@@ -190,8 +197,10 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,goc
 		s.sealBucket()
 		s.bucketRange = makeRange(now, s.cfg.BucketInterval)
 		if nowTs > s.chunkRange.End {
-			chunkToSave = s.snapshotCurrentChunk()
-			s.cached = append(s.cached, chunkToSave)
+			chunkToSave = s.snapshotChunkToSave()
+			cachedChunk := chunkToSave
+			cachedChunk.ConnState = ConnState{}
+			s.cached = append(s.cached, cachedChunk)
 			s.evictOldCachedChunks()
 			s.chunkRange = makeRange(now, s.cfg.ChunkInterval)
 			clear(s.chunkBuckets)
@@ -235,9 +244,14 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,goc
 			ConnStat: cs,
 			State:    util.Deref(e.State),
 		}
-		newSnapshot[sk] = se
 
 		if firstPoll {
+			if idx, ok := s.restoredIndex[sk.ID]; ok {
+				se.Index = idx
+			} else {
+				se.Index = s.nextConnIndex()
+			}
+			newSnapshot[sk] = se
 			continue
 		}
 
@@ -247,6 +261,7 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,goc
 		switch {
 		case !hasPrev && cs.IsLikelyNew():
 			delta = cs
+			se.Index = s.nextConnIndex()
 		case hasPrev && (prev.MissCount == 0 || cs.IsNextFor(prev.ConnStat)):
 			if prev.MissCount > 0 {
 				s.logger.Debug("restored entry", "", sk, "", se, "miss_count", prev.MissCount)
@@ -257,18 +272,22 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,goc
 				PacketsOrig:  saturatingSub(cs.PacketsOrig, prev.PacketsOrig),
 				PacketsReply: saturatingSub(cs.PacketsReply, prev.PacketsReply),
 			}
+			se.Index = prev.Index
 		default:
 			if hasPrev {
 				s.logger.Debug("replace entry", "", sk, "", se)
 			} else {
 				s.logger.Debug("new entry", "", sk, "", se)
 			}
+			se.Index = s.nextConnIndex()
 		}
+		newSnapshot[sk] = se
 
 		acc := s.getOrCreateAccumulator(ck)
-		acc.ConnIDs.Add(sk.ID)
+		acc.ConnIDs.Add(se.Index)
 		acc.Add(delta)
 	}
+	s.restoredIndex = nil
 
 	// keep tracking for missing entries
 	for sk, se := range s.prevSnapshot {
@@ -286,6 +305,12 @@ func (s *Tracker) poll(ctx context.Context, now time.Time) { //nolint:funlen,goc
 	}
 
 	s.prevSnapshot = newSnapshot
+}
+
+func (s *Tracker) nextConnIndex() uint64 {
+	idx := s.connIndex
+	s.connIndex++
+	return idx
 }
 
 func (s *Tracker) getOrCreateAccumulator(ck ConnKey) *bucketEntryAccumulator {
@@ -324,7 +349,69 @@ func (s *Tracker) flush(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sealBucket()
-	s.saveChunk(ctx, s.snapshotCurrentChunk())
+	s.saveChunk(ctx, s.snapshotChunkToSave())
+}
+
+func (s *Tracker) snapshotChunkToSave() Chunk {
+	chunk := s.snapshotCurrentChunk()
+	chunk.ConnState = ConnState{
+		ConnIndex: s.connIndex,
+		Conns:     make([]LiveConn, 0, len(s.prevSnapshot)),
+	}
+	for sk, se := range s.prevSnapshot {
+		chunk.ConnState.Conns = append(chunk.ConnState.Conns, LiveConn{ID: sk.ID, Index: se.Index})
+	}
+	slices.SortFunc(chunk.ConnState.Conns, func(a, b LiveConn) int {
+		return cmp.Compare(a.Index, b.Index)
+	})
+	return chunk
+}
+
+func (s *Tracker) loadConnState(ctx context.Context) {
+	last, ok, err := s.store.LoadLast(ctx)
+	switch {
+	case err != nil:
+		s.logger.Error("failed to load last chunk for connection state", "err", err)
+	case !ok:
+		s.logger.Info("no chunk to restore connection state from")
+	default:
+		s.logger.Info("connection state restored", "time_range", last.TimeRange,
+			"connections", len(last.ConnState.Conns), "conn_index", last.ConnState.ConnIndex)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state := last.ConnState
+	s.restoredIndex = make(map[uint32]uint64, len(state.Conns))
+	next := max(state.ConnIndex, uint64(time.Now().Unix())*connIndexPerSecond, maxConnIndex(last.Buckets)+1)
+	for _, conn := range state.Conns {
+		s.restoredIndex[conn.ID] = conn.Index
+		next = max(next, conn.Index+1)
+	}
+	for _, chunk := range s.cached {
+		next = max(next, maxConnIndex(chunk.Buckets)+1)
+	}
+	for _, bucket := range s.chunkBuckets {
+		next = max(next, maxConnIndex([]Bucket{bucket})+1)
+	}
+	for _, acc := range s.bucketEntries {
+		for id := range acc.ConnIDs {
+			next = max(next, id+1)
+		}
+	}
+	s.connIndex = next
+}
+
+func maxConnIndex(buckets []Bucket) uint64 {
+	var res uint64
+	for _, bucket := range buckets {
+		for _, entry := range bucket.Entries {
+			if len(entry.ConnIDs) > 0 {
+				res = max(res, slices.Max(entry.ConnIDs))
+			}
+		}
+	}
+	return res
 }
 
 func (s *Tracker) loadCurrent(ctx context.Context) {

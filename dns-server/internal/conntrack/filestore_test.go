@@ -43,7 +43,7 @@ func TestFileStore_SaveLoad(t *testing.T) {
 							PacketsOrig:  10,
 							PacketsReply: 20,
 						},
-						ConnIDs: []uint32{123},
+						ConnIDs: []uint64{123},
 					},
 				},
 			},
@@ -63,7 +63,7 @@ func TestFileStore_SaveLoad(t *testing.T) {
 							PacketsOrig:  2,
 							PacketsReply: 2,
 						},
-						ConnIDs: []uint32{123},
+						ConnIDs: []uint64{123},
 					},
 				},
 			},
@@ -115,7 +115,7 @@ func TestFileStore_Init_MigratesFlatFiles(t *testing.T) {
 							BytesOrig:  1234,
 							BytesReply: 5678,
 						},
-						ConnIDs: []uint32{42},
+						ConnIDs: []uint64{42},
 					},
 				},
 			},
@@ -134,6 +134,7 @@ func TestFileStore_Init_MigratesFlatFiles(t *testing.T) {
 	// Run Init — should move to date subdir and populate cache.
 	store := NewFileStore(dir, slog.Default())
 	require.NoError(t, store.Init(ctx))
+	waitScan(t, store)
 
 	// Flat file should be gone.
 	_, err = os.Stat(flatPath)
@@ -170,6 +171,7 @@ func TestFileStore_Init_KeepsCorruptChunk(t *testing.T) {
 	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
 	require.NoError(t, store.Save(t.Context(), Chunk{TimeRange: good, BucketDuration: 300}))
 	require.NoError(t, store.Init(t.Context()))
+	waitScan(t, store)
 
 	_, err := os.Stat(corrupt)
 	require.NoError(t, err, "a corrupt chunk must be left in place for the operator to remove")
@@ -200,6 +202,7 @@ func TestFileStore_Init_KeepsChunkWithUnknownVersion(t *testing.T) {
 
 	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
 	require.NoError(t, store.Init(t.Context()))
+	waitScan(t, store)
 
 	_, err = os.Stat(path)
 	assert.NoError(t, err, "a chunk from a newer build must be kept")
@@ -214,6 +217,7 @@ func TestFileStore_Init_IgnoresAbandonedTempFile(t *testing.T) {
 
 	store := NewFileStore(dir, slog.New(slog.DiscardHandler))
 	require.NoError(t, store.Init(t.Context()))
+	waitScan(t, store)
 
 	tr := TimeRange{Start: 1775484000, End: 1775487600}
 	var loaded []Chunk
@@ -244,4 +248,11 @@ func TestFileStore_SaveDoesNotWriteInPlace(t *testing.T) {
 	chunk, _, err := fs.loadFile(path, false)
 	require.NoError(t, err)
 	assert.Equal(t, uint(600), chunk.BucketDuration)
+}
+
+func waitScan(t *testing.T, store Store) {
+	t.Helper()
+	fs, ok := store.(*fileStore)
+	require.True(t, ok)
+	<-fs.scanDone
 }

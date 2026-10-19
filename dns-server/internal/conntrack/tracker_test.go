@@ -100,7 +100,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 				PacketsOrig:  15,
 				PacketsReply: 28,
 			},
-			ConnIDs: map[uint32]struct{}{92345: {}, 92346: {}},
+			ConnIDs: map[uint64]struct{}{0: {}, 1: {}},
 		},
 	}, tracker.bucketEntries)
 
@@ -129,7 +129,7 @@ func TestTracker_PollAndBucket(t *testing.T) {
 				PacketsOrig:  20,
 				PacketsReply: 38,
 			},
-			ConnIDs: map[uint32]struct{}{92345: {}, 92346: {}},
+			ConnIDs: map[uint64]struct{}{0: {}, 1: {}},
 		},
 	}, tracker.bucketEntries)
 }
@@ -192,7 +192,7 @@ func TestTracker_BucketSeal(t *testing.T) {
 						PacketsOrig:  1,
 						PacketsReply: 1,
 					},
-					ConnIDs: []uint32{100500},
+					ConnIDs: []uint64{0},
 				},
 			},
 		},

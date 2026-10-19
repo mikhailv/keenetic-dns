@@ -34,8 +34,9 @@ func newFileStore(dir string, logger *slog.Logger) *fileStore {
 				return chunk, err
 			},
 		}),
-		dir:    dir,
-		logger: logger,
+		dir:      dir,
+		logger:   logger,
+		scanDone: make(chan struct{}),
 	}
 }
 
@@ -43,16 +44,19 @@ var _ Store = (*fileStore)(nil)
 
 type fileStore struct {
 	*chunkstore.FileStore[Chunk]
-	dir    string
-	logger *slog.Logger
+	dir           string
+	logger        *slog.Logger
+	prevConnIndex map[migrationConnKey]uint64
+	scanDone      chan struct{}
 }
 
 func (s *fileStore) Init(ctx context.Context) error {
-	files := make(map[TimeRange]string)
-	if err := s.migrate(ctx, s.dir, files); err != nil {
+	files, err := s.ScanDir()
+	if err != nil {
 		return err
 	}
 	s.SetFiles(files)
+	go s.scanAndMigrate(ctx)
 	return nil
 }
 
@@ -76,7 +80,7 @@ func decodeChunk(r io.Reader, chunk *Chunk, onlyVersion bool) (version byte, res
 	}
 	defer util.HandleError(gz.Close, &resErr)
 
-	decoder := newChunkDecoder(gz)
+	decoder := newChunkDecoder(bufio.NewReader(gz))
 	if err := decoder.Decode(chunk, onlyVersion); err != nil {
 		return 0, fmt.Errorf("decode chunk: %w", err)
 	}

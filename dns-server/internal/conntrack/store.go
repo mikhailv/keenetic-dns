@@ -1,5 +1,12 @@
 package conntrack
 
-import "github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
+import (
+	"context"
 
-type Store = chunkstore.Store[Chunk]
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
+)
+
+type Store interface {
+	chunkstore.Store[Chunk]
+	LoadLast(ctx context.Context) (chunk Chunk, ok bool, err error)
+}

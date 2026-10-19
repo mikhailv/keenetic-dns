@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -95,6 +96,31 @@ func (s *FileStore[T]) Load(ctx context.Context, tr TimeRange) iter.Seq2[T, erro
 			}
 		}
 	}
+}
+
+func (s *FileStore[T]) RemoveFile(tr TimeRange) {
+	s.mu.Lock()
+	delete(s.files, tr)
+	s.mu.Unlock()
+}
+
+func (s *FileStore[T]) LoadLast(ctx context.Context) (chunk T, ok bool, err error) {
+	var zero T
+	files, err := s.listChunks(TimeRange{Start: 0, End: math.MaxUint32})
+	if err != nil {
+		return zero, false, err
+	}
+	if len(files) == 0 {
+		return zero, false, nil
+	}
+	if err = ctx.Err(); err != nil {
+		return zero, false, err
+	}
+	chunk, err = s.LoadFile(files[len(files)-1])
+	if err != nil {
+		return zero, false, err
+	}
+	return chunk, true, nil
 }
 
 func (s *FileStore[T]) SaveFile(path string, chunk T) error {
