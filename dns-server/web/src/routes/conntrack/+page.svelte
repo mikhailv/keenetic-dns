@@ -38,6 +38,7 @@
 			autoRefresh: params.get('auto-refresh') === '1',
 			interval: parseInt(params.get('interval') || '') || 60,
 			filterIP: params.get('ip') || null,
+			groupBy: (params.get('group') === 'asn' ? 'asn' : 'host') as 'host' | 'asn',
 			filterBucketIdx: params.has('bar') ? parseInt(params.get('bar')!) : null
 		};
 	}
@@ -55,6 +56,7 @@
 
 	let filterIP = $state<string | null>(init.filterIP);
 	let filterBucketIdx = $state<number | null>(init.filterBucketIdx);
+	let groupBy = $state<'host' | 'asn'>(init.groupBy);
 
 	// Sync state to URL query params
 	$effect(() => {
@@ -69,6 +71,7 @@
 		if (autoRefresh) params.set('auto-refresh', '1');
 		if (filterIP) params.set('ip', filterIP);
 		if (filterBucketIdx !== null) params.set('bar', String(filterBucketIdx));
+		if (groupBy === 'asn') params.set('group', 'asn');
 
 		const newUrl = `${currentURL().pathname}${params.size ? `?${params}` : ''}`;
 		tick().then(() => replaceState(newUrl, {}));
@@ -174,6 +177,14 @@
 		</div>
 	{/if}
 	<div class="mt-3">
-		<ConntrackTable buckets={tableBuckets} {hosts} />
+		<div class="join mb-2">
+			<button class="join-item btn btn-sm" class:btn-active={groupBy === 'host'} onclick={() => (groupBy = 'host')}>
+				By host
+			</button>
+			<button class="join-item btn btn-sm" class:btn-active={groupBy === 'asn'} onclick={() => (groupBy = 'asn')}>
+				By ASN
+			</button>
+		</div>
+		<ConntrackTable buckets={tableBuckets} {hosts} ips={resp.ips ?? {}} {groupBy} />
 	</div>
 {/if}

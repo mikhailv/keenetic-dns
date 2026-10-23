@@ -21,7 +21,11 @@ import (
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
-const defaultQueryLimit = 100
+const (
+	defaultQueryLimit = 100
+	maxBatchSize      = 1000
+	maxBatchBodyBytes = 64 << 10
+)
 
 //go:embed favicon.ico
 var faviconICO []byte
@@ -64,6 +68,7 @@ func (s *HTTPServer) createHandler() http.Handler {
 	mux.HandleFunc("GET /ip", s.handleClientIP)
 	mux.HandleFunc("GET /ip/{ip}", s.handleIP)
 	mux.HandleFunc("GET /ip/query", s.handleGeoQuery)
+	mux.HandleFunc("POST /ip/batch", s.handleBatch)
 	mux.HandleFunc("GET /proxy/query", s.handleProxyQuery)
 
 	handler := cors.Default().Handler(mux)
@@ -109,15 +114,54 @@ func (s *HTTPServer) lookupIP(w http.ResponseWriter, ctx context.Context, ipStr 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	result, err := s.resolve(ctx, ip)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.setCacheControl(w, cacheable)
+	writeJSON(w, result)
+}
 
-	var result IPLookup
-	result.IP = ip.String()
+func (s *HTTPServer) handleBatch(w http.ResponseWriter, r *http.Request) {
+	var ips []string
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBatchBodyBytes)).Decode(&ips); err != nil {
+		http.Error(w, "body must be a JSON array of IP addresses: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(ips) > maxBatchSize {
+		http.Error(w, "at most "+strconv.Itoa(maxBatchSize)+" IP addresses per request", http.StatusBadRequest)
+		return
+	}
+	parsed := make([]net.IP, len(ips))
+	for i, ipStr := range ips {
+		ip, err := parseIPv4(ipStr)
+		if err != nil {
+			http.Error(w, ipStr+": "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		parsed[i] = ip
+	}
+	results := make([]IPLookup, len(parsed))
+	for i, ip := range parsed {
+		result, err := s.resolve(r.Context(), ip)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		results[i] = result
+	}
+	s.setCacheControl(w, false)
+	writeJSON(w, results)
+}
+
+func (s *HTTPServer) resolve(ctx context.Context, ip net.IP) (IPLookup, error) {
+	result := IPLookup{IP: ip.String()}
 
 	var rec GeoRecord
 	geoNetwork, err := s.geo.Lookup(ctx, ip, &rec)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return IPLookup{}, err
 	}
 	if geoNetwork != "" {
 		geo := rec.ToIPInfo()
@@ -128,16 +172,13 @@ func (s *HTTPServer) lookupIP(w http.ResponseWriter, ctx context.Context, ipStr 
 	var proxy ProxyInfo
 	proxyNetwork, err := s.proxy.Lookup(ctx, ip, &proxy)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return IPLookup{}, err
 	}
 	if proxyNetwork != "" {
 		proxy.Network = proxyNetwork
 		result.Proxy = &proxy
 	}
-
-	s.setCacheControl(w, cacheable)
-	writeJSON(w, result)
+	return result, nil
 }
 
 // setCacheControl emits a Cache-Control header so an upstream CDN (e.g. Cloudflare) and browsers can cache

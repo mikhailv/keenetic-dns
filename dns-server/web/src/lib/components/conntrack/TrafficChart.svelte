@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ConntrackBucket, ConntrackEntry, ConntrackTimeRange } from '$lib/types';
 	import { formatBytes } from './util';
-	import { type HostStore } from '$lib/stores';
+	import { type HostStore, hostName } from '$lib/stores';
 	import { formatDateTime, formatTime } from '$lib/util';
 
 	let {
@@ -42,7 +42,7 @@
 					m[k] = {
 						key: k,
 						label: e.src_ip,
-						alias: $hosts.byIP[e.src_ip]?.name ?? '?',
+						alias: hostName($hosts.byIP[e.src_ip]) ?? '?',
 						bytes: v
 					};
 				}

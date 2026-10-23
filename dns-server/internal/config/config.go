@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/setup"
@@ -27,15 +28,16 @@ type Config struct {
 	Addr     string `yaml:"addr"`
 	HTTPAddr string `yaml:"http_addr"`
 
-	Logging    Logging     `yaml:"logging"`
-	Agent      Agent       `yaml:"agent"`
-	DNS        DNS         `yaml:"dns"`
-	MDNS       MDNS        `yaml:"mdns"`
-	Storage    Storage     `yaml:"storage"`
-	Routing    Routing     `yaml:"routing"`
-	Conntrack  Conntrack   `yaml:"conntrack"`
-	Blocking   Blocking    `yaml:"blocking"`
-	QueryStats DomainStats `yaml:"query_stats"`
+	Logging    Logging       `yaml:"logging"`
+	Agent      Agent         `yaml:"agent"`
+	DNS        DNS           `yaml:"dns"`
+	MDNS       MDNS          `yaml:"mdns"`
+	Storage    Storage       `yaml:"storage"`
+	Routing    Routing       `yaml:"routing"`
+	Conntrack  Conntrack     `yaml:"conntrack"`
+	IPInfo     ipinfo.Config `yaml:"ipinfo"`
+	Blocking   Blocking      `yaml:"blocking"`
+	QueryStats DomainStats   `yaml:"query_stats"`
 }
 
 type Blocking struct {
@@ -121,7 +123,7 @@ type Routing struct {
 	Ignore       DomainList       `yaml:"ignore"`
 	Static       []types.IPv4     `yaml:"static"`
 
-	staticLookup lookup.IPTree[string]
+	staticLookup lookup.IPRangeMap[string]
 }
 
 type RoutingRule struct {
@@ -162,6 +164,7 @@ func (c *Config) Validate() error {
 		c.Blocking.Validate(),
 		c.QueryStats.Validate("query stats"),
 		c.Conntrack.Validate(),
+		c.IPInfo.Validate(),
 	)
 }
 
@@ -173,6 +176,7 @@ func (c *Config) setDefaults() {
 	c.Blocking.SetDefaults()
 	c.QueryStats.SetDefaults()
 	c.Conntrack.SetDefaults()
+	c.IPInfo.SetDefaults()
 }
 
 func DefaultConfig() *Config {
@@ -224,7 +228,7 @@ func (c *DNS) init() {
 }
 
 func (c *Routing) init() {
-	tb := lookup.NewIPTreeBuilder[string]()
+	tb := lookup.NewIPRangeMapBuilder[string]()
 	for _, addr := range c.Static {
 		tb.Add(addr, addr.String())
 	}

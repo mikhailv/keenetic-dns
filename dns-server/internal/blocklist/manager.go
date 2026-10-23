@@ -33,7 +33,7 @@ type Manager struct {
 	mu          sync.RWMutex
 	index       *Index
 	degraded    bool
-	clientMasks lookup.IPTree[uint32]
+	clientMasks lookup.IPRangeMap[uint32]
 	defaultMask uint32
 }
 
@@ -482,13 +482,13 @@ func addDomains(builder *Builder, domains []string, action Action, listID int) (
 	return rules
 }
 
-func (m *Manager) buildClientMasks(cfg *activeConfig, listIDs map[string]int) (lookup.IPTree[uint32], uint32) {
+func (m *Manager) buildClientMasks(cfg *activeConfig, listIDs map[string]int) (lookup.IPRangeMap[uint32], uint32) {
 	var all uint32
 	for _, id := range listIDs {
 		all |= uint32(1) << id
 	}
 
-	tb := lookup.NewIPTreeBuilder[uint32]()
+	tb := lookup.NewIPRangeMapBuilder[uint32]()
 	for _, group := range cfg.Groups {
 		var mask uint32
 		for _, name := range group.Lists {
@@ -519,12 +519,12 @@ func (m *Manager) dropIndex() {
 	if !m.Loaded() {
 		return
 	}
-	m.swap(nil, lookup.IPTree[uint32]{}, 0)
+	m.swap(nil, lookup.IPRangeMap[uint32]{}, 0)
 	m.setDegraded(false)
 	m.logger.Info("no blocking lists enabled, index dropped")
 }
 
-func (m *Manager) swap(index *Index, masks lookup.IPTree[uint32], defaultMask uint32) {
+func (m *Manager) swap(index *Index, masks lookup.IPRangeMap[uint32], defaultMask uint32) {
 	m.mu.Lock()
 	previous := m.index
 	m.index = index

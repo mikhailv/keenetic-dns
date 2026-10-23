@@ -47,6 +47,12 @@ conntrack:
   save_interval: 10m
   data_dir: conntrack
 
+ipinfo:
+  url: ''
+  ttl: 24h
+  timeout: 2s
+  retry_after: 1m
+
 blocking:
   # `mode`, `lists` and `groups` are picked up while running, the rest only on restart
   enabled: false

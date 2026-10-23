@@ -1,96 +1,134 @@
 <script lang="ts">
-	import type { ConntrackBucket, ConntrackEntry } from '$lib/types';
+	import type { ConntrackBucket, ConntrackEntry, IPGeoInfo } from '$lib/types';
 	import { formatBytes } from './util';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { type HostStore } from '$lib/stores';
 	import { formatNumber } from '$lib/util';
+	import IPLabel from './IPLabel.svelte';
 
 	let {
 		buckets,
-		hosts
+		hosts,
+		ips = {},
+		groupBy = 'host'
 	}: {
 		buckets: ConntrackBucket[];
 		hosts: HostStore;
+		ips?: Record<string, IPGeoInfo>;
+		groupBy?: 'host' | 'asn';
 	} = $props();
 
-	interface GroupRow extends Omit<ConntrackEntry, 'dst_ip' | 'dst_port' | 'protocol'> {
-		items: GroupItemRow[];
+	interface Stats {
+		bytes_orig: number;
+		bytes_reply: number;
+		packets_orig: number;
+		packets_reply: number;
 		conn_count: number;
 	}
 
-	interface GroupItemRow extends Omit<ConntrackEntry, 'src_ip'> {
+	interface GroupRow extends Stats {
 		key: string;
-		conn_count: number;
+		ip?: string;
+		label?: string;
+		items: ItemRow[];
 	}
 
-	function detailKey(e: ConntrackEntry): string {
-		return `${e.protocol}|${e.dst_ip}|${e.dst_port}`;
+	interface ItemRow extends Stats {
+		key: string;
+		protocol: string;
+		ip: string;
+		local_ip?: string;
+		dst_port: number;
+	}
+
+	function emptyStats(): Stats {
+		return { bytes_orig: 0, bytes_reply: 0, packets_orig: 0, packets_reply: 0, conn_count: 0 };
+	}
+
+	function addStats(s: Stats, e: ConntrackEntry) {
+		s.bytes_orig += e.bytes_orig;
+		s.bytes_reply += e.bytes_reply;
+		s.packets_orig += e.packets_orig;
+		s.packets_reply += e.packets_reply;
+		s.conn_count += e.conn_count;
+	}
+
+	function byBytes(a: Stats, b: Stats): number {
+		return b.bytes_orig + b.bytes_reply - (a.bytes_orig + a.bytes_reply);
+	}
+
+	function hostGroup(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
+		return { key: e.src_ip, ip: e.src_ip };
+	}
+
+	function hostItem(e: ConntrackEntry): Omit<ItemRow, keyof Stats> {
+		return { key: `${e.protocol}|${e.dst_ip}|${e.dst_port}`, protocol: e.protocol, ip: e.dst_ip, dst_port: e.dst_port };
+	}
+
+	function remoteSide(e: ConntrackEntry): { remote: string; local: string } {
+		if (!ips[e.dst_ip] && ips[e.src_ip]) {
+			return { remote: e.src_ip, local: e.dst_ip };
+		}
+		return { remote: e.dst_ip, local: e.src_ip };
+	}
+
+	function asnGroup(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
+		const info = ips[remoteSide(e).remote];
+		if (!info?.asn) {
+			return { key: 'unknown', label: 'Local / unresolved' };
+		}
+		return { key: `AS${info.asn}`, label: `AS${info.asn} ${info.org ?? ''}` };
+	}
+
+	function asnItem(e: ConntrackEntry): Omit<ItemRow, keyof Stats> {
+		const { remote, local } = remoteSide(e);
+		return {
+			key: `${e.protocol}|${remote}|${local}|${e.dst_port}`,
+			protocol: e.protocol,
+			ip: remote,
+			local_ip: local,
+			dst_port: e.dst_port
+		};
 	}
 
 	const groups = $derived.by(() => {
+		const groupOf = groupBy === 'asn' ? asnGroup : hostGroup;
+		const itemOf = groupBy === 'asn' ? asnItem : hostItem;
 		const groupMap = new SvelteMap<string, GroupRow>();
-		const itemsMap = new SvelteMap<string, Map<string, GroupItemRow>>();
+		const itemsMap = new SvelteMap<string, Map<string, ItemRow>>();
 		for (const b of buckets) {
 			for (const e of b.entries) {
-				let g = groupMap.get(e.src_ip);
+				const gk = groupOf(e);
+				let g = groupMap.get(gk.key);
 				if (!g) {
-					g = {
-						src_ip: e.src_ip,
-						bytes_orig: 0,
-						bytes_reply: 0,
-						packets_orig: 0,
-						packets_reply: 0,
-						conn_count: 0,
-						items: []
-					};
-					groupMap.set(e.src_ip, g);
-					itemsMap.set(e.src_ip, new SvelteMap());
+					g = { ...gk, ...emptyStats(), items: [] };
+					groupMap.set(gk.key, g);
+					itemsMap.set(gk.key, new SvelteMap());
 				}
-				g.bytes_orig += e.bytes_orig;
-				g.bytes_reply += e.bytes_reply;
-				g.packets_orig += e.packets_orig;
-				g.packets_reply += e.packets_reply;
-				g.conn_count += e.conn_count;
+				addStats(g, e);
 
-				const dmap = itemsMap.get(e.src_ip)!;
-				const dk = detailKey(e);
-				let d = dmap.get(dk);
+				const ik = itemOf(e);
+				const dmap = itemsMap.get(gk.key)!;
+				let d = dmap.get(ik.key);
 				if (!d) {
-					d = {
-						key: dk,
-						protocol: e.protocol,
-						dst_ip: e.dst_ip,
-						dst_port: e.dst_port,
-						bytes_orig: 0,
-						bytes_reply: 0,
-						packets_orig: 0,
-						packets_reply: 0,
-						conn_count: 0
-					};
-					dmap.set(dk, d);
+					d = { ...ik, ...emptyStats() };
+					dmap.set(ik.key, d);
 				}
-				d.bytes_orig += e.bytes_orig;
-				d.bytes_reply += e.bytes_reply;
-				d.packets_orig += e.packets_orig;
-				d.packets_reply += e.packets_reply;
-				d.conn_count += e.conn_count;
+				addStats(d, e);
 			}
 		}
 		const out: GroupRow[] = [];
-		for (const [src, g] of groupMap) {
-			g.items = [...itemsMap.get(src)!.values()].sort(
-				(a, b) => b.bytes_orig + b.bytes_reply - (a.bytes_orig + a.bytes_reply)
-			);
+		for (const [key, g] of groupMap) {
+			g.items = [...itemsMap.get(key)!.values()].sort(byBytes);
 			out.push(g);
 		}
-		out.sort((a, b) => b.bytes_orig + b.bytes_reply - (a.bytes_orig + a.bytes_reply));
-		return out;
+		return out.sort(byBytes);
 	});
 
 	const expanded: Record<string, boolean> = $state({});
 
-	function toggle(src: string) {
-		expanded[src] = !expanded[src];
+	function toggle(key: string) {
+		expanded[key] = !expanded[key];
 	}
 </script>
 
@@ -98,8 +136,8 @@
 	<thead>
 		<tr>
 			<th style="width: 1px"></th>
-			<th>Source IP</th>
-			<th class="text-right">Dsts</th>
+			<th>{groupBy === 'asn' ? 'ASN' : 'Source IP'}</th>
+			<th class="text-right">{groupBy === 'asn' ? 'Flows' : 'Dsts'}</th>
 			<th class="text-right">Bytes ↑</th>
 			<th class="text-right">Bytes ↓</th>
 			<th class="text-right">Pkts ↑</th>
@@ -108,12 +146,15 @@
 		</tr>
 	</thead>
 	<tbody>
-		{#each groups as g (g.src_ip)}
-			<tr class="hover cursor-pointer" onclick={() => toggle(g.src_ip)}>
-				<td>{expanded[g.src_ip] ? '▼' : '▶'}</td>
+		{#each groups as g (g.key)}
+			<tr class="hover cursor-pointer" onclick={() => toggle(g.key)}>
+				<td>{expanded[g.key] ? '▼' : '▶'}</td>
 				<td>
-					{g.src_ip}
-					<span class="text-base-content/60 font-light text-sm2">/ {$hosts.byIP[g.src_ip]?.name ?? '?'}</span>
+					{#if g.ip}
+						<IPLabel ip={g.ip} {hosts} {ips} />
+					{:else}
+						{g.label}
+					{/if}
 				</td>
 				<td class="text-right">{g.items.length}</td>
 				<td class="text-right">{formatBytes(g.bytes_orig)}</td>
@@ -122,7 +163,7 @@
 				<td class="text-right">{formatNumber(g.packets_reply)}</td>
 				<td class="text-right">{formatNumber(g.conn_count)}</td>
 			</tr>
-			{#if expanded[g.src_ip]}
+			{#if expanded[g.key]}
 				<tr>
 					<td></td>
 					<td colspan="7" style="padding: 0">
@@ -130,7 +171,8 @@
 							<thead>
 								<tr>
 									<th>Proto</th>
-									<th>Dst IP</th>
+									<th>{groupBy === 'asn' ? 'Remote IP' : 'Dst IP'}</th>
+									{#if groupBy === 'asn'}<th>Local IP</th>{/if}
 									<th>Dst Port</th>
 									<th class="text-right">Bytes ↑</th>
 									<th class="text-right">Bytes ↓</th>
@@ -143,11 +185,8 @@
 								{#each g.items as d (d.key)}
 									<tr>
 										<td>{d.protocol}</td>
-										<td>
-											{d.dst_ip}
-											<span class="text-base-content/60 font-light text-sm2"
-												>/ {$hosts.byIP[d.dst_ip]?.name ?? '?'}</span>
-										</td>
+										<td><IPLabel ip={d.ip} {hosts} {ips} /></td>
+										{#if d.local_ip}<td><IPLabel ip={d.local_ip} {hosts} {ips} /></td>{/if}
 										<td>{d.dst_port}</td>
 										<td class="text-right">{formatBytes(d.bytes_orig)}</td>
 										<td class="text-right">{formatBytes(d.bytes_reply)}</td>

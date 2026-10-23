@@ -23,6 +23,7 @@ import (
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/middleware" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:staticcheck //ignore
@@ -200,6 +201,7 @@ func main() { //nolint:funlen // ignore
 		dnsQueryStream,
 		rawQueryStream,
 		conntrackTracker,
+		ipinfo.NewResolver(cfg.IPInfo, log.WithPrefix(logger, "ipinfo")),
 	)
 	go Serve(ctx, httpServer)
 

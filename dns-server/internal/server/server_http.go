@@ -17,6 +17,7 @@ import (
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/metrics"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -40,6 +41,7 @@ type HTTPServer struct {
 	queryStream      *stream.Buffered[types.DNSQuery]
 	rawQueryStream   *stream.Buffered[types.DNSRawQuery]
 	conntrackTracker *conntrack.Tracker
+	ipInfo           *ipinfo.Resolver
 	hosts            atomic.Pointer[[]agentclient.HostInfo]
 }
 
@@ -53,6 +55,7 @@ func NewHTTPServer(
 	queryStream *stream.Buffered[types.DNSQuery],
 	rawQueryStream *stream.Buffered[types.DNSRawQuery],
 	conntrackTracker *conntrack.Tracker,
+	ipInfo *ipinfo.Resolver,
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:           logger,
@@ -64,6 +67,7 @@ func NewHTTPServer(
 		queryStream:      queryStream,
 		rawQueryStream:   rawQueryStream,
 		conntrackTracker: conntrackTracker,
+		ipInfo:           ipInfo,
 	}
 }
 

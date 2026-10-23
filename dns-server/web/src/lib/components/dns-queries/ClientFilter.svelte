@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { HostInfo } from '$lib/types';
+	import { hostName } from '$lib/stores';
 
 	let { hosts, selected = $bindable<string>() }: { hosts: HostInfo[]; selected: string } = $props();
 
@@ -15,7 +16,7 @@
 			if (!host.ip || host.ip === UNASSIGNED_IP) {
 				continue;
 			}
-			byIP[host.ip] ||= host.name || host.hostname || '';
+			byIP[host.ip] ||= hostName(host) ?? '';
 		}
 		return Object.entries(byIP)
 			.map(([ip, name]) => ({ ip, name }))

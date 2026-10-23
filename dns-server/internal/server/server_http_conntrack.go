@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"iter"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/stream"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
@@ -20,10 +23,11 @@ type httpError string
 func (e httpError) Error() string { return string(e) }
 
 type conntrackBucketsResponse struct {
-	TimeRange         conntrack.TimeRange `json:"time_range"`
-	Interval          uint                `json:"interval"`
-	RequestedInterval uint                `json:"requested_interval"`
-	Buckets           []conntrackBucket   `json:"buckets"`
+	TimeRange         conntrack.TimeRange    `json:"time_range"`
+	Interval          uint                   `json:"interval"`
+	RequestedInterval uint                   `json:"requested_interval"`
+	Buckets           []conntrackBucket      `json:"buckets"`
+	IPs               map[string]ipinfo.Info `json:"ips,omitempty"`
 }
 
 type conntrackBucket struct {
@@ -73,10 +77,30 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 	}
 
 	resp.Buckets = mapConntrackBuckets(buckets)
+	resp.IPs = s.lookupIPInfo(req.Context(), buckets)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp) //nolint:errchkjson // ignore
 	return http.StatusOK, nil
+}
+
+func (s *HTTPServer) lookupIPInfo(ctx context.Context, buckets []conntrack.Bucket) map[string]ipinfo.Info {
+	if !s.ipInfo.Enabled() {
+		return nil
+	}
+	seen := map[types.IPv4]struct{}{}
+	for _, bucket := range buckets {
+		for _, e := range bucket.Entries {
+			seen[e.SrcIP] = struct{}{}
+			seen[e.DstIP] = struct{}{}
+		}
+	}
+	found := s.ipInfo.Lookup(ctx, slices.Collect(maps.Keys(seen)))
+	res := make(map[string]ipinfo.Info, len(found))
+	for ip, info := range found {
+		res[ip.String()] = info
+	}
+	return res
 }
 
 func adjustTimeRange(tr conntrack.TimeRange, interval uint) conntrack.TimeRange {

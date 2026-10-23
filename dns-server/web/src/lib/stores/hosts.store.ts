@@ -16,6 +16,10 @@ export interface HostStoreState {
 	error?: string;
 }
 
+export function hostName(host: HostInfo | undefined): string | undefined {
+	return host?.name || host?.hostname || undefined;
+}
+
 export function createHostStore(): HostStore {
 	const hosts = writable<HostStoreState>({ items: [], byIP: {}, total: 0 });
 
@@ -33,7 +37,10 @@ export function createHostStore(): HostStore {
 			}
 			return {
 				items,
-				byIP: items.reduce<Record<string, HostInfo>>((r, v) => ((r[v.ip!] = v), r), {}),
+				byIP: items.reduce<Record<string, HostInfo>>(
+					(r, v) => (v.ip && v.ip !== '0.0.0.0' && (r[v.ip] = v), r),
+					{}
+				),
 				total: items.length
 			};
 		});

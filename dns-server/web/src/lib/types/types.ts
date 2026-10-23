@@ -168,4 +168,13 @@ export interface ConntrackBucketsResponse {
 	interval: number;
 	requested_interval: number;
 	buckets: ConntrackBucket[];
+	ips?: Record<string, IPGeoInfo>;
+}
+
+export interface IPGeoInfo {
+	network: string;
+	asn?: number;
+	org?: string;
+	country?: string;
+	city?: string;
 }

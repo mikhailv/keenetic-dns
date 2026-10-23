@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api';
 	import type { DNSQuery, DomainIP } from '$lib/types';
-	import { type StreamStore, createHostStore } from '$lib/stores';
+	import { type StreamStore, createHostStore, hostName } from '$lib/stores';
 	import StatusFilter from '$lib/components/dns-queries/StatusFilter.svelte';
 	import ClientFilter from '$lib/components/dns-queries/ClientFilter.svelte';
 	import type { QueryStatus } from '$lib/components/dns-queries/util';
@@ -94,15 +94,15 @@
 		</thead>
 		<tbody class="border-t border-base-300">
 			{#each $stream.items as query (query.cursor)}
-				{@const host = $hosts.byIP[query.client_ip]}
+				{@const name = hostName($hosts.byIP[query.client_ip])}
 				<tr class="hover animate-new-row">
 					<td class="font-light">
 						<div class="text-sm1" title={query.time.toLocaleString()}>{formatTime(query.time)}</div>
 						<div class="text-sm2 text-gray-400">{query.id}</div>
 					</td>
 					<td class="text-sm1">
-						{#if host}
-							{host.name}
+						{#if name}
+							{name}
 							<div class="font-light text-sm2">{query.client_ip}</div>
 						{:else}
 							{query.client_ip}
