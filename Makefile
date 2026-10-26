@@ -1,5 +1,7 @@
 SSH_PATH ?= root@192.168.2.1:/opt
 SSH_PATH_KEENETIC = $(SSH_PATH)/keenetic-dns
+SSH_HOST = $(firstword $(subst :, ,$(SSH_PATH)))
+KEENETIC_DIR = $(lastword $(subst :, ,$(SSH_PATH_KEENETIC)))
 SSH_PORT ?= 22
 TARGET_ARCH ?= arm64
 
@@ -54,6 +56,12 @@ upload-dns-server:
 upload-deploy:
 	scp -pC -P $(SSH_PORT) deploy/init.d/* $(SSH_PATH)/etc/init.d/
 	scp -pC -P $(SSH_PORT) deploy/*.sh $(SSH_PATH_KEENETIC)/
+
+.PHONY: upload-router
+upload-router:
+	ssh -p $(SSH_PORT) $(SSH_HOST) mkdir -p $(KEENETIC_DIR)/router
+	scp -pC -P $(SSH_PORT) deploy/router/* $(SSH_PATH_KEENETIC)/router/
+	ssh -p $(SSH_PORT) $(SSH_HOST) $(KEENETIC_DIR)/router/install.sh
 
 .PHONY: tools
 tools:
