@@ -1,4 +1,4 @@
-package domainstats
+package aggstats
 
 import (
 	"bufio"
@@ -16,25 +16,25 @@ import (
 
 const chunkFileSuffix = ".tsv.gz"
 
-func NewFileStore(dir string, logger *slog.Logger) Store {
-	return &fileStore{
-		FileStore: chunkstore.NewFileStore(dir, chunkstore.Codec[Chunk]{
+func NewFileStore[K comparable, V any](dir string, normalize func(*K), logger *slog.Logger) Store[K, V] {
+	return &fileStore[K, V]{
+		FileStore: chunkstore.NewFileStore(dir, chunkstore.Codec[Chunk[K, V]]{
 			Suffix: chunkFileSuffix,
-			Encode: encodeChunk,
-			Decode: decodeChunk,
+			Encode: encodeChunk[K, V],
+			Decode: func(r io.Reader, tr TimeRange) (Chunk[K, V], error) {
+				return decodeChunk[K, V](r, tr, normalize)
+			},
 		}),
 		logger: logger,
 	}
 }
 
-var _ Store = (*fileStore)(nil)
-
-type fileStore struct {
-	*chunkstore.FileStore[Chunk]
+type fileStore[K comparable, V any] struct {
+	*chunkstore.FileStore[Chunk[K, V]]
 	logger *slog.Logger
 }
 
-func (s *fileStore) Save(ctx context.Context, chunk Chunk) error {
+func (s *fileStore[K, V]) Save(ctx context.Context, chunk Chunk[K, V]) error {
 	if !chunk.TimeRange.Valid() {
 		return fmt.Errorf("invalid chunk time range %s", chunk.TimeRange)
 	}
@@ -44,13 +44,13 @@ func (s *fileStore) Save(ctx context.Context, chunk Chunk) error {
 	return s.FileStore.Save(ctx, chunk)
 }
 
-func encodeChunk(w io.Writer, chunk Chunk) (resErr error) {
+func encodeChunk[K comparable, V any](w io.Writer, chunk Chunk[K, V]) (resErr error) {
 	bufWriter := bufio.NewWriter(w)
 	defer util.HandleError(bufWriter.Flush, &resErr)
 	gz := gzip.NewWriter(bufWriter)
 	defer util.HandleError(gz.Close, &resErr)
 
-	tsvWriter := tsv.NewWriter[Entry](gz)
+	tsvWriter := tsv.NewWriter[Entry[K, V]](gz)
 	for i := range chunk.Entries {
 		if err := tsvWriter.Write(chunk.Entries[i]); err != nil {
 			return fmt.Errorf("write entry: %w", err)
@@ -59,7 +59,7 @@ func encodeChunk(w io.Writer, chunk Chunk) (resErr error) {
 	return tsvWriter.Close()
 }
 
-func decodeChunk(r io.Reader, tr TimeRange) (chunk Chunk, resErr error) {
+func decodeChunk[K comparable, V any](r io.Reader, tr TimeRange, normalize func(*K)) (chunk Chunk[K, V], resErr error) {
 	chunk.TimeRange = tr
 	gz, err := gzip.NewReader(bufio.NewReader(r))
 	if err != nil {
@@ -67,12 +67,12 @@ func decodeChunk(r io.Reader, tr TimeRange) (chunk Chunk, resErr error) {
 	}
 	defer util.HandleError(gz.Close, &resErr)
 
-	for entry, err := range tsv.NewReader[Entry](gz).Iterator() {
+	for entry, err := range tsv.NewReader[Entry[K, V]](gz).Iterator() {
 		if err != nil {
 			return chunk, fmt.Errorf("%w: read entry: %w", chunkstore.ErrCorrupt, err)
 		}
-		if entry.Domain != OverflowDomain {
-			entry.Domain = util.FQDN(entry.Domain)
+		if normalize != nil {
+			normalize(&entry.Key)
 		}
 		chunk.Entries = append(chunk.Entries, entry)
 	}

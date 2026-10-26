@@ -14,6 +14,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolvestats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/routing"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/storage"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -24,18 +25,20 @@ func NewIPRoutingHandler(
 	handler dnssvc.Handler,
 	dnsStore *storage.DNSStore,
 	ipRoutes *routing.IPRouteController,
+	resolveRecorder ResolveRecorder,
 	logger *slog.Logger,
 ) dnssvc.Handler {
-	return &ipRoutingHandler{handler, dnsStore, ipRoutes, logger}
+	return &ipRoutingHandler{handler: handler, dnsStore: dnsStore, ipRoutes: ipRoutes, resolveRecorder: resolveRecorder, logger: logger}
 }
 
 var _ dnssvc.Handler = (*ipRoutingHandler)(nil)
 
 type ipRoutingHandler struct {
-	handler  dnssvc.Handler
-	dnsStore *storage.DNSStore
-	ipRoutes *routing.IPRouteController
-	logger   *slog.Logger
+	handler         dnssvc.Handler
+	dnsStore        *storage.DNSStore
+	ipRoutes        *routing.IPRouteController
+	resolveRecorder ResolveRecorder
+	logger          *slog.Logger
 }
 
 func (s *ipRoutingHandler) Handle(ctx context.Context, msg *dns.Msg) (*dns.Msg, error) {
@@ -159,6 +162,9 @@ func (s *ipRoutingHandler) reverseLookup(ctx context.Context, dip *types.DomainI
 		return
 	}
 	dip.PTRResolver = dnssvc.GetResolverInfo(ctx)
+	if s.resolveRecorder != nil {
+		s.resolveRecorder.RecordResponse(resolvestats.OriginInternal, resp)
+	}
 
 	for _, it := range resp.Answer {
 		if v, ok := it.(*dns.PTR); ok {

@@ -1,64 +1,42 @@
-package domainstats
+package aggstats
 
 import (
-	"bufio"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/klauspost/compress/gzip"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
 
 func hourRange(start Timestamp) TimeRange {
 	return TimeRange{Start: start, End: start + 3599}
 }
 
-func newTestStore(t *testing.T) (Store, string) {
+func newTestStore(t *testing.T, normalize func(*testKey)) (Store[testKey, Counter], string) {
 	t.Helper()
 	dir := t.TempDir()
-	s := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	s := NewFileStore[testKey, Counter](dir, normalize, slog.New(slog.DiscardHandler))
 	require.NoError(t, s.Init(t.Context()))
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	return s, dir
 }
 
-func sampleChunk(start Timestamp) Chunk {
-	return Chunk{
+func sampleChunk(start Timestamp) testChunk {
+	return testChunk{
 		TimeRange: hourRange(start),
-		Entries: []Entry{
-			{
-				Key: Key{
-					ClientIP: types.MustParseIPv4("192.168.1.42"),
-					Domain:   "ads.example.com.",
-					QType:    "A",
-					Label:    "hagezi-pro",
-				},
-				Count: 3,
-				Ts:    Offsets{12, 45, 3511},
-			},
-			{
-				Key: Key{
-					ClientIP: types.MustParseIPv4("192.168.1.50"),
-					Domain:   "tracker.example.net.",
-					QType:    "AAAA",
-					Label:    "hagezi-pro",
-				},
-				Count: 1,
-				Ts:    Offsets{900},
-			},
+		Entries: []testEntry{
+			{Key: testKey{Name: "a", QType: "A"}, Value: Counter{Count: 3, Ts: Offsets{12, 45, 3511}}},
+			{Key: testKey{Name: "b", QType: "AAAA"}, Value: Counter{Count: 1, Ts: Offsets{900}}},
 		},
 	}
 }
 
-func collect(t *testing.T, s Store, tr TimeRange) []Chunk {
+func collect(t *testing.T, s Store[testKey, Counter], tr TimeRange) []testChunk {
 	t.Helper()
-	var chunks []Chunk
+	var chunks []testChunk
 	for chunk, err := range s.Load(t.Context(), tr) {
 		require.NoError(t, err)
 		chunks = append(chunks, chunk)
@@ -67,7 +45,7 @@ func collect(t *testing.T, s Store, tr TimeRange) []Chunk {
 }
 
 func TestFileStore_RoundTrip(t *testing.T) {
-	s, _ := newTestStore(t)
+	s, _ := newTestStore(t, nil)
 	want := sampleChunk(1754784000)
 	require.NoError(t, s.Save(t.Context(), want))
 
@@ -78,15 +56,15 @@ func TestFileStore_RoundTrip(t *testing.T) {
 }
 
 func TestFileStore_LoadFiltersByTimeRange(t *testing.T) {
-	s, _ := newTestStore(t)
+	s, _ := newTestStore(t, nil)
 	first := sampleChunk(1754784000)
 	second := sampleChunk(1754784000 + 3600)
 	third := sampleChunk(1754784000 + 7200)
-	for _, c := range []Chunk{first, second, third} {
+	for _, c := range []testChunk{first, second, third} {
 		require.NoError(t, s.Save(t.Context(), c))
 	}
 
-	chunks := collect(t, s, TimeRange{Start: second.TimeRange.Start, End: second.TimeRange.End})
+	chunks := collect(t, s, second.TimeRange)
 	require.Len(t, chunks, 1)
 	assert.Equal(t, second.TimeRange, chunks[0].TimeRange)
 
@@ -99,22 +77,21 @@ func TestFileStore_LoadFiltersByTimeRange(t *testing.T) {
 }
 
 func TestFileStore_SaveReplacesExistingChunk(t *testing.T) {
-	s, _ := newTestStore(t)
+	s, _ := newTestStore(t, nil)
 	chunk := sampleChunk(1754784000)
 	require.NoError(t, s.Save(t.Context(), chunk))
 
-	chunk.Entries[0].Count = 99
-	chunk.Entries[0].Ts = Offsets{1, 2, 3, 4}
+	chunk.Entries[0].Value = Counter{Count: 99, Ts: Offsets{1, 2, 3, 4}}
 	require.NoError(t, s.Save(t.Context(), chunk))
 
 	chunks := collect(t, s, chunk.TimeRange)
 	require.Len(t, chunks, 1, "re-saving a range must not create a second file")
-	assert.Equal(t, uint32(99), chunks[0].Entries[0].Count)
+	assert.Equal(t, uint32(99), chunks[0].Entries[0].Value.Count)
 }
 
 func TestFileStore_EmptyChunk(t *testing.T) {
-	s, _ := newTestStore(t)
-	chunk := Chunk{TimeRange: hourRange(1754784000)}
+	s, _ := newTestStore(t, nil)
+	chunk := testChunk{TimeRange: hourRange(1754784000)}
 	require.NoError(t, s.Save(t.Context(), chunk))
 
 	chunks := collect(t, s, chunk.TimeRange)
@@ -123,22 +100,22 @@ func TestFileStore_EmptyChunk(t *testing.T) {
 }
 
 func TestFileStore_RejectsOverlongChunk(t *testing.T) {
-	s, _ := newTestStore(t)
-	chunk := Chunk{TimeRange: TimeRange{Start: 1754784000, End: 1754784000 + maxChunkSeconds}}
+	s, _ := newTestStore(t, nil)
+	chunk := testChunk{TimeRange: TimeRange{Start: 1754784000, End: 1754784000 + maxChunkSeconds}}
 	assert.Error(t, s.Save(t.Context(), chunk))
 }
 
 func TestFileStore_RejectsInvalidTimeRange(t *testing.T) {
-	s, _ := newTestStore(t)
-	assert.Error(t, s.Save(t.Context(), Chunk{}))
+	s, _ := newTestStore(t, nil)
+	assert.Error(t, s.Save(t.Context(), testChunk{}))
 }
 
 func TestFileStore_InitDiscoversExistingChunks(t *testing.T) {
-	first, dir := newTestStore(t)
+	first, dir := newTestStore(t, nil)
 	chunk := sampleChunk(1754784000)
 	require.NoError(t, first.Save(t.Context(), chunk))
 
-	second := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	second := NewFileStore[testKey, Counter](dir, nil, slog.New(slog.DiscardHandler))
 	require.NoError(t, second.Init(t.Context()))
 	defer second.Close()
 
@@ -148,7 +125,7 @@ func TestFileStore_InitDiscoversExistingChunks(t *testing.T) {
 }
 
 func TestFileStore_TruncatedFileYieldsPartialData(t *testing.T) {
-	s, dir := newTestStore(t)
+	s, dir := newTestStore(t, nil)
 	chunk := sampleChunk(1754784000)
 	require.NoError(t, s.Save(t.Context(), chunk))
 
@@ -158,7 +135,7 @@ func TestFileStore_TruncatedFileYieldsPartialData(t *testing.T) {
 	//nolint:gosec // path built from the test's own temp dir
 	require.NoError(t, os.WriteFile(path, data[:len(data)/2], 0o600))
 
-	var got []Chunk
+	var got []testChunk
 	var loadErr error
 	for c, err := range s.Load(t.Context(), chunk.TimeRange) {
 		if err != nil {
@@ -171,42 +148,26 @@ func TestFileStore_TruncatedFileYieldsPartialData(t *testing.T) {
 }
 
 func TestFileStore_IgnoresUnrelatedFiles(t *testing.T) {
-	s, dir := newTestStore(t)
+	s, dir := newTestStore(t, nil)
 	chunk := sampleChunk(1754784000)
 	require.NoError(t, s.Save(t.Context(), chunk))
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "2025-08-10", "notes.txt"), []byte("hi"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stray.tsv.gz"), []byte("hi"), 0o600))
 
-	second := NewFileStore(dir, slog.New(slog.DiscardHandler))
+	second := NewFileStore[testKey, Counter](dir, nil, slog.New(slog.DiscardHandler))
 	require.NoError(t, second.Init(t.Context()))
 	defer second.Close()
 	assert.Len(t, collect(t, second, chunk.TimeRange), 1)
 }
 
-func TestFileStore_FileIsReadableTSV(t *testing.T) {
-	s, dir := newTestStore(t)
-	chunk := sampleChunk(1754784000)
-	require.NoError(t, s.Save(t.Context(), chunk))
+func TestFileStore_NormalizesKeysOnRead(t *testing.T) {
+	s, _ := newTestStore(t, func(k *testKey) { k.Name = strings.ToUpper(k.Name) })
+	require.NoError(t, s.Save(t.Context(), sampleChunk(1754784000)))
 
-	f, err := os.Open(filepath.Join(dir, "2025-08-10", "1754784000-1754787599.tsv.gz"))
-	require.NoError(t, err)
-	defer f.Close()
-	gz, err := gzip.NewReader(bufio.NewReader(f))
-	require.NoError(t, err)
-	defer gz.Close()
-
-	var lines []string
-	sc := bufio.NewScanner(gz)
-	for sc.Scan() {
-		lines = append(lines, sc.Text())
-	}
-	require.NoError(t, sc.Err())
-
-	require.Len(t, lines, 3, "header plus one line per entry")
-	assert.Equal(t, "client_ip\tdomain\tqtype\tlabel\tcount\tts", lines[0])
-	assert.Equal(t, "192.168.1.42\tads.example.com.\tA\thagezi-pro\t3\t12,45,3511", lines[1])
-	assert.True(t, strings.HasPrefix(lines[2], "192.168.1.50\t"))
+	chunks := collect(t, s, hourRange(1754784000))
+	require.Len(t, chunks, 1)
+	assert.Equal(t, "A", chunks[0].Entries[0].Key.Name)
 }
 
 func TestOffsets_MarshalRoundTrip(t *testing.T) {
@@ -238,15 +199,4 @@ func TestOffsets_UnmarshalRejectsGarbage(t *testing.T) {
 		var got Offsets
 		assert.Error(t, got.UnmarshalText([]byte(text)), text)
 	}
-}
-
-func TestFileStore_ReadsDomainsWrittenWithoutTrailingDot(t *testing.T) {
-	s, _ := newTestStore(t)
-	chunk := sampleChunk(1754784000)
-	chunk.Entries[0].Domain = "ads.example.com"
-	require.NoError(t, s.Save(t.Context(), chunk))
-
-	chunks := collect(t, s, chunk.TimeRange)
-	require.Len(t, chunks, 1)
-	assert.Equal(t, "ads.example.com.", chunks[0].Entries[0].Domain)
 }

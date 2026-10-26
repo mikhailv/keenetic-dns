@@ -12,9 +12,10 @@ import (
 func NewIPRoutingMiddleware(
 	dnsStore *storage.DNSStore,
 	ipRoutes *routing.IPRouteController,
+	resolveRecorder handlers.ResolveRecorder,
 	logger *slog.Logger,
 ) dnssvc.Middleware {
 	return func(handler dnssvc.Handler) dnssvc.Handler {
-		return handlers.NewIPRoutingHandler(handler, dnsStore, ipRoutes, logger)
+		return handlers.NewIPRoutingHandler(handler, dnsStore, ipRoutes, resolveRecorder, logger)
 	}
 }

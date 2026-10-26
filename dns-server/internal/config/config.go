@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/aggstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/cache"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
@@ -29,17 +30,18 @@ type Config struct {
 	Addr     string `yaml:"addr"`
 	HTTPAddr string `yaml:"http_addr"`
 
-	Logging    Logging       `yaml:"logging"`
-	Agent      Agent         `yaml:"agent"`
-	DNS        DNS           `yaml:"dns"`
-	MDNS       MDNS          `yaml:"mdns"`
-	Storage    Storage       `yaml:"storage"`
-	Routing    Routing       `yaml:"routing"`
-	Conntrack  Conntrack     `yaml:"conntrack"`
-	IPInfo     ipinfo.Config `yaml:"ipinfo"`
-	Network    Network       `yaml:"network"`
-	Blocking   Blocking      `yaml:"blocking"`
-	QueryStats DomainStats   `yaml:"query_stats"`
+	Logging      Logging         `yaml:"logging"`
+	Agent        Agent           `yaml:"agent"`
+	DNS          DNS             `yaml:"dns"`
+	MDNS         MDNS            `yaml:"mdns"`
+	Storage      Storage         `yaml:"storage"`
+	Routing      Routing         `yaml:"routing"`
+	Conntrack    Conntrack       `yaml:"conntrack"`
+	IPInfo       ipinfo.Config   `yaml:"ipinfo"`
+	Network      Network         `yaml:"network"`
+	Blocking     Blocking        `yaml:"blocking"`
+	QueryStats   DomainStats     `yaml:"query_stats"`
+	ResolveStats aggstats.Config `yaml:"resolve_stats"`
 }
 
 type Blocking struct {
@@ -172,6 +174,7 @@ func (c *Config) Validate() error {
 		c.Logging.File.Validate(),
 		c.Blocking.Validate(),
 		c.QueryStats.Validate("query stats"),
+		c.ResolveStats.Validate("resolve stats"),
 		c.Conntrack.Validate(),
 		c.IPInfo.Validate(),
 		c.DNS.Cache.Validate(),
@@ -185,6 +188,7 @@ func (c *Config) setDefaults() {
 	c.Logging.File.SetDefaults()
 	c.Blocking.SetDefaults()
 	c.QueryStats.SetDefaults()
+	c.ResolveStats.SetDefaults()
 	c.Conntrack.SetDefaults()
 	c.IPInfo.SetDefaults()
 	c.DNS.Cache.SetDefaults()

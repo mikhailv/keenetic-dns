@@ -5,15 +5,15 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/aggstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type Conntrack = conntrack.Config
 
-type DomainStats = domainstats.Config
+type DomainStats = aggstats.Config
 
 type Hosts map[string]net.IP
 

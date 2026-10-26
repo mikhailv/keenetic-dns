@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/aggstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/cache" //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
@@ -24,6 +25,7 @@ import (
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc/resolvers"  //nolint:staticcheck //ignore
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/domainstats"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/resolvestats"
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/routing" //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/server"  //nolint:staticcheck //ignore
 	. "github.com/mikhailv/keenetic-dns/dns-server/internal/storage" //nolint:staticcheck //ignore
@@ -175,18 +177,22 @@ func main() { //nolint:funlen // ignore
 		logger.Info("querystats enabled", "dir", cfg.QueryStats.DataDir, "flush_interval", cfg.QueryStats.FlushInterval)
 	}
 
+	resolveStatsMiddleware, resolveRecorder, stopResolveStats := setupResolveStats(ctx, cfg.ResolveStats, logger)
+	defer stopResolveStats()
+
 	resolver = NewMiddlewareChainResolver(
 		[]Middleware{
-			NewRawQueryMiddleware(rawQueryStream),                                            // pre+post
-			queryStatsMiddleware,                                                             // post
-			NewQueryLogMiddleware(dnsQueryStream),                                            // post
-			blockingMiddleware,                                                               // pre+post
-			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),                                    // post
-			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),                             // post
-			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA),                           // post
-			SingleFlightMiddleware,                                                           // pre
-			NewIPRoutingMiddleware(dnsStore, ipRoutes, log.WithPrefix(logger, "ip_routing")), // post
-			ErrorSafeResponseMiddleware,                                                      // post
+			NewRawQueryMiddleware(rawQueryStream),                  // pre+post
+			queryStatsMiddleware,                                   // post
+			resolveStatsMiddleware,                                 // post
+			NewQueryLogMiddleware(dnsQueryStream),                  // post
+			blockingMiddleware,                                     // pre+post
+			NewTTLOverrideMiddleware(cfg.DNS.TTLOverride),          // post
+			EnableMiddleware(DropECHMiddleware, cfg.DNS.DropECH),   // post
+			EnableMiddleware(DropAAAAMiddleware, cfg.DNS.DropAAAA), // post
+			SingleFlightMiddleware,                                 // pre
+			NewIPRoutingMiddleware(dnsStore, ipRoutes, resolveRecorder, log.WithPrefix(logger, "ip_routing")), // post
+			ErrorSafeResponseMiddleware, // post
 		},
 		NewCachedResolver("cache", settableResolver, dnsCache),
 	)
@@ -397,5 +403,25 @@ func measure() func() time.Duration {
 	st := time.Now()
 	return func() time.Duration {
 		return time.Since(st).Truncate(time.Microsecond)
+	}
+}
+
+func setupResolveStats(ctx context.Context, cfg aggstats.Config, logger *slog.Logger) (Middleware, handlers.ResolveRecorder, func()) {
+	if !cfg.Enabled {
+		return NopMiddleware, nil, func() {}
+	}
+	store := resolvestats.NewFileStore(cfg.DataDir, log.WithPrefix(logger, "resolvestats.filestore"))
+	if err := store.Init(ctx); err != nil {
+		ExitWithError(fmt.Errorf("failed to init resolvestats store: %w", err))
+	}
+	recorder := resolvestats.NewRecorder(store, cfg, log.WithPrefix(logger, "resolvestats"))
+	flushing := recorder.Start(ctx)
+
+	logger.Info("resolvestats enabled", "dir", cfg.DataDir, "flush_interval", cfg.FlushInterval)
+
+	return NewResolveStatsMiddleware(recorder), recorder, func() {
+		flushing.Wait()
+		closeCloser(recorder, "resolvestats", logger)
+		closeCloser(store, "resolvestats store", logger)
 	}
 }

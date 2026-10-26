@@ -1,48 +1,41 @@
-package domainstats
+package aggstats
 
 import (
 	"errors"
 	"strconv"
 	"strings"
-
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/chunkstore"
-	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 )
-
-type (
-	TimeRange = chunkstore.TimeRange
-	Timestamp = chunkstore.Timestamp
-)
-
-const maxChunkSeconds = 1 << 16
 
 const maxOffsets = 4096
 
-type Chunk struct {
-	TimeRange TimeRange
-	Entries   []Entry
-}
-
-func (c Chunk) Range() TimeRange {
-	return c.TimeRange
-}
-
-type Key struct {
-	ClientIP types.IPv4 `tsv:"client_ip"`
-	Domain   string     `tsv:"domain"`
-	QType    string     `tsv:"qtype"`
-	Label    string     `tsv:"label,optional"`
-}
-
-type Entry struct {
-	Key
+type Counter struct {
 	Count uint32  `tsv:"count"`
 	Ts    Offsets `tsv:"ts,optional"`
 }
 
+func (c *Counter) Add(offset uint16) {
+	c.Count++
+	if len(c.Ts) < maxOffsets {
+		c.Ts = append(c.Ts, offset)
+	}
+}
+
+func (c Counter) Clone() Counter {
+	c.Ts = c.Ts.clone()
+	return c
+}
+
+type Count struct {
+	Count uint32 `tsv:"count"`
+}
+
+func (c *Count) Add(uint16) {
+	c.Count++
+}
+
 type Offsets []uint16
 
-var errInvalidOffset = errors.New("domainstats: invalid offset")
+var errInvalidOffset = errors.New("aggstats: invalid offset")
 
 func (o Offsets) clone() Offsets {
 	if len(o) == 0 {

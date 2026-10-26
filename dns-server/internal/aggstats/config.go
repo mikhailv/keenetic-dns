@@ -1,4 +1,4 @@
-package domainstats
+package aggstats
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 const (
 	DefaultChunkDuration = time.Hour
 	DefaultFlushInterval = 5 * time.Minute
-	DefaultMaxEntries    = 50_000
 )
 
 type Config struct {
@@ -16,7 +15,6 @@ type Config struct {
 	DataDir       string        `yaml:"data_dir"`
 	ChunkDuration time.Duration `yaml:"chunk_duration"`
 	FlushInterval time.Duration `yaml:"flush_interval"`
-	MaxEntries    int           `yaml:"max_entries"`
 }
 
 func (c *Config) SetDefaults() {
@@ -28,9 +26,6 @@ func (c *Config) SetDefaults() {
 	}
 	if c.FlushInterval <= 0 {
 		c.FlushInterval = DefaultFlushInterval
-	}
-	if c.MaxEntries <= 0 {
-		c.MaxEntries = DefaultMaxEntries
 	}
 }
 
