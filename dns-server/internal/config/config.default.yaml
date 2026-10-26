@@ -49,6 +49,11 @@ conntrack:
   save_interval: 10m
   data_dir: conntrack
 
+network:
+  local_networks: []
+  wan_ips: []
+  tunnel_ips: []
+
 ipinfo:
   url: ''
   ttl: 24h

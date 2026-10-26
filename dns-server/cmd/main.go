@@ -203,6 +203,7 @@ func main() { //nolint:funlen // ignore
 		conntrackTracker,
 		ipinfo.NewResolver(cfg.IPInfo, log.WithPrefix(logger, "ipinfo")),
 		dnsCache,
+		cfg.Network,
 	)
 	go Serve(ctx, httpServer)
 

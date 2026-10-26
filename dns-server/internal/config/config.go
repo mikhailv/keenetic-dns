@@ -37,6 +37,7 @@ type Config struct {
 	Routing    Routing       `yaml:"routing"`
 	Conntrack  Conntrack     `yaml:"conntrack"`
 	IPInfo     ipinfo.Config `yaml:"ipinfo"`
+	Network    Network       `yaml:"network"`
 	Blocking   Blocking      `yaml:"blocking"`
 	QueryStats DomainStats   `yaml:"query_stats"`
 }
@@ -104,6 +105,12 @@ type DNSProvider struct {
 	// one of following must be set
 	Endpoint *URL  `yaml:"endpoint"`
 	Hosts    Hosts `yaml:"hosts"`
+}
+
+type Network struct {
+	LocalNetworks []types.IPv4 `yaml:"local_networks" json:"local_networks"`
+	WANIPs        []types.IPv4 `yaml:"wan_ips"        json:"wan_ips"`
+	TunnelIPs     []types.IPv4 `yaml:"tunnel_ips"     json:"tunnel_ips"`
 }
 
 type Storage struct {

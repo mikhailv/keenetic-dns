@@ -170,6 +170,13 @@ export interface ConntrackBucketsResponse {
 	buckets: ConntrackBucket[];
 	ips?: Record<string, IPGeoInfo>;
 	names?: Record<string, string[]>;
+	network?: ConntrackNetwork;
+}
+
+export interface ConntrackNetwork {
+	local_networks?: string[] | null;
+	wan_ips?: string[] | null;
+	tunnel_ips?: string[] | null;
 }
 
 export interface IPGeoInfo {

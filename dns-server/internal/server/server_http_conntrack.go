@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -29,6 +30,7 @@ type conntrackBucketsResponse struct {
 	Buckets           []conntrackBucket      `json:"buckets"`
 	IPs               map[string]ipinfo.Info `json:"ips,omitempty"`
 	Names             map[string][]string    `json:"names,omitempty"`
+	Network           config.Network         `json:"network"`
 }
 
 type conntrackBucket struct {
@@ -81,6 +83,7 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 	ips := uniqueIPs(buckets)
 	resp.IPs = s.lookupIPInfo(req.Context(), ips)
 	resp.Names = s.lookupNames(ips)
+	resp.Network = s.network
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp) //nolint:errchkjson // ignore

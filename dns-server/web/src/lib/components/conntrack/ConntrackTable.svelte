@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ConntrackBucket, ConntrackEntry, ConntrackGroupBy, IPGeoInfo } from '$lib/types';
-	import { formatBytes, primaryDomain } from './util';
+	import type { ConntrackBucket, ConntrackEntry, ConntrackGroupBy, IPGeoInfo, ConntrackNetwork } from '$lib/types';
+	import { createNetworkClassifier, formatBytes, primaryDomain } from './util';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { type HostStore } from '$lib/stores';
 	import { formatNumber } from '$lib/util';
@@ -11,12 +11,14 @@
 		hosts,
 		ips = {},
 		names = {},
+		network,
 		groupBy = 'host'
 	}: {
 		buckets: ConntrackBucket[];
 		hosts: HostStore;
 		ips?: Record<string, IPGeoInfo>;
 		names?: Record<string, string[]>;
+		network?: ConntrackNetwork;
 		groupBy?: ConntrackGroupBy;
 	} = $props();
 
@@ -68,11 +70,33 @@
 		return { key: `${e.protocol}|${e.dst_ip}|${e.dst_port}`, protocol: e.protocol, ip: e.dst_ip, dst_port: e.dst_port };
 	}
 
-	function remoteSide(e: ConntrackEntry): { remote: string; local: string } {
-		if (!ips[e.dst_ip] && ips[e.src_ip]) {
-			return { remote: e.src_ip, local: e.dst_ip };
+	const classifier = $derived(createNetworkClassifier(network));
+
+	function isInbound(e: ConntrackEntry): boolean {
+		if (classifier.configured) {
+			return classifier.isLocal(e.dst_ip) && !classifier.isLocal(e.src_ip);
 		}
-		return { remote: e.dst_ip, local: e.src_ip };
+		return !ips[e.dst_ip] && !!ips[e.src_ip];
+	}
+
+	function remoteSide(e: ConntrackEntry): { remote: string; local: string; swapped: boolean } {
+		if (isInbound(e)) {
+			return { remote: e.src_ip, local: e.dst_ip, swapped: true };
+		}
+		return { remote: e.dst_ip, local: e.src_ip, swapped: false };
+	}
+
+	function oriented(e: ConntrackEntry): ConntrackEntry {
+		if (groupBy === 'host' || !remoteSide(e).swapped) {
+			return e;
+		}
+		return {
+			...e,
+			bytes_orig: e.bytes_reply,
+			bytes_reply: e.bytes_orig,
+			packets_orig: e.packets_reply,
+			packets_reply: e.packets_orig
+		};
 	}
 
 	function asnGroup(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
@@ -146,7 +170,8 @@
 				} else if (g.asns && gk.asns && !g.asns.includes(gk.asns[0])) {
 					g.asns.push(gk.asns[0]);
 				}
-				addStats(g, e);
+				const stats = oriented(e);
+				addStats(g, stats);
 
 				const ik = itemOf(e);
 				const dmap = itemsMap.get(gk.key)!;
@@ -155,7 +180,7 @@
 					d = { ...ik, ...emptyStats() };
 					dmap.set(ik.key, d);
 				}
-				addStats(d, e);
+				addStats(d, stats);
 			}
 		}
 		const out: GroupRow[] = [];

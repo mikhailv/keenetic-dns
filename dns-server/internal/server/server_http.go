@@ -15,6 +15,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/agentclient"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/config"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/conntrack"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/dnssvc"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
@@ -43,6 +44,7 @@ type HTTPServer struct {
 	conntrackTracker *conntrack.Tracker
 	ipInfo           *ipinfo.Resolver
 	dnsNames         ipNameLookup
+	network          config.Network
 	hosts            atomic.Pointer[[]agentclient.HostInfo]
 }
 
@@ -58,6 +60,7 @@ func NewHTTPServer(
 	conntrackTracker *conntrack.Tracker,
 	ipInfo *ipinfo.Resolver,
 	dnsNames ipNameLookup,
+	network config.Network,
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:           logger,
@@ -71,6 +74,7 @@ func NewHTTPServer(
 		conntrackTracker: conntrackTracker,
 		ipInfo:           ipInfo,
 		dnsNames:         dnsNames,
+		network:          network,
 	}
 }
 

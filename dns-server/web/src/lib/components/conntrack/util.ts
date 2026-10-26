@@ -1,3 +1,4 @@
+import type { ConntrackNetwork } from '$lib/types';
 export const INTERVAL_OPTIONS = [
 	{ value: 60, label: '1m' },
 	{ value: 120, label: '2m' },
@@ -69,4 +70,32 @@ export function primaryDomain(names: string[] | undefined): string | undefined {
 		return undefined;
 	}
 	return names.reduce((best, name) => (name.length < best.length ? name : best));
+}
+
+function ipToNumber(ip: string): number {
+	return ip.split('.').reduce((n, octet) => ((n << 8) | Number(octet)) >>> 0, 0);
+}
+
+function cidrContains(cidr: string, ip: number): boolean {
+	const [network, bits] = cidr.split('/');
+	const prefix = bits === undefined ? 32 : Number(bits);
+	const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+	return (ip & mask) >>> 0 === (ipToNumber(network) & mask) >>> 0;
+}
+
+export interface NetworkClassifier {
+	configured: boolean;
+	isLocal(ip: string): boolean;
+	isTunnel(src: string, dst: string): boolean;
+}
+
+export function createNetworkClassifier(network: ConntrackNetwork | undefined): NetworkClassifier {
+	const local = [...(network?.local_networks ?? []), ...(network?.wan_ips ?? [])];
+	const wan = new Set(network?.wan_ips ?? []);
+	const tunnels = new Set(network?.tunnel_ips ?? []);
+	return {
+		configured: local.length > 0,
+		isLocal: (ip) => local.some((cidr) => cidrContains(cidr, ipToNumber(ip))),
+		isTunnel: (src, dst) => wan.has(src) && tunnels.has(dst)
+	};
 }

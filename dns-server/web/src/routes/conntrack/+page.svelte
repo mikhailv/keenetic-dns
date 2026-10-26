@@ -7,7 +7,7 @@
 	import IntervalSelector from '$lib/components/conntrack/IntervalSelector.svelte';
 	import TrafficChart from '$lib/components/conntrack/TrafficChart.svelte';
 	import ConntrackTable from '$lib/components/conntrack/ConntrackTable.svelte';
-	import { autoBumpInterval } from '$lib/components/conntrack/util';
+	import { autoBumpInterval, createNetworkClassifier } from '$lib/components/conntrack/util';
 	import { createHostStore, currentURL, queryParams } from '$lib/stores';
 	import { toTimestamp } from '$lib/util';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
@@ -45,6 +45,7 @@
 			to,
 			span,
 			autoRefresh: params.get('auto-refresh') === '1',
+			showTunnels: params.get('tunnels') === '1',
 			interval: parseInt(params.get('interval') || '') || 60,
 			filterIP: params.get('ip') || null,
 			groupBy: groupByOptions.find(([value]) => value === group)?.[0] ?? 'host',
@@ -57,6 +58,7 @@
 	let to = $state(init.to);
 	let span = $state<number | null>(init.span);
 	let autoRefresh = $state(init.autoRefresh);
+	let showTunnels = $state(init.showTunnels);
 	let interval = $state(init.interval);
 
 	let resp = $state<ConntrackBucketsResponse | null>(null);
@@ -78,6 +80,7 @@
 		}
 		params.set('interval', String(interval));
 		if (autoRefresh) params.set('auto-refresh', '1');
+		if (showTunnels) params.set('tunnels', '1');
 		if (filterIP) params.set('ip', filterIP);
 		if (filterBucketIdx !== null) params.set('bar', String(filterBucketIdx));
 		if (groupBy !== 'host') params.set('group', groupBy);
@@ -90,9 +93,20 @@
 	const effectiveInterval = $derived(autoBumpInterval(interval, rangeSeconds));
 	const appliedHint = $derived(resp?.interval ?? null);
 
-	const tableBuckets = $derived.by(() => {
+	const classifier = $derived(createNetworkClassifier(resp?.network));
+	const hasTunnels = $derived((resp?.network?.tunnel_ips?.length ?? 0) > 0);
+
+	const visibleBuckets = $derived.by(() => {
 		if (!resp) return [];
-		let b = resp.buckets;
+		if (showTunnels) return resp.buckets;
+		return resp.buckets.map((bucket) => ({
+			...bucket,
+			entries: bucket.entries.filter((e) => !classifier.isTunnel(e.src_ip, e.dst_ip))
+		}));
+	});
+
+	const tableBuckets = $derived.by(() => {
+		let b = visibleBuckets;
 		if (filterBucketIdx !== null && filterBucketIdx >= 0 && filterBucketIdx < b.length) {
 			b = [b[filterBucketIdx]];
 		}
@@ -156,7 +170,7 @@
 
 {#if resp}
 	<TrafficChart
-		buckets={resp.buckets}
+		buckets={visibleBuckets}
 		{hosts}
 		{filterIP}
 		{filterBucketIdx}
@@ -186,13 +200,27 @@
 		</div>
 	{/if}
 	<div class="mt-3">
-		<div class="join mb-2">
-			{#each groupByOptions as [value, label] (value)}
-				<button class="join-item btn btn-sm" class:btn-active={groupBy === value} onclick={() => (groupBy = value)}>
-					{label}
-				</button>
-			{/each}
+		<div class="flex flex-wrap items-center gap-3 mb-2">
+			<div class="join">
+				{#each groupByOptions as [value, label] (value)}
+					<button class="join-item btn btn-sm" class:btn-active={groupBy === value} onclick={() => (groupBy = value)}>
+						{label}
+					</button>
+				{/each}
+			</div>
+			{#if hasTunnels}
+				<label class="ml-auto flex items-center gap-2 cursor-pointer text-sm">
+					<input type="checkbox" class="checkbox checkbox-sm" bind:checked={showTunnels} />
+					show tunnel traffic
+				</label>
+			{/if}
 		</div>
-		<ConntrackTable buckets={tableBuckets} {hosts} ips={resp.ips ?? {}} names={resp.names ?? {}} {groupBy} />
+		<ConntrackTable
+			buckets={tableBuckets}
+			{hosts}
+			ips={resp.ips ?? {}}
+			names={resp.names ?? {}}
+			network={resp.network}
+			{groupBy} />
 	</div>
 {/if}
