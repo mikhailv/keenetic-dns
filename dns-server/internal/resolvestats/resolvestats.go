@@ -87,6 +87,28 @@ func answerKeys(resp *dns.Msg) []Key {
 			if ip := reverseIPv4(qname); ip != nil {
 				keys = append(keys, Key{Domain: dns.CanonicalName(v.Ptr), Address: ip.String(), QType: "PTR"})
 			}
+		case *dns.HTTPS:
+			keys = appendHints(keys, qname, "HTTPS", v.Value)
+		case *dns.SVCB:
+			keys = appendHints(keys, qname, "SVCB", v.Value)
+		}
+	}
+	return keys
+}
+
+func appendHints(keys []Key, domain, qtype string, values []dns.SVCBKeyValue) []Key {
+	for _, kv := range values {
+		var hints []net.IP
+		switch h := kv.(type) {
+		case *dns.SVCBIPv4Hint:
+			hints = h.Hint
+		case *dns.SVCBIPv6Hint:
+			hints = h.Hint
+		}
+		for _, ip := range hints {
+			if !ip.IsUnspecified() {
+				keys = append(keys, Key{Domain: domain, Address: ip.String(), QType: qtype})
+			}
 		}
 	}
 	return keys

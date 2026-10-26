@@ -60,6 +60,34 @@ func TestAnswerKeys(t *testing.T) {
 			want: []Key{{Domain: "host.example.net.", Address: "94.19.127.130", QType: "PTR"}},
 		},
 		{
+			name: "HTTPS and SVCB address hints are recorded under the queried name",
+			resp: response("www.example.com.", dns.TypeHTTPS,
+				&dns.HTTPS{SVCB: dns.SVCB{
+					Hdr: hdr("www.example.com.", dns.TypeHTTPS), Priority: 1, Target: ".",
+					Value: []dns.SVCBKeyValue{
+						&dns.SVCBAlpn{Alpn: []string{"h2", "h3"}},
+						&dns.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("104.16.1.1"), net.ParseIP("104.16.2.2")}},
+						&dns.SVCBIPv6Hint{Hint: []net.IP{net.ParseIP("2606:4700::1")}},
+					},
+				}},
+				&dns.SVCB{
+					Hdr: hdr("www.example.com.", dns.TypeSVCB), Priority: 1, Target: ".",
+					Value: []dns.SVCBKeyValue{&dns.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("104.16.3.3")}}},
+				},
+			),
+			want: []Key{
+				{Domain: "www.example.com.", Address: "104.16.1.1", QType: "HTTPS"},
+				{Domain: "www.example.com.", Address: "104.16.2.2", QType: "HTTPS"},
+				{Domain: "www.example.com.", Address: "2606:4700::1", QType: "HTTPS"},
+				{Domain: "www.example.com.", Address: "104.16.3.3", QType: "SVCB"},
+			},
+		},
+		{
+			name: "an HTTPS record in alias mode has no hints",
+			resp: response("example.com.", dns.TypeHTTPS,
+				&dns.HTTPS{SVCB: dns.SVCB{Hdr: hdr("example.com.", dns.TypeHTTPS), Priority: 0, Target: "cdn.example.net."}}),
+		},
+		{
 			name: "blocked answers carry no information",
 			resp: response("ads.example.com.", dns.TypeA, &dns.A{Hdr: hdr("ads.example.com.", dns.TypeA), A: net.IPv4zero}),
 		},
