@@ -141,3 +141,33 @@ func TestWriter_FieldCache(t *testing.T) {
 	result := buf1.String()
 	assert.Equal(t, "col1\tcol2\nJohn\t25\n", result)
 }
+
+type inlineKey struct {
+	Domain string `tsv:"domain"`
+	QType  string `tsv:"qtype"`
+}
+
+type inlineValue struct {
+	Count uint32 `tsv:"count"`
+}
+
+type inlineEntry[K, V any] struct {
+	Key   K `tsv:",inline"`
+	Value V `tsv:",inline"`
+}
+
+func TestWriterReader_InlineFields(t *testing.T) {
+	var buf strings.Builder
+	w := NewWriter[inlineEntry[inlineKey, inlineValue]](&buf)
+	row := inlineEntry[inlineKey, inlineValue]{Key: inlineKey{Domain: "example.com.", QType: "A"}, Value: inlineValue{Count: 7}}
+	assert.NoError(t, w.Write(row))
+	assert.NoError(t, w.Close())
+	assert.Equal(t, "domain\tqtype\tcount\nexample.com.\tA\t7\n", buf.String())
+
+	var got []inlineEntry[inlineKey, inlineValue]
+	for v, err := range NewReader[inlineEntry[inlineKey, inlineValue]](strings.NewReader(buf.String())).Iterator() {
+		assert.NoError(t, err)
+		got = append(got, v)
+	}
+	assert.Equal(t, []inlineEntry[inlineKey, inlineValue]{row}, got)
+}

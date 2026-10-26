@@ -68,7 +68,7 @@ func collectFields(st reflect.Type, index []int, info *typeInfo) error {
 		newIndex := append(append([]int{}, index...), i)
 
 		// Recursively handle embedded structs
-		if f.Anonymous {
+		if f.Anonymous || (f.IsExported() && f.Type.Kind() == reflect.Struct && hasTagOption(f, "inline")) {
 			if err := collectFields(f.Type, newIndex, info); err != nil {
 				return err
 			}
@@ -120,4 +120,18 @@ func collectFields(st reflect.Type, index []int, info *typeInfo) error {
 		})
 	}
 	return nil
+}
+
+func hasTagOption(f reflect.StructField, option string) bool {
+	tag, ok := f.Tag.Lookup("tsv")
+	if !ok {
+		return false
+	}
+	_, opts, _ := strings.Cut(tag, ",")
+	for o := range strings.SplitSeq(opts, ",") {
+		if strings.TrimSpace(o) == option {
+			return true
+		}
+	}
+	return false
 }
