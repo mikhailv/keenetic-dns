@@ -23,7 +23,7 @@
 			? `${info.asn ? `AS${info.asn} ${info.org ?? ''}` : info.network}${info.country ? ` · ${info.country}` : ''}`
 			: undefined
 	);
-	const label = $derived([host ?? primaryDomain(domains), asn].filter(Boolean).join(' · ') || '?');
+	const name = $derived(host ?? primaryDomain(domains));
 	const title = $derived(
 		[
 			...domains,
@@ -35,7 +35,10 @@
 	);
 </script>
 
-<span {title}>
+<div {title}>
 	{ip}
-	<span class="text-base-content/60 font-light text-sm2">/ {label}</span>
-</span>
+	{#if name}<span class="text-base-content/60 font-light text-sm2"> / {name}</span>{/if}
+	{#if asn}
+		<div class="text-base-content/60 font-light text-sm2">{asn}</div>
+	{/if}
+</div>
