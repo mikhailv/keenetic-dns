@@ -28,6 +28,7 @@ type conntrackBucketsResponse struct {
 	RequestedInterval uint                   `json:"requested_interval"`
 	Buckets           []conntrackBucket      `json:"buckets"`
 	IPs               map[string]ipinfo.Info `json:"ips,omitempty"`
+	Names             map[string][]string    `json:"names,omitempty"`
 }
 
 type conntrackBucket struct {
@@ -77,17 +78,16 @@ func (s *HTTPServer) handleListConntrackBuckets(w http.ResponseWriter, req *http
 	}
 
 	resp.Buckets = mapConntrackBuckets(buckets)
-	resp.IPs = s.lookupIPInfo(req.Context(), buckets)
+	ips := uniqueIPs(buckets)
+	resp.IPs = s.lookupIPInfo(req.Context(), ips)
+	resp.Names = s.lookupNames(ips)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp) //nolint:errchkjson // ignore
 	return http.StatusOK, nil
 }
 
-func (s *HTTPServer) lookupIPInfo(ctx context.Context, buckets []conntrack.Bucket) map[string]ipinfo.Info {
-	if !s.ipInfo.Enabled() {
-		return nil
-	}
+func uniqueIPs(buckets []conntrack.Bucket) []types.IPv4 {
 	seen := map[types.IPv4]struct{}{}
 	for _, bucket := range buckets {
 		for _, e := range bucket.Entries {
@@ -95,10 +95,30 @@ func (s *HTTPServer) lookupIPInfo(ctx context.Context, buckets []conntrack.Bucke
 			seen[e.DstIP] = struct{}{}
 		}
 	}
-	found := s.ipInfo.Lookup(ctx, slices.Collect(maps.Keys(seen)))
+	return slices.Collect(maps.Keys(seen))
+}
+
+func (s *HTTPServer) lookupIPInfo(ctx context.Context, ips []types.IPv4) map[string]ipinfo.Info {
+	if !s.ipInfo.Enabled() {
+		return nil
+	}
+	found := s.ipInfo.Lookup(ctx, ips)
 	res := make(map[string]ipinfo.Info, len(found))
 	for ip, info := range found {
 		res[ip.String()] = info
+	}
+	return res
+}
+
+func (s *HTTPServer) lookupNames(ips []types.IPv4) map[string][]string {
+	if s.dnsNames == nil {
+		return nil
+	}
+	res := make(map[string][]string)
+	for _, ip := range ips {
+		if names := s.dnsNames.LookupIP(ip); len(names) > 0 {
+			res[ip.String()] = names
+		}
 	}
 	return res
 }

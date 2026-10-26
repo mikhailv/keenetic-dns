@@ -83,7 +83,7 @@ func main() { //nolint:funlen // ignore
 	conntrackTracker := conntrack.NewTracker(cfg.Conntrack, log.WithPrefix(logger, "conntrack"), networkService, conntrackStore)
 	defer conntrackTracker.Start(ctx).Wait()
 
-	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", log.WithPrefix(logger, "dns_cache"))
+	dnsCache, dnsCacheSave := setupDNSCache("dns_cache.dat", cfg.DNS.Cache, log.WithPrefix(logger, "dns_cache"))
 	defer closeCloser(dnsCache, "dns cache", logger)
 	defer dnsCacheSave()
 
@@ -202,6 +202,7 @@ func main() { //nolint:funlen // ignore
 		rawQueryStream,
 		conntrackTracker,
 		ipinfo.NewResolver(cfg.IPInfo, log.WithPrefix(logger, "ipinfo")),
+		dnsCache,
 	)
 	go Serve(ctx, httpServer)
 
@@ -275,8 +276,8 @@ func createResolver(providersConfig map[string]config.DNSProvider, logger *slog.
 	return NewMultiProviderResolver(providers), nil
 }
 
-func setupDNSCache(file string, logger *slog.Logger) (cache DNSCache, save func()) {
-	cache = NewMemoryDNSCache()
+func setupDNSCache(file string, cfg Config, logger *slog.Logger) (cache DNSCache, save func()) {
+	cache = NewMemoryDNSCache(cfg)
 	pcache, _ := cache.(PersistentDNSCache)
 	if pcache == nil {
 		return cache, func() {}

@@ -169,6 +169,7 @@ export interface ConntrackBucketsResponse {
 	requested_interval: number;
 	buckets: ConntrackBucket[];
 	ips?: Record<string, IPGeoInfo>;
+	names?: Record<string, string[]>;
 }
 
 export interface IPGeoInfo {
@@ -178,3 +179,5 @@ export interface IPGeoInfo {
 	country?: string;
 	city?: string;
 }
+
+export type ConntrackGroupBy = 'host' | 'asn' | 'org' | 'domain' | 'domain2';

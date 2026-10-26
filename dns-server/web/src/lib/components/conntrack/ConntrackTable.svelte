@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ConntrackBucket, ConntrackEntry, IPGeoInfo } from '$lib/types';
-	import { formatBytes } from './util';
+	import type { ConntrackBucket, ConntrackEntry, ConntrackGroupBy, IPGeoInfo } from '$lib/types';
+	import { formatBytes, primaryDomain } from './util';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { type HostStore } from '$lib/stores';
 	import { formatNumber } from '$lib/util';
@@ -10,12 +10,14 @@
 		buckets,
 		hosts,
 		ips = {},
+		names = {},
 		groupBy = 'host'
 	}: {
 		buckets: ConntrackBucket[];
 		hosts: HostStore;
 		ips?: Record<string, IPGeoInfo>;
-		groupBy?: 'host' | 'asn';
+		names?: Record<string, string[]>;
+		groupBy?: ConntrackGroupBy;
 	} = $props();
 
 	interface Stats {
@@ -30,6 +32,7 @@
 		key: string;
 		ip?: string;
 		label?: string;
+		asns?: number[];
 		items: ItemRow[];
 	}
 
@@ -80,6 +83,40 @@
 		return { key: `AS${info.asn}`, label: `AS${info.asn} ${info.org ?? ''}` };
 	}
 
+	function orgGroup(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
+		const info = ips[remoteSide(e).remote];
+		const org = info?.org?.trim();
+		if (!info?.asn || !org) {
+			return asnGroup(e);
+		}
+		return { key: `org:${org.toLowerCase()}`, label: org, asns: [info.asn] };
+	}
+
+	function domainGroup(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
+		const name = primaryDomain(names[remoteSide(e).remote]);
+		if (!name) {
+			return { key: 'nodns', label: 'No DNS name' };
+		}
+		return { key: `dns:${name}`, label: name };
+	}
+
+	function domain2Group(e: ConntrackEntry): Omit<GroupRow, keyof Stats | 'items'> {
+		const name = primaryDomain(names[remoteSide(e).remote]);
+		if (!name) {
+			return { key: 'nodns', label: 'No DNS name' };
+		}
+		const base = name.split('.').slice(-2).join('.');
+		return { key: `dns2:${base}`, label: base };
+	}
+
+	function groupLabel(g: GroupRow): string {
+		if (!g.asns) {
+			return g.label ?? '';
+		}
+		const asns = [...g.asns].sort((a, b) => a - b).map((a) => `AS${a}`);
+		return `${g.label} (${asns.join(', ')})`;
+	}
+
 	function asnItem(e: ConntrackEntry): Omit<ItemRow, keyof Stats> {
 		const { remote, local } = remoteSide(e);
 		return {
@@ -92,8 +129,10 @@
 	}
 
 	const groups = $derived.by(() => {
-		const groupOf = groupBy === 'asn' ? asnGroup : hostGroup;
-		const itemOf = groupBy === 'asn' ? asnItem : hostItem;
+		const groupOf = { host: hostGroup, asn: asnGroup, org: orgGroup, domain: domainGroup, domain2: domain2Group }[
+			groupBy
+		];
+		const itemOf = groupBy === 'host' ? hostItem : asnItem;
 		const groupMap = new SvelteMap<string, GroupRow>();
 		const itemsMap = new SvelteMap<string, Map<string, ItemRow>>();
 		for (const b of buckets) {
@@ -104,6 +143,8 @@
 					g = { ...gk, ...emptyStats(), items: [] };
 					groupMap.set(gk.key, g);
 					itemsMap.set(gk.key, new SvelteMap());
+				} else if (g.asns && gk.asns && !g.asns.includes(gk.asns[0])) {
+					g.asns.push(gk.asns[0]);
 				}
 				addStats(g, e);
 
@@ -136,8 +177,11 @@
 	<thead>
 		<tr>
 			<th style="width: 1px"></th>
-			<th>{groupBy === 'asn' ? 'ASN' : 'Source IP'}</th>
-			<th class="text-right">{groupBy === 'asn' ? 'Flows' : 'Dsts'}</th>
+			<th
+				>{{ host: 'Source IP', asn: 'ASN', org: 'Organization', domain: 'Domain', domain2: 'Base domain' }[
+					groupBy
+				]}</th>
+			<th class="text-right">{groupBy === 'host' ? 'Dsts' : 'Flows'}</th>
 			<th class="text-right">Bytes ↑</th>
 			<th class="text-right">Bytes ↓</th>
 			<th class="text-right">Pkts ↑</th>
@@ -151,9 +195,9 @@
 				<td>{expanded[g.key] ? '▼' : '▶'}</td>
 				<td>
 					{#if g.ip}
-						<IPLabel ip={g.ip} {hosts} {ips} />
+						<IPLabel ip={g.ip} {hosts} {ips} {names} />
 					{:else}
-						{g.label}
+						{groupLabel(g)}
 					{/if}
 				</td>
 				<td class="text-right">{g.items.length}</td>
@@ -171,8 +215,8 @@
 							<thead>
 								<tr>
 									<th>Proto</th>
-									<th>{groupBy === 'asn' ? 'Remote IP' : 'Dst IP'}</th>
-									{#if groupBy === 'asn'}<th>Local IP</th>{/if}
+									<th>{groupBy === 'host' ? 'Dst IP' : 'Remote IP'}</th>
+									{#if groupBy !== 'host'}<th>Local IP</th>{/if}
 									<th>Dst Port</th>
 									<th class="text-right">Bytes ↑</th>
 									<th class="text-right">Bytes ↓</th>
@@ -185,8 +229,8 @@
 								{#each g.items as d (d.key)}
 									<tr>
 										<td>{d.protocol}</td>
-										<td><IPLabel ip={d.ip} {hosts} {ips} /></td>
-										{#if d.local_ip}<td><IPLabel ip={d.local_ip} {hosts} {ips} /></td>{/if}
+										<td><IPLabel ip={d.ip} {hosts} {ips} {names} /></td>
+										{#if d.local_ip}<td><IPLabel ip={d.local_ip} {hosts} {ips} {names} /></td>{/if}
 										<td>{d.dst_port}</td>
 										<td class="text-right">{formatBytes(d.bytes_orig)}</td>
 										<td class="text-right">{formatBytes(d.bytes_reply)}</td>

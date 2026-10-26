@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/blocklist"
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/cache"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/ipinfo"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/lookup"
 	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
@@ -74,6 +75,7 @@ type DNS struct {
 	DropAAAA         bool                   `yaml:"drop_aaaa"`
 	QueryHistorySize int                    `yaml:"query_history_size"`
 	Providers        map[string]DNSProvider `yaml:"providers"`
+	Cache            cache.Config           `yaml:"cache"`
 }
 
 type MDNS struct {
@@ -165,6 +167,7 @@ func (c *Config) Validate() error {
 		c.QueryStats.Validate("query stats"),
 		c.Conntrack.Validate(),
 		c.IPInfo.Validate(),
+		c.DNS.Cache.Validate(),
 	)
 }
 
@@ -177,6 +180,7 @@ func (c *Config) setDefaults() {
 	c.QueryStats.SetDefaults()
 	c.Conntrack.SetDefaults()
 	c.IPInfo.SetDefaults()
+	c.DNS.Cache.SetDefaults()
 }
 
 func DefaultConfig() *Config {

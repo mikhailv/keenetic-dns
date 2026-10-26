@@ -7,6 +7,8 @@ import (
 	"io"
 	"maps"
 	"math"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,12 +16,14 @@ import (
 	"github.com/klauspost/compress/gzip"
 	"github.com/miekg/dns"
 
+	"github.com/mikhailv/keenetic-dns/dns-server/internal/types"
 	"github.com/mikhailv/keenetic-dns/internal/util"
 )
 
 type DNSCache interface {
 	Get(ctx context.Context, query dns.Question) *dns.Msg
 	Put(ctx context.Context, msg *dns.Msg)
+	LookupIP(ip types.IPv4) []string
 	Close() error
 }
 
@@ -28,10 +32,12 @@ type PersistentDNSCache interface {
 	Save(writer io.Writer) (int, error)
 }
 
-func NewMemoryDNSCache() DNSCache {
+func NewMemoryDNSCache(cfg Config) DNSCache {
 	s := &memDNSCache{
-		closeCh: make(chan struct{}),
-		entries: map[dns.Question]dnsCacheEntry{},
+		closeCh:  make(chan struct{}),
+		entries:  map[dns.Question]dnsCacheEntry{},
+		byIP:     map[types.IPv4][]ipName{},
+		extraTTL: cfg.ExtraTTL,
 	}
 	go s.startCleaner(time.Minute)
 	return s
@@ -47,6 +53,15 @@ type memDNSCache struct {
 	entries   map[dns.Question]dnsCacheEntry
 	closeCh   chan struct{}
 	closeOnce sync.Once
+	extraTTL  time.Duration
+	byIP      map[types.IPv4][]ipName
+}
+
+const maxNamesPerIP = 8
+
+type ipName struct {
+	name  string
+	until uint32
 }
 
 func (s *memDNSCache) startCleaner(interval time.Duration) {
@@ -78,11 +93,13 @@ func (s *memDNSCache) Put(ctx context.Context, msg *dns.Msg) {
 			if b, err := msg.Pack(); err == nil {
 				s.mu.Lock()
 				now := time.Now()
-				s.entries[cacheKey(msg.Question[0])] = dnsCacheEntry{
+				entry := dnsCacheEntry{
 					Bytes:   b,
 					Added:   uint32(now.Unix()),
 					Expires: uint32(now.Add(time.Duration(ttl) * time.Second).Unix()),
 				}
+				s.entries[cacheKey(msg.Question[0])] = entry
+				s.indexAnswers(msg, entry)
 				s.mu.Unlock()
 			}
 		}
@@ -114,6 +131,7 @@ func (s *memDNSCache) Load(reader io.Reader) (count int, err error) {
 	defer s.mu.Unlock()
 
 	clear(s.entries)
+	clear(s.byIP)
 
 	decoder := cbor.NewDecoder(gz)
 
@@ -125,11 +143,12 @@ func (s *memDNSCache) Load(reader io.Reader) (count int, err error) {
 			}
 			return 0, err
 		}
-		if r.Expired() {
+		if r.Retired(s.extraTTL) {
 			continue
 		}
 		if msg := r.Msg(); msg != nil {
 			s.entries[msg.Question[0]] = r
+			s.indexAnswers(msg, r)
 		}
 	}
 	return len(s.entries), nil
@@ -147,7 +166,7 @@ func (s *memDNSCache) Save(writer io.Writer) (count int, err error) {
 
 	encoder := cbor.NewEncoder(gz)
 	for _, v := range entries {
-		if v.Expired() {
+		if v.Retired(s.extraTTL) {
 			continue
 		}
 		if err := encoder.Encode(v); err != nil {
@@ -162,8 +181,46 @@ func (s *memDNSCache) removeExpired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range s.entries {
-		if v.Expired() {
+		if v.Retired(s.extraTTL) {
 			delete(s.entries, k)
+		}
+	}
+	now := uint32(time.Now().Unix())
+	for ip, names := range s.byIP {
+		names = slices.DeleteFunc(names, func(n ipName) bool { return now > n.until })
+		if len(names) == 0 {
+			delete(s.byIP, ip)
+		} else {
+			s.byIP[ip] = names
+		}
+	}
+}
+
+func (s *memDNSCache) LookupIP(ip types.IPv4) []string {
+	ip[4] = 32
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := uint32(time.Now().Unix())
+	var res []string
+	for _, n := range s.byIP[ip] {
+		if now <= n.until {
+			res = append(res, n.name)
+		}
+	}
+	return res
+}
+
+func (s *memDNSCache) indexAnswers(msg *dns.Msg, entry dnsCacheEntry) {
+	name := strings.TrimSuffix(dns.CanonicalName(msg.Question[0].Name), ".")
+	until := entry.Expires + uint32(s.extraTTL/time.Second)
+	for _, rr := range msg.Answer {
+		if a, ok := rr.(*dns.A); ok {
+			if a.A.To4() != nil {
+				ip := types.NewIPv4(a.A)
+				names := slices.DeleteFunc(s.byIP[ip], func(n ipName) bool { return n.name == name })
+				names = slices.Insert(names, 0, ipName{name: name, until: until})
+				s.byIP[ip] = names[:min(len(names), maxNamesPerIP)]
+			}
 		}
 	}
 }
@@ -185,6 +242,10 @@ func (s *dnsCacheEntry) ExpiresAt() time.Time {
 
 func (s *dnsCacheEntry) Expired() bool {
 	return time.Now().After(s.ExpiresAt())
+}
+
+func (s *dnsCacheEntry) Retired(extraTTL time.Duration) bool {
+	return time.Now().After(s.ExpiresAt().Add(extraTTL))
 }
 
 func (s *dnsCacheEntry) Msg() *dns.Msg {

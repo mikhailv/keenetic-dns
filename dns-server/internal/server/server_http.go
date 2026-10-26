@@ -42,6 +42,7 @@ type HTTPServer struct {
 	rawQueryStream   *stream.Buffered[types.DNSRawQuery]
 	conntrackTracker *conntrack.Tracker
 	ipInfo           *ipinfo.Resolver
+	dnsNames         ipNameLookup
 	hosts            atomic.Pointer[[]agentclient.HostInfo]
 }
 
@@ -56,6 +57,7 @@ func NewHTTPServer(
 	rawQueryStream *stream.Buffered[types.DNSRawQuery],
 	conntrackTracker *conntrack.Tracker,
 	ipInfo *ipinfo.Resolver,
+	dnsNames ipNameLookup,
 ) *HTTPServer {
 	return &HTTPServer{
 		logger:           logger,
@@ -68,7 +70,12 @@ func NewHTTPServer(
 		rawQueryStream:   rawQueryStream,
 		conntrackTracker: conntrackTracker,
 		ipInfo:           ipInfo,
+		dnsNames:         dnsNames,
 	}
+}
+
+type ipNameLookup interface {
+	LookupIP(ip types.IPv4) []string
 }
 
 func (s *HTTPServer) Serve(ctx context.Context) error {

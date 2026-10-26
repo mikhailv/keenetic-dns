@@ -2,7 +2,7 @@
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import { api } from '$lib/services/api';
-	import type { ConntrackBucketsResponse } from '$lib/types';
+	import type { ConntrackBucketsResponse, ConntrackGroupBy } from '$lib/types';
 	import RangeSelector from '$lib/components/conntrack/RangeSelector.svelte';
 	import IntervalSelector from '$lib/components/conntrack/IntervalSelector.svelte';
 	import TrafficChart from '$lib/components/conntrack/TrafficChart.svelte';
@@ -13,6 +13,14 @@
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
 
 	const AUTO_REFRESH_INTERVAL = 10_000;
+
+	const groupByOptions: [ConntrackGroupBy, string][] = [
+		['host', 'by host'],
+		['asn', 'by ASN'],
+		['org', 'by Org'],
+		['domain', 'by domain'],
+		['domain2', 'by base domain']
+	];
 
 	// Read initial state from URL query params
 	function initFromURL() {
@@ -30,6 +38,7 @@
 			from = now - span;
 			to = now;
 		}
+		const group = params.get('group');
 
 		return {
 			from,
@@ -38,7 +47,7 @@
 			autoRefresh: params.get('auto-refresh') === '1',
 			interval: parseInt(params.get('interval') || '') || 60,
 			filterIP: params.get('ip') || null,
-			groupBy: (params.get('group') === 'asn' ? 'asn' : 'host') as 'host' | 'asn',
+			groupBy: groupByOptions.find(([value]) => value === group)?.[0] ?? 'host',
 			filterBucketIdx: params.has('bar') ? parseInt(params.get('bar')!) : null
 		};
 	}
@@ -56,7 +65,7 @@
 
 	let filterIP = $state<string | null>(init.filterIP);
 	let filterBucketIdx = $state<number | null>(init.filterBucketIdx);
-	let groupBy = $state<'host' | 'asn'>(init.groupBy);
+	let groupBy = $state<ConntrackGroupBy>(init.groupBy);
 
 	// Sync state to URL query params
 	$effect(() => {
@@ -71,7 +80,7 @@
 		if (autoRefresh) params.set('auto-refresh', '1');
 		if (filterIP) params.set('ip', filterIP);
 		if (filterBucketIdx !== null) params.set('bar', String(filterBucketIdx));
-		if (groupBy === 'asn') params.set('group', 'asn');
+		if (groupBy !== 'host') params.set('group', groupBy);
 
 		const newUrl = `${currentURL().pathname}${params.size ? `?${params}` : ''}`;
 		tick().then(() => replaceState(newUrl, {}));
@@ -178,13 +187,12 @@
 	{/if}
 	<div class="mt-3">
 		<div class="join mb-2">
-			<button class="join-item btn btn-sm" class:btn-active={groupBy === 'host'} onclick={() => (groupBy = 'host')}>
-				By host
-			</button>
-			<button class="join-item btn btn-sm" class:btn-active={groupBy === 'asn'} onclick={() => (groupBy = 'asn')}>
-				By ASN
-			</button>
+			{#each groupByOptions as [value, label] (value)}
+				<button class="join-item btn btn-sm" class:btn-active={groupBy === value} onclick={() => (groupBy = value)}>
+					{label}
+				</button>
+			{/each}
 		</div>
-		<ConntrackTable buckets={tableBuckets} {hosts} ips={resp.ips ?? {}} {groupBy} />
+		<ConntrackTable buckets={tableBuckets} {hosts} ips={resp.ips ?? {}} names={resp.names ?? {}} {groupBy} />
 	</div>
 {/if}

@@ -63,3 +63,10 @@ export function formatBytes(n: number): string {
 	}
 	return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+export function primaryDomain(names: string[] | undefined): string | undefined {
+	if (!names?.length) {
+		return undefined;
+	}
+	return names.reduce((best, name) => (name.length < best.length ? name : best));
+}
