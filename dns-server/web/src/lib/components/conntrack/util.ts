@@ -1,4 +1,4 @@
-import type { ConntrackNetwork } from '$lib/types';
+import type { ConntrackBucket, ConntrackEntry, ConntrackNetwork } from '$lib/types';
 export const INTERVAL_OPTIONS = [
 	{ value: 60, label: '1m' },
 	{ value: 120, label: '2m' },
@@ -98,4 +98,21 @@ export function createNetworkClassifier(network: ConntrackNetwork | undefined): 
 		isLocal: (ip) => local.some((cidr) => cidrContains(cidr, ipToNumber(ip))),
 		isTunnel: (src, dst) => wan.has(src) && tunnels.has(dst)
 	};
+}
+
+export const TOP_SOURCES = 10;
+export const OTHER_SOURCES = '__other';
+
+export function entryBytes(e: ConntrackEntry): number {
+	return e.bytes_orig + e.bytes_reply;
+}
+
+export function sourceTotals(buckets: ConntrackBucket[]): { ip: string; bytes: number }[] {
+	const m = new Map<string, number>();
+	for (const b of buckets) {
+		for (const e of b.entries) {
+			m.set(e.src_ip, (m.get(e.src_ip) ?? 0) + entryBytes(e));
+		}
+	}
+	return [...m].map(([ip, bytes]) => ({ ip, bytes })).sort((a, b) => b.bytes - a.bytes);
 }

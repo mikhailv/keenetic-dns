@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ConntrackBucket, ConntrackEntry, ConntrackTimeRange } from '$lib/types';
-	import { formatBytes } from './util';
+	import type { ConntrackBucket, ConntrackTimeRange } from '$lib/types';
+	import { OTHER_SOURCES, TOP_SOURCES, entryBytes, formatBytes, sourceTotals } from './util';
 	import { type HostStore, hostName } from '$lib/stores';
 	import { formatDateTime, formatTime } from '$lib/util';
 
@@ -20,42 +20,24 @@
 		onselectbar?: (idx: number) => void;
 	} = $props();
 
-	const TOP_N = 10;
 	const WIDTH = 1150;
 	const HEIGHT = 240;
 	const PAD = { top: 10, right: 10, bottom: 24, left: 60 };
 
-	function entryBytes(e: ConntrackEntry): number {
-		return e.bytes_orig + e.bytes_reply;
-	}
+	const totals = $derived(
+		sourceTotals(buckets).map((t) => ({
+			key: t.ip,
+			label: t.ip,
+			alias: hostName($hosts.byIP[t.ip]) ?? '?',
+			bytes: t.bytes
+		}))
+	);
 
-	const totals = $derived.by(() => {
-		const m: Record<string, { key: string; label: string; alias?: string; bytes: number }> = {};
-		for (const b of buckets) {
-			for (const e of b.entries) {
-				const k = e.src_ip;
-				const cur = m[k];
-				const v = entryBytes(e);
-				if (cur) {
-					cur.bytes += v;
-				} else {
-					m[k] = {
-						key: k,
-						label: e.src_ip,
-						alias: hostName($hosts.byIP[e.src_ip]) ?? '?',
-						bytes: v
-					};
-				}
-			}
-		}
-		return Object.values(m).sort((a, b) => b.bytes - a.bytes);
-	});
+	const topKeys = $derived(new Set(totals.slice(0, TOP_SOURCES).map((t) => t.key)));
 
-	const topKeys = $derived(new Set(totals.slice(0, TOP_N).map((t) => t.key)));
-
-	const legend = $derived([
-		...totals.slice(0, TOP_N),
-		...(totals.length > TOP_N ? [{ key: '__other', label: 'other', bytes: 0 }] : [])
+	const legend: { key: string; label: string; alias?: string; bytes: number }[] = $derived([
+		...totals.slice(0, TOP_SOURCES),
+		...(totals.length > TOP_SOURCES ? [{ key: OTHER_SOURCES, label: 'other', bytes: 0 }] : [])
 	]);
 
 	const stacked = $derived.by(() => {
@@ -64,7 +46,7 @@
 			let total = 0;
 			for (const e of b.entries) {
 				const k = e.src_ip;
-				const bucketKey = topKeys.has(k) ? k : '__other';
+				const bucketKey = topKeys.has(k) ? k : OTHER_SOURCES;
 				const v = entryBytes(e);
 				slices[bucketKey] = (slices[bucketKey] ?? 0) + v;
 				total += v;

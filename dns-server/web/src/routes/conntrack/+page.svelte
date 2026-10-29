@@ -7,7 +7,13 @@
 	import IntervalSelector from '$lib/components/conntrack/IntervalSelector.svelte';
 	import TrafficChart from '$lib/components/conntrack/TrafficChart.svelte';
 	import ConntrackTable from '$lib/components/conntrack/ConntrackTable.svelte';
-	import { autoBumpInterval, createNetworkClassifier } from '$lib/components/conntrack/util';
+	import {
+		OTHER_SOURCES,
+		TOP_SOURCES,
+		autoBumpInterval,
+		createNetworkClassifier,
+		sourceTotals
+	} from '$lib/components/conntrack/util';
 	import { createHostStore, currentURL, queryParams } from '$lib/stores';
 	import { toTimestamp } from '$lib/util';
 	import { SvelteURLSearchParams } from 'svelte/reactivity';
@@ -110,7 +116,17 @@
 		if (filterBucketIdx !== null && filterBucketIdx >= 0 && filterBucketIdx < b.length) {
 			b = [b[filterBucketIdx]];
 		}
-		if (filterIP) {
+		if (filterIP === OTHER_SOURCES) {
+			const top = new Set(
+				sourceTotals(visibleBuckets)
+					.slice(0, TOP_SOURCES)
+					.map((t) => t.ip)
+			);
+			b = b.map((bucket) => ({
+				...bucket,
+				entries: bucket.entries.filter((e) => !top.has(e.src_ip))
+			}));
+		} else if (filterIP) {
 			const ip = filterIP;
 			b = b.map((bucket) => ({
 				...bucket,
@@ -181,7 +197,7 @@
 			<span>Filtered by:</span>
 			{#if filterIP}
 				<button class="badge badge-outline gap-1" onclick={() => (filterIP = null)}>
-					IP: {filterIP} ✕
+					IP: {filterIP === OTHER_SOURCES ? 'other' : filterIP} ✕
 				</button>
 			{/if}
 			{#if filterBucketIdx !== null}
