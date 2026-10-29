@@ -56,3 +56,5 @@
 
 sync.remote: "git@github.com:mikhailv/keenetic-dns.git"
 export.git-add: false
+
+no-git-ops: true
